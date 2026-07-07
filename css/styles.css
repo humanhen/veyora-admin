@@ -432,3 +432,10 @@ pre.payload{background:#faf7f0;border:1px solid var(--line);border-radius:10px;p
   /* keep the tiny dashboard country tables as real tables */
   .mini-tbl thead{display:table-header-group}
 }
+
+/* --- iOS focus-zoom guard: every focusable text control >= 16px on mobile --- */
+@media(max-width:900px){
+  .login-input,.input,.select,textarea.input,
+  .fieldset-outline input,.fieldset-outline select,
+  .search-wrap .input,.scan-input-row .input,.slot input{font-size:16px}
+}
