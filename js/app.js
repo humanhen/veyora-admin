@@ -94,7 +94,23 @@ const App={
     });
     document.getElementById('bell-btn').addEventListener('click',()=>{location.hash='#/tasks';});
     window.addEventListener('hashchange',()=>this.route());
+    /* mobile drawer */
+    document.getElementById('menu-btn').addEventListener('click',()=>this.toggleDrawer());
+    document.getElementById('sidebar-overlay').addEventListener('click',()=>this.toggleDrawer(false));
+    /* card-table labels: re-apply after every page/modal render */
+    const mo=new MutationObserver(()=>applyTableLabels(document));
+    mo.observe(document.getElementById('content'),{childList:true,subtree:true});
+    mo.observe(document.getElementById('modal-root'),{childList:true,subtree:true});
     this.renderShell();
+  },
+
+  toggleDrawer(force){
+    const sb=document.getElementById('sidebar');
+    const ov=document.getElementById('sidebar-overlay');
+    const open=force!==undefined?force:!sb.classList.contains('open');
+    sb.classList.toggle('open',open);
+    ov.classList.toggle('hidden',!open);
+    document.body.style.overflow=open?'hidden':'';
   },
 
   renderShell(){
@@ -168,6 +184,7 @@ const App={
     /* navigating to a page opens its group (and closes the rest) */
     const grp=NAV.find(n=>n.group&&n.items.some(i=>i.route===route));
     if(grp)App._openGroup=grp.group;
+    this.toggleDrawer(false); /* close the mobile drawer on navigation */
     this.renderNav();
     this.updateBell();
     const el=document.getElementById('content');

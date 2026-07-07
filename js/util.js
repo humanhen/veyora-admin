@@ -166,6 +166,19 @@ function downloadCSV(filename,rows){
   a.href='data:text/csv;charset=utf-8,'+encodeURIComponent(csv);
   a.download=filename;a.click();
 }
+/* ---------- mobile card-tables: tag each td with its column header ---------- */
+function applyTableLabels(root){
+  (root||document).querySelectorAll('table.tbl').forEach(t=>{
+    const heads=[...t.querySelectorAll('thead th')].map(th=>th.textContent.trim());
+    t.querySelectorAll('tbody tr').forEach(tr=>{
+      [...tr.children].forEach((td,i)=>{
+        if(td.hasAttribute('colspan'))return;
+        if(heads[i]&&!td.hasAttribute('data-label'))td.setAttribute('data-label',heads[i]);
+      });
+    });
+  });
+}
+
 function beep(){
   try{
     const ctx=beep._ctx||(beep._ctx=new (window.AudioContext||window.webkitAudioContext)());
