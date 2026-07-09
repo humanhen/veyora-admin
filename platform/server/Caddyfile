@@ -1,0 +1,42 @@
+# Veyora platform — reverse proxy + static hosting.
+# Serves on port 80 for IP access; when DOMAIN is set (veyora.design) Caddy
+# also serves it with automatic HTTPS once DNS points here.
+
+(veyora_site) {
+	encode gzip
+
+	# API
+	handle /api/* {
+		uri strip_prefix /api
+		reverse_proxy api:3000
+	}
+
+	# Product images / uploads (same path shape as the old site's /s3 proxy)
+	handle_path /s3/* {
+		root * /srv/uploads
+		file_server
+	}
+
+	# Admin panel SPA
+	redir /admin /admin/ 308
+	handle_path /admin/* {
+		root * /srv/admin
+		try_files {path} /index.html
+		file_server
+	}
+
+	# Storefront SPA (default)
+	handle {
+		root * /srv/storefront
+		try_files {path} /index.html
+		file_server
+	}
+}
+
+:80 {
+	import veyora_site
+}
+
+{$DOMAIN} {
+	import veyora_site
+}

@@ -1,2 +1,5 @@
 .claude/
 .upload-staging/
+
+node_modules/
+platform/server/api/package-lock.json
