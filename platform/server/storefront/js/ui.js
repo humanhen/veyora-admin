@@ -84,14 +84,16 @@ function imageLightbox(images, startIndex, title, colorFor) {
   if (!images || !images.length) return;
   let i = Math.max(0, Math.min(startIndex || 0, images.length - 1));
   const back = h(`<div class="lightbox">
-    <button class="lb-close" aria-label="Close">×</button>
-    <button class="lb-nav prev" aria-label="Previous">‹</button>
-    <div class="lb-stage"><img alt=""/></div>
-    <button class="lb-nav next" aria-label="Next">›</button>
-    <div class="lb-cap">
-      ${title ? `<span class="lb-title">${esc(title)}</span>` : ''}
-      <span class="lb-color"></span>
-      <div class="lb-dots">${images.map((_, k) => `<span data-k="${k}"></span>`).join('')}</div>
+    <div class="lb-card">
+      <button class="lb-close" aria-label="Close">×</button>
+      <div class="lb-stage">
+        <img alt=""/>
+        ${images.length > 1 ? `<button class="lb-nav prev" aria-label="Previous">‹</button>
+        <button class="lb-nav next" aria-label="Next">›</button>` : ''}
+        ${title ? `<span class="lb-title">${esc(title)}</span>` : ''}
+      </div>
+      <div class="lb-color"></div>
+      ${images.length > 1 ? `<div class="lb-dots">${images.map((_, k) => `<span data-k="${k}"></span>`).join('')}</div>` : ''}
     </div>
   </div>`);
   const img = back.querySelector('img');
@@ -103,11 +105,12 @@ function imageLightbox(images, startIndex, title, colorFor) {
     if (colorFor) colorEl.textContent = colorFor(i) || '';
     dots.forEach((d, k) => d.classList.toggle('on', k === i));
   }
-  back.querySelector('.prev').onclick = e => { e.stopPropagation(); show(i - 1); };
-  back.querySelector('.next').onclick = e => { e.stopPropagation(); show(i + 1); };
+  const prev = back.querySelector('.prev'), next = back.querySelector('.next');
+  if (prev) prev.onclick = e => { e.stopPropagation(); show(i - 1); };
+  if (next) next.onclick = e => { e.stopPropagation(); show(i + 1); };
   dots.forEach(d => d.onclick = e => { e.stopPropagation(); show(parseInt(d.dataset.k, 10)); });
   back.querySelector('.lb-close').onclick = () => close();
-  back.addEventListener('click', e => { if (e.target === back || e.target.classList.contains('lb-stage')) close(); });
+  back.addEventListener('click', e => { if (e.target === back) close(); });
   function onKey(e) {
     if (e.key === 'Escape') close();
     else if (e.key === 'ArrowLeft') show(i - 1);
