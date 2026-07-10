@@ -9,7 +9,6 @@ import orderRoutes from './routes/orders.js';
 import accountRoutes from './routes/account.js';
 import agentRoutes from './routes/agent.js';
 import adminRoutes from './routes/admin.js';
-import ingestRoutes from './routes/ingest.js';
 
 const app = express();
 app.set('trust proxy', true);
@@ -42,7 +41,6 @@ app.get('/admin/country-list', requireAuth(), (req, res) => {
   ]});
 });
 
-app.use('/ingest', ingestRoutes);
 app.use('/admin', adminRoutes);
 
 app.use((req, res) => res.status(404).json({ error: 'not found' }));

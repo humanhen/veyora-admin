@@ -91,24 +91,22 @@ for all operations.
   backdrop, square stage min(78vh,85vw), 44px grey circle arrows, 38px close,
   dark title chip bottom-left, black color caption, 6→18px elongated active dot.
 - Router now closes any open modal/lightbox overlay on hash navigation.
-- **Line-item backfill in progress**: 153/522 remaining order details
-  harvested before a 429; the old site's ban proved LONG (>10 min) — probes
-  every 5-10 min, single-request only. Chrome background-tab timer bursts
-  can fire queued fetches all at once (that's what tripped the 429) — pace
-  by wall-clock (`Date.now()` re-check), not bare setTimeout, and keep the
-  harvest driver-side (batched javascript_tool calls), not a free-running
-  in-page loop.
+- **Line-item backfill COMPLETE**: all 522 remaining order details harvested
+  (limiter learnings: ~150 requests per window then a 10-16 min ban; paced
+  1.1s wall-clock in driver-side batches, proactive pause at ~140/window).
+  Final DB: **1,117 orders / 9,804 line items**; the 97 orders without items
+  have no products on the old site either (90 SO, 3 SHTP, 4 VEYO) — verified
+  1:1 reconciliation. Order migration is DONE.
+- **Ingest endpoint REMOVED** (routes/ingest.js deleted, mount removed,
+  INGEST_KEY dropped from /opt/veyora/.env, API rebuilt; POST /api/ingest/*
+  now 404s even with the old key).
 
 ## OPEN ITEMS
 1. **SMTP**: need a Google App password for info@veyora.com so activation /
    order emails send (see RUNBOOK). Customers are imported as `pending` and
    can't log in until they activate — which needs email working first.
-2. **Backfill remaining order line-items** (~967 of 1,117 orders have header
-   only, no items yet, because of the old site's rate-limit block). Re-harvest
-   `order-detail/:id` slowly (≤100/min) while logged into old veyora.com, POST
-   to `/api/ingest/order-details`, re-run `import-oldsite-data.mjs`. Order
-   headers/totals/history are already complete; this only fills per-order
-   product breakdowns.
+2. ~~Backfill remaining order line-items~~ **DONE 2026-07-10** — all orders
+   that have items on the old site now have them here (9,804 line items).
 3. **Signed-in storefront pages** (customer-facing cart/checkout/product-detail
    with prices) are sensible but NOT pixel-replicas of the old site — those need
    a customer/agent login on the old storefront (admin panel doesn't show them).
