@@ -2,10 +2,7 @@
 'use strict';
 
 const HOME_HERO = ['assets/home/hero-01.webp', 'assets/home/hero-02.webp',
-  'assets/home/hero-03.webp', 'assets/home/hero-04.webp'];
-const HOME_COLLAGE = ['assets/home/hero-05.webp', 'assets/home/hero-07.webp',
-  'assets/home/hero-08.webp', 'assets/home/hero-09.webp', 'assets/home/hero-10.webp',
-  'assets/home/hero-06-hq.webp'];
+  'assets/home/hero-03.webp'];
 const WHATSAPP = 'https://wa.me/16467731000';
 
 function glassesIcon() {
@@ -87,18 +84,29 @@ Routes['#/'] = Routes['#/home'] = {
           <span>Retailer-First Support</span>
         </div>
         <div class="hm-collage">
-          <img src="${HOME_COLLAGE[0]}" class="tall" alt="" loading="lazy"/>
-          <div class="stack">
-            <img src="${HOME_COLLAGE[1]}" alt="" loading="lazy"/>
-            <img src="${HOME_COLLAGE[2]}" alt="" loading="lazy"/>
+          <div class="col">
+            <img class="t1" src="assets/home/hero-04.webp" alt="" loading="lazy"/>
+            <img class="t2" src="assets/home/hero-08.webp" alt="" loading="lazy"/>
+            <img class="t2" src="assets/home/hero-02.webp" alt="" loading="lazy"/>
           </div>
-          <img src="${HOME_COLLAGE[3]}" class="tall" alt="" loading="lazy"/>
+          <div class="col">
+            <div class="duo">
+              <img src="assets/home/hero-01.webp" alt="" loading="lazy"/>
+              <img src="assets/home/hero-10.webp" alt="" loading="lazy"/>
+            </div>
+            <img class="big" src="assets/home/hero-06-hq.webp" alt="" loading="lazy"/>
+          </div>
+          <div class="col">
+            <img class="t1" src="assets/home/hero-07.webp" alt="" loading="lazy"/>
+            <img class="t2" src="assets/home/hero-09.webp" alt="" loading="lazy"/>
+            <img class="t2" src="assets/home/hero-03.webp" alt="" loading="lazy"/>
+          </div>
         </div>
       </section>
 
       <!-- ============ built for retail success ============ -->
       <section class="hm-bleed">
-        <img src="${HOME_COLLAGE[5]}" alt="" loading="lazy"/>
+        <img src="assets/home/hero-05.webp" alt="" loading="lazy"/>
         <div class="hm-bleed-shade"></div>
         <div class="hm-bleed-text">
           <div class="hm-label hm-center">Built for retail success</div>
