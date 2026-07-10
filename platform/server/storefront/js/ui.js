@@ -78,3 +78,43 @@ function debounce(fn, ms) {
   let t;
   return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); };
 }
+
+/* Fullscreen image gallery (arrows + dots + caption), like the old veyora.com. */
+function imageLightbox(images, startIndex, title, colorFor) {
+  if (!images || !images.length) return;
+  let i = Math.max(0, Math.min(startIndex || 0, images.length - 1));
+  const back = h(`<div class="lightbox">
+    <button class="lb-close" aria-label="Close">×</button>
+    <button class="lb-nav prev" aria-label="Previous">‹</button>
+    <div class="lb-stage"><img alt=""/></div>
+    <button class="lb-nav next" aria-label="Next">›</button>
+    <div class="lb-cap">
+      ${title ? `<span class="lb-title">${esc(title)}</span>` : ''}
+      <span class="lb-color"></span>
+      <div class="lb-dots">${images.map((_, k) => `<span data-k="${k}"></span>`).join('')}</div>
+    </div>
+  </div>`);
+  const img = back.querySelector('img');
+  const colorEl = back.querySelector('.lb-color');
+  const dots = [...back.querySelectorAll('.lb-dots span')];
+  function show(n) {
+    i = (n + images.length) % images.length;
+    img.src = images[i];
+    if (colorFor) colorEl.textContent = colorFor(i) || '';
+    dots.forEach((d, k) => d.classList.toggle('on', k === i));
+  }
+  back.querySelector('.prev').onclick = e => { e.stopPropagation(); show(i - 1); };
+  back.querySelector('.next').onclick = e => { e.stopPropagation(); show(i + 1); };
+  dots.forEach(d => d.onclick = e => { e.stopPropagation(); show(parseInt(d.dataset.k, 10)); });
+  back.querySelector('.lb-close').onclick = () => close();
+  back.addEventListener('click', e => { if (e.target === back || e.target.classList.contains('lb-stage')) close(); });
+  function onKey(e) {
+    if (e.key === 'Escape') close();
+    else if (e.key === 'ArrowLeft') show(i - 1);
+    else if (e.key === 'ArrowRight') show(i + 1);
+  }
+  function close() { document.removeEventListener('keydown', onKey); back.remove(); }
+  document.addEventListener('keydown', onKey);
+  document.body.appendChild(back);
+  show(i);
+}

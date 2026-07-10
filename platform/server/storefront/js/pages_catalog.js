@@ -213,17 +213,26 @@ function productModal(p) {
     ['Temple', a.temple], ['Lens type', a.lensType], ['Case', a.caseCode],
     ['Size', p.size], ['EAN', p.ean],
   ].filter(x => x[1]);
+  // gallery = product images + any per-variation images (deduped)
+  const gallery = [...new Set([...(p.images || []),
+    ...p.variations.map(v => v.image).filter(Boolean)])];
+  const colorAt = idx => {
+    const src = gallery[idx];
+    const v = p.variations.find(x => x.image === src);
+    return v ? (v.color || v.sku) : '';
+  };
   const m = modal(`
-    <div style="display:flex;gap:20px;flex-wrap:wrap">
-      <div style="flex:1;min-width:240px">
-        <div class="imgbox" style="border:1px solid var(--line);border-radius:10px;aspect-ratio:4/3;display:flex;align-items:center;justify-content:center;overflow:hidden" id="mainImg">
-          ${imgOr(p.images?.[0])}
+    <div class="pdetail">
+      <div class="pdetail-img">
+        <div class="imgbox big" id="mainImg" title="Click to enlarge">
+          ${imgOr(gallery[0])}
+          <span class="zoom-hint">⤢</span>
         </div>
-        ${(p.images || []).length > 1 ? `<div style="display:flex;gap:6px;margin-top:8px;overflow-x:auto">
-          ${p.images.map(src => `<img src="${esc(src)}" data-src="${esc(src)}" style="width:58px;height:44px;object-fit:contain;border:1px solid var(--line);border-radius:6px;cursor:pointer"/>`).join('')}
+        ${gallery.length > 1 ? `<div class="thumbstrip">
+          ${gallery.map((src, i) => `<img src="${esc(src)}" data-i="${i}" class="${i === 0 ? 'sel' : ''}"/>`).join('')}
         </div>` : ''}
       </div>
-      <div style="flex:1.2;min-width:280px">
+      <div class="pdetail-info">
         <div class="sub">${esc(p.sku)} · ${esc(p.brand || '')}</div>
         <h2 style="margin:2px 0 6px;font-size:19px">${esc(p.name)}</h2>
         ${hide ? '' : `<div class="price" style="font-size:18px;font-weight:800">${money(p.price)}</div>`}
@@ -251,8 +260,24 @@ function productModal(p) {
       </div>
     </div>`);
 
-  m.querySelectorAll('[data-src]').forEach(t => t.onclick = () => {
-    m.querySelector('#mainImg').innerHTML = imgOr(t.dataset.src);
+  const mainBox = m.querySelector('#mainImg');
+  let curIdx = 0;
+  function setMain(i) {
+    curIdx = i;
+    mainBox.innerHTML = imgOr(gallery[i]) + '<span class="zoom-hint">⤢</span>';
+    m.querySelectorAll('.thumbstrip img').forEach(t => t.classList.toggle('sel', +t.dataset.i === i));
+  }
+  m.querySelectorAll('.thumbstrip img').forEach(t =>
+    t.onclick = () => setMain(parseInt(t.dataset.i, 10)));
+  mainBox.onclick = () => imageLightbox(gallery, curIdx, p.name, colorAt);
+  // clicking a color row jumps the gallery to that variation's image
+  m.querySelectorAll('.vrow').forEach(row => {
+    const sku = row.dataset.sku;
+    const gi = gallery.findIndex(src => src === p.variations.find(v => v.sku === sku)?.image);
+    if (gi >= 0) row.addEventListener('click', e => {
+      if (e.target.closest('.qtybox') || e.target.closest('button')) return;
+      setMain(gi);
+    });
   });
 
   const chosen = new Map();
