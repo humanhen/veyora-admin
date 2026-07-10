@@ -1,8 +1,9 @@
 /* Public marketing homepage — replica of the original veyora.com landing page. */
 'use strict';
 
-const HOME_HERO = ['assets/home/hero-01.webp', 'assets/home/hero-02.webp',
-  'assets/home/hero-03.webp'];
+// same slide set + order as the original carousel
+const HOME_HERO = ['assets/home/hero-03.webp', 'assets/home/hero-02.webp',
+  'assets/home/hero-04.webp'];
 const WHATSAPP = 'https://wa.me/16467731000';
 
 function glassesIcon() {
