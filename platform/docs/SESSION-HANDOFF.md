@@ -58,12 +58,35 @@ for all operations.
   120 old-site products aren't in Zoho (discontinued) — skipped.
 - User feedback: ALWAYS `git push` after committing.
 
+## UPDATE 2026-07-10 (later) — customers + order history migrated
+- Harvested from the **logged-in old veyora.com admin session** in the browser
+  (session token in a readable cookie → replayed the admin API's own GET/POST
+  read calls). Old admin API base: `veyora.com/veyora/api/admin/*`
+  (`get-all-user`, `order-list` POST, `order-detail/:id`).
+- Piped into the new platform via a one-time **/ingest** endpoint (key-gated,
+  CORS) → `scripts/import-oldsite-data.mjs`.
+- Imported: **157 customers** (status=pending, activate via email OTP once SMTP
+  is on) and **1,117 historical orders** (998 linked to their customers by
+  business name; 1,090 line-items so far). Real order numbers/dates/statuses/
+  totals preserved; SO sequence bumped past imported numbers.
+- The old site **rate-limits** bursts hard (429 + multi-minute cooldown). Safe
+  sustained rate ≈ 100 req/min (~600ms spacing), sequential, not concurrent.
+- INGEST_KEY is in `/opt/veyora/.env`. The ingest endpoint should be removed or
+  the key rotated once migration is fully done.
+
 ## OPEN ITEMS
 1. **SMTP**: need a Google App password for info@veyora.com so activation /
-   order emails send (see RUNBOOK). Until then emails are logged only.
-2. **Customers + order history still to migrate** (need Zoho Contacts +
-   Sales Orders exports, or veyora.com admin login for the old admin API):
-   customers import → they activate via email OTP (needs SMTP first).
+   order emails send (see RUNBOOK). Customers are imported as `pending` and
+   can't log in until they activate — which needs email working first.
+2. **Backfill remaining order line-items** (~967 of 1,117 orders have header
+   only, no items yet, because of the old site's rate-limit block). Re-harvest
+   `order-detail/:id` slowly (≤100/min) while logged into old veyora.com, POST
+   to `/api/ingest/order-details`, re-run `import-oldsite-data.mjs`. Order
+   headers/totals/history are already complete; this only fills per-order
+   product breakdowns.
+3. **Signed-in storefront pages** (customer-facing cart/checkout/product-detail
+   with prices) are sensible but NOT pixel-replicas of the old site — those need
+   a customer/agent login on the old storefront (admin panel doesn't show them).
 4. **Stripe**: schema + payments table ready; checkout is on-terms (B2B) for
    now. Add Stripe keys + an endpoint when they want card payments.
 5. **Zoho decommission**: keep dual-running until cutover confidence, then
