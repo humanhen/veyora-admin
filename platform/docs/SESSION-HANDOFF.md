@@ -74,6 +74,31 @@ for all operations.
 - INGEST_KEY is in `/opt/veyora/.env`. The ingest endpoint should be removed or
   the key rotated once migration is fully done.
 
+## UPDATE 2026-07-10 (evening) — emails live, product modal + lightbox matched
+- **Branded HTML emails shipped & verified** (`api/src/emails.js`):
+  welcomeActivation / passwordReset / activationCode / orderConfirmation.
+  Wired into auth (activation + forgot), agent create-customer, admin
+  `send-activation/:userId` + `send-activation-bulk`, order placement.
+  Magic link = 3-day JWT → `#/set-password/<token>` storefront page.
+  Verified live: welcome + order-confirmation emails sent via Gmail SMTP to
+  the user's test gmail; set-password → login round-trip tested end-to-end.
+  Test customer created for this: **u_e35faedcf84e "Claude Test Optics"
+  (customer #1001)** — delete when no longer needed.
+- **Product modal gallery**: big square image + zoom hint + thumbstrip;
+  color rows jump the gallery; variation images merged into the gallery.
+- **Fullscreen image viewer matched to old site by measurement**
+  (getComputedStyle on veyora.com): white card #fafbfc r12, rgba(0,0,0,.2)
+  backdrop, square stage min(78vh,85vw), 44px grey circle arrows, 38px close,
+  dark title chip bottom-left, black color caption, 6→18px elongated active dot.
+- Router now closes any open modal/lightbox overlay on hash navigation.
+- **Line-item backfill in progress**: 153/522 remaining order details
+  harvested before a 429; the old site's ban proved LONG (>10 min) — probes
+  every 5-10 min, single-request only. Chrome background-tab timer bursts
+  can fire queued fetches all at once (that's what tripped the 429) — pace
+  by wall-clock (`Date.now()` re-check), not bare setTimeout, and keep the
+  harvest driver-side (batched javascript_tool calls), not a free-running
+  in-page loop.
+
 ## OPEN ITEMS
 1. **SMTP**: need a Google App password for info@veyora.com so activation /
    order emails send (see RUNBOOK). Customers are imported as `pending` and
