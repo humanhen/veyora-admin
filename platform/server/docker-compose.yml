@@ -30,9 +30,10 @@ services:
       SMTP_PASS: ${SMTP_PASS:-}
       SMTP_FROM: ${SMTP_FROM:-Veyora <info@veyora.com>}
       PUBLIC_URL: ${PUBLIC_URL:-http://209.46.125.226}
+      INGEST_KEY: ${INGEST_KEY:-}
     volumes:
       - uploads:/uploads
-      - ./data/import:/import:ro
+      - ./data/import:/import
     depends_on:
       db:
         condition: service_healthy
