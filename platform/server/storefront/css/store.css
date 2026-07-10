@@ -160,19 +160,21 @@ body.hm-dark{background:#0e0d0d;color:#fff}
 .hm-head{position:fixed;top:0;left:0;right:0;z-index:30;display:flex;align-items:center;justify-content:space-between;padding:14px 24px}
 .hm-logo img{width:200px;display:block}
 .hm-head-right{display:flex;align-items:center;gap:16px}
-.hm-pill{display:inline-flex;align-items:center;gap:9px;background:rgba(20,18,17,.72);border:1px solid rgba(255,255,255,.12);color:#fff;border-radius:999px;padding:10px 20px;font-weight:600;font-size:14px;backdrop-filter:blur(6px)}
-.hm-pill:hover{background:rgba(40,36,34,.85)}
+.hm-pill{display:inline-flex;align-items:center;gap:10px;background:rgba(25,23,22,.85);border:1px solid rgba(255,255,255,.12);color:#fff;border-radius:999px;padding:11px 22px;font-weight:600;font-size:15px;backdrop-filter:blur(6px)}
+.hm-pill:hover{background:rgba(45,41,39,.9)}
+.hm-pill svg{width:21px;height:21px}
 .hm-account{color:#fff;opacity:.9;display:flex;padding:6px}
+.hm-account svg{width:26px;height:26px}
 .hm-account:hover{opacity:1}
 
 .hm-hero{position:relative;height:100vh;min-height:560px;overflow:hidden;background:#0e0d0d}
 .hm-hero-slides img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0;transition:opacity 1.4s ease}
 .hm-hero-slides img.on{opacity:1}
 .hm-hero-shade{position:absolute;inset:0;background:linear-gradient(90deg,rgba(10,9,9,.82) 0%,rgba(10,9,9,.45) 42%,rgba(10,9,9,.12) 70%,rgba(10,9,9,0) 100%)}
-.hm-hero-inner{position:absolute;left:8%;top:54%;transform:translateY(-50%);max-width:640px;z-index:5}
+.hm-hero-inner{position:absolute;left:8%;top:56%;transform:translateY(-50%);max-width:640px;z-index:5}
 .hm-label{font-size:12.8px;font-weight:300;letter-spacing:5px;text-transform:uppercase;color:rgba(255,255,255,.55);line-height:1.6}
 .hm-hero-inner .hm-label{font-weight:200;letter-spacing:12px;color:rgba(255,255,255,.7);margin-bottom:16px}
-.hm-hero-inner h1{font-family:'Montserrat',sans-serif;font-weight:200;font-size:clamp(40px,3.75vw,72px);letter-spacing:4px;text-transform:uppercase;line-height:1.1;color:#fff;margin:0 0 24px}
+.hm-hero-inner h1{font-family:'Montserrat',sans-serif;font-weight:200;font-size:72px;letter-spacing:4px;text-transform:uppercase;line-height:1.1;color:#fff;margin:0 0 24px}
 .hm-hero-inner p{color:rgba(255,255,255,.6);font-size:16px;font-weight:300;line-height:1.7;max-width:400px;margin-bottom:32px}
 .hm-outline-btn{display:inline-block;border:1px solid rgba(255,255,255,.55);color:#fff;padding:13px 40px;font-size:12px;font-weight:400;letter-spacing:3px;line-height:1.75;text-transform:uppercase;transition:background .2s,border-color .2s}
 .hm-outline-btn:hover{background:rgba(255,255,255,.1);border-color:#fff}
@@ -182,8 +184,8 @@ body.hm-dark{background:#0e0d0d;color:#fff}
 
 .hm-sec{padding:80px 8%;background:#0e0d0d}
 .hm-center{text-align:center}
-.hm-h2{font-family:'Montserrat',sans-serif;font-weight:200;font-size:clamp(30px,2.1vw,40px);letter-spacing:3px;line-height:1.4;color:#fff;text-align:center;margin:24px auto 0;max-width:760px}
-.hm-h2.lg{font-size:clamp(32px,2.5vw,48px);line-height:1.3;max-width:700px}
+.hm-h2{font-family:'Montserrat',sans-serif;font-weight:200;font-size:40px;letter-spacing:3px;line-height:1.4;color:#fff;text-align:center;margin:24px auto 0;max-width:760px}
+.hm-h2.lg{font-size:48px;line-height:1.3;max-width:700px}
 .hm-map-sec{text-align:center}
 .hm-map{width:100%;max-width:1150px;margin:48px auto 0;display:block}
 .hm-three-labels{display:flex;gap:44px;justify-content:center;flex-wrap:wrap;margin:36px 0 84px}
@@ -209,7 +211,7 @@ body.hm-dark{background:#0e0d0d;color:#fff}
 
 .hm-portfolio{display:grid;grid-template-columns:1fr 1.15fr;gap:70px;align-items:center}
 .hm-port-text{max-width:580px}
-.hm-port-text h3{font-family:'Montserrat',sans-serif;font-weight:200;font-size:clamp(24px,1.6vw,30.4px);letter-spacing:.5px;line-height:1.4;color:#fff;margin:24px 0 32px}
+.hm-port-text h3{font-family:'Montserrat',sans-serif;font-weight:200;font-size:30.4px;letter-spacing:.5px;line-height:1.4;color:#fff;margin:24px 0 32px}
 .hm-port-text p{color:rgba(255,255,255,.72);font-size:17.6px;font-weight:300;line-height:1.8;margin-bottom:24px}
 .hm-port-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .hm-port-grid img{width:100%;height:100%;object-fit:cover;display:block;aspect-ratio:1/0.98}
@@ -218,12 +220,12 @@ body.hm-dark{background:#0e0d0d;color:#fff}
 .hm-video-sec video{width:100%;max-height:70vh;object-fit:cover;display:block}
 .hm-cta{text-align:center;padding:120px 8%}
 .hm-cta .hm-label{font-size:11.2px;font-weight:200;letter-spacing:8px;color:rgba(255,255,255,.4)}
-.hm-cta .hm-h2{font-size:clamp(34px,2.9vw,56px);letter-spacing:4px;line-height:1.2;max-width:640px}
+.hm-cta .hm-h2{font-size:56px;letter-spacing:4px;line-height:1.2;max-width:640px}
 .hm-cta-p{color:rgba(255,255,255,.72);font-size:17.6px;font-weight:300;margin:24px auto 40px;max-width:600px;line-height:1.8}
 .hm-cta .hm-outline-btn{font-weight:300;letter-spacing:4px;padding:15px 44px}
 
 .hm-footer{display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;padding:24px 3%;border-top:1px solid rgba(255,255,255,.09);background:#0b0a0a;color:#fff;font-size:14px}
-.hm-footer nav{display:flex;gap:14px;align-items:center;flex-wrap:wrap;justify-content:flex-end;max-width:520px}
+.hm-footer nav{display:flex;gap:14px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
 .hm-footer a{color:#e2ddd7}
 .hm-footer a:hover{color:#fff}
 .hm-footer span{color:#4c4844}
@@ -283,9 +285,17 @@ body.hm-dark{background:#0e0d0d;color:#fff}
 .guest-bar{background:#3a3536;color:#fff;text-align:center;padding:10px 14px;font-size:13px}
 .guest-bar a{color:#e7c9b0;font-weight:700;text-decoration:underline}
 
+@media(max-width:900px){
+  .hm-hero-inner h1{font-size:44px;letter-spacing:3px}
+  .hm-hero-inner .hm-label{letter-spacing:7px}
+  .hm-h2{font-size:30px}
+  .hm-h2.lg{font-size:34px}
+  .hm-cta .hm-h2{font-size:38px}
+  .hm-port-text h3{font-size:26px}
+}
 @media(max-width:820px){
   .hm-head{padding:16px 18px}
-  .hm-logo img{width:118px}
+  .hm-logo img{width:140px}
   .hm-hero-inner{left:20px;right:20px;max-width:none}
   .hm-collage{grid-template-columns:1fr 1fr;grid-auto-rows:minmax(180px,42vw)}
   .hm-collage .c-a{grid-column:1/3;grid-row:auto/span 1}
