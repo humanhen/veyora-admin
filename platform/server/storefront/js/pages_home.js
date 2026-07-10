@@ -84,23 +84,15 @@ Routes['#/'] = Routes['#/home'] = {
           <span>Retailer-First Support</span>
         </div>
         <div class="hm-collage">
-          <div class="col">
-            <img class="t1" src="assets/home/hero-04.webp" alt="" loading="lazy"/>
-            <img class="t2" src="assets/home/hero-08.webp" alt="" loading="lazy"/>
-            <img class="t2" src="assets/home/hero-02.webp" alt="" loading="lazy"/>
-          </div>
-          <div class="col">
-            <div class="duo">
-              <img src="assets/home/hero-01.webp" alt="" loading="lazy"/>
-              <img src="assets/home/hero-10.webp" alt="" loading="lazy"/>
-            </div>
-            <img class="big" src="assets/home/hero-06-hq.webp" alt="" loading="lazy"/>
-          </div>
-          <div class="col">
-            <img class="t1" src="assets/home/hero-07.webp" alt="" loading="lazy"/>
-            <img class="t2" src="assets/home/hero-09.webp" alt="" loading="lazy"/>
-            <img class="t2" src="assets/home/hero-03.webp" alt="" loading="lazy"/>
-          </div>
+          <img class="c-a" src="assets/home/hero-04.webp" alt="" loading="lazy"/>
+          <img class="c-b" src="assets/home/hero-01.webp" alt="" loading="lazy"/>
+          <img class="c-c" src="assets/home/hero-10.webp" alt="" loading="lazy"/>
+          <img class="c-d" src="assets/home/hero-07.webp" alt="" loading="lazy"/>
+          <img class="c-e" src="assets/home/hero-08.webp" alt="" loading="lazy"/>
+          <img class="c-f" src="assets/home/hero-06-hq.webp" alt="" loading="lazy"/>
+          <img class="c-g" src="assets/home/hero-09.webp" alt="" loading="lazy"/>
+          <img class="c-h" src="assets/home/hero-02.webp" alt="" loading="lazy"/>
+          <img class="c-i" src="assets/home/hero-03.webp" alt="" loading="lazy"/>
         </div>
       </section>
 
