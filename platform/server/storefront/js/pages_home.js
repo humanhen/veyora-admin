@@ -77,7 +77,7 @@ Routes['#/'] = Routes['#/home'] = {
       <!-- ============ collections ============ -->
       <section class="hm-sec">
         <div class="hm-label hm-center">Curated for optical retail</div>
-        <h2 class="hm-h2">The right collection is only<br/>the beginning.</h2>
+        <h2 class="hm-h2 lg">The right collection is only<br/>the beginning.</h2>
         <div class="hm-three-labels">
           <span>Curated Collections</span>
           <span>Reliable Replenishment</span>
