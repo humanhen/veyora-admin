@@ -43,17 +43,27 @@ for all operations.
 - `platform/docs/OLD-API-MAP.md` — extracted old veyora.com API surface.
 - `platform/supabase/` — superseded (Supabase plan replaced by IONOS VPS).
 
+## UPDATE 2026-07-10
+- **veyora.design DNS is pointed and HTTPS is live** — the new platform serves
+  at https://veyora.design (homepage), /#/products (guest catalog), /admin/.
+- **Homepage rebuilt as an exact replica of old veyora.com** (hero carousel,
+  Global Distribution map, collections collage, portfolio, Charlett video,
+  CTA, footer, WhatsApp float wa.me/16467731000). All assets mirrored into
+  `platform/server/storefront/assets/`. New `pages_home.js`; guest browsing
+  supported (optionalAuth on get-products — guests see catalog, no prices).
+- **Old-site catalog data + ALL photos migrated**: harvested the old public
+  API (773 products) → `scripts/import-oldsite.mjs` enriched 653 products
+  (display names, sizes, descriptions, attributes, real categories, variation
+  colors, shelf codes) and downloaded 4,829 photos into the uploads volume.
+  120 old-site products aren't in Zoho (discontinued) — skipped.
+- User feedback: ALWAYS `git push` after committing.
+
 ## OPEN ITEMS
-1. **DNS**: user to point veyora.design → 209.46.125.226.
-2. **SMTP**: need a Google App password for info@veyora.com so activation /
+1. **SMTP**: need a Google App password for info@veyora.com so activation /
    order emails send (see RUNBOOK). Until then emails are logged only.
-3. **Old-site data still to migrate** (need veyora.com admin login and/or
-   Zoho Contacts + Sales Orders exports):
-   - customers (accounts import → they activate via email OTP)
-   - product photos for the ~1,300 older models (old site serves them at
-     veyora.com/s3/…; need the product→image mapping from the old API)
-   - categories/attributes richer than the name-inferred ones
-   - order history (optional; Zoho "Sales Order" export can be imported)
+2. **Customers + order history still to migrate** (need Zoho Contacts +
+   Sales Orders exports, or veyora.com admin login for the old admin API):
+   customers import → they activate via email OTP (needs SMTP first).
 4. **Stripe**: schema + payments table ready; checkout is on-terms (B2B) for
    now. Add Stripe keys + an endpoint when they want card payments.
 5. **Zoho decommission**: keep dual-running until cutover confidence, then

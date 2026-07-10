@@ -1,9 +1,11 @@
 import { Router } from 'express';
 import { q } from '../db.js';
-import { requireAuth } from '../authmw.js';
+import { requireAuth, optionalAuth } from '../authmw.js';
 import { priceForCustomer } from '../pricing.js';
 
 const r = Router();
+// catalog browsing is public (guest = prices hidden), like the old site
+r.use(['/get-products', '/product-filter-data'], optionalAuth());
 r.use(requireAuth());
 
 /** Load products with variations + stock qty, shaped for the storefront. */
@@ -53,6 +55,7 @@ export async function loadProducts(user, { ids = null, skus = null, activeOnly =
 }
 
 async function favouriteIds(userId) {
+  if (!userId) return new Set();
   const { rows } = await q(`select product_id from favourites where user_id=$1`, [userId]);
   return new Set(rows.map(x => x.product_id));
 }

@@ -3,10 +3,23 @@
 
 const Catalog = { filters: { search: '', brands: [], categories: [], inStockOnly: false, sort: 'newest', page: 1 } };
 
+function catalogUser() {
+  return Store.session?.user || { hidePrices: true, role: 'guest', guest: true };
+}
+
 Routes['#/products'] = {
-  title: 'Products',
+  title: 'Products', optional: true,
   async render(el) {
     const F = Catalog.filters;
+    const guest = !Store.session;
+    if (guest) {
+      el.innerHTML = `<div class="guest-head">${homeHeader()}</div>
+        <div class="guest-bar">Browsing as a guest — <a href="#/login">sign in</a> to see wholesale prices and order, or <a href="#/activate">activate your account</a>.</div>
+        <main class="page" style="background:var(--bg);color:var(--ink);border-radius:0"><div id="guestPage"></div></main>
+        ${whatsappFloat()}`;
+      document.body.classList.remove('hm-dark');
+      el = el.querySelector('#guestPage');
+    }
     el.innerHTML = `
       <div class="catbar">
         <div class="search"><input placeholder="Search by name, SKU, brand…" value="${esc(F.search)}"/></div>
@@ -70,11 +83,12 @@ Routes['#/products'] = {
 };
 
 function productCard(p) {
-  const hide = Store.session.user.hidePrices;
+  const u = catalogUser();
+  const hide = u.hidePrices;
   const isNew = (Date.now() - new Date(p.createdAt).getTime()) < 30 * 864e5;
   const card = h(`<div class="pcard">
     ${isNew ? '<span class="tagnew">NEW</span>' : ''}
-    <button class="fav ${p.isFavourite ? 'on' : ''}" title="Favourite">${p.isFavourite ? '♥' : '♡'}</button>
+    ${u.guest ? '' : `<button class="fav ${p.isFavourite ? 'on' : ''}" title="Favourite">${p.isFavourite ? '♥' : '♡'}</button>`}
     <div class="imgbox">${imgOr(p.images?.[0])}</div>
     <div class="body">
       <div class="sku">${esc(p.sku)} · ${esc(p.brand || '')}</div>
@@ -85,7 +99,8 @@ function productCard(p) {
       </div>
     </div>
   </div>`);
-  card.querySelector('.fav').onclick = async (e) => {
+  const favBtn = card.querySelector('.fav');
+  if (favBtn) favBtn.onclick = async (e) => {
     e.stopPropagation();
     const r = await API.post(`/user/favourites/${p.id}/toggle`);
     e.target.classList.toggle('on', r.favourite);
@@ -96,7 +111,9 @@ function productCard(p) {
 }
 
 function productModal(p) {
-  const hide = Store.session.user.hidePrices;
+  const u = catalogUser();
+  const hide = u.hidePrices;
+  const guest = !!u.guest;
   const a = p.attributes || {};
   const attrs = [
     ['Lens width', a.lens_w], ['Lens height', a.lens_h], ['Bridge', a.bridge],
@@ -129,13 +146,14 @@ function productModal(p) {
               <span class="vcol">${esc(v.color || '')}</span>
               ${stockPill(v)}
               ${hide ? '' : `<b style="min-width:56px;text-align:right">${money(v.price)}</b>`}
-              ${v.qty > 0 ? qtyBox(0, 0, v.qty)
-                : `<button class="btn ghost sm notify" data-sku="${esc(v.sku)}">Notify me</button>`}
+              ${guest ? '' : (v.qty > 0 ? qtyBox(0, 0, v.qty)
+                : `<button class="btn ghost sm notify" data-sku="${esc(v.sku)}">Notify me</button>`)}
             </div>`).join('')}
         </div>
         <div style="display:flex;gap:10px;margin-top:16px;align-items:center">
-          <button class="btn" id="addBtn">Add to cart</button>
-          <span class="sub" id="addSummary"></span>
+          ${guest
+            ? `<button class="btn" onclick="location.hash='#/login'">Sign in to see prices & order</button>`
+            : `<button class="btn" id="addBtn">Add to cart</button><span class="sub" id="addSummary"></span>`}
         </div>
       </div>
     </div>`);
@@ -157,7 +175,8 @@ function productModal(p) {
     const r = await API.post('/user/restock-notify', { sku: b.dataset.sku });
     toast(r.notify ? 'We\'ll email you when it\'s back' : 'Notification removed');
   });
-  m.querySelector('#addBtn').onclick = async () => {
+  const addBtn = m.querySelector('#addBtn');
+  if (addBtn) addBtn.onclick = async () => {
     if (!chosen.size) { toast('Choose quantities first', true); return; }
     let cart;
     for (const [sku, qty] of chosen) {

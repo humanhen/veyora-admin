@@ -87,3 +87,20 @@ export function requireAuth(...roles) {
 
 export const ADMIN_ROLES = ['admin', 'warehouse'];
 export const AGENT_ROLES = ['agent', 'super-agent', 'admin'];
+
+/** Like requireAuth, but anonymous visitors get a read-only guest identity
+    (prices hidden) instead of a 401 — mirrors the old site's public catalog. */
+export function optionalAuth() {
+  const auth = requireAuth();
+  return (req, res, next) => {
+    const fakeRes = {
+      status: () => ({ json: () => {
+        req.user = { id: null, role: 'guest', hide_prices: true, country: 'US',
+                     pricing: { mode: 'none' }, status: 'active' };
+        next();
+      } }),
+      cookie: res.cookie.bind(res),
+    };
+    auth(req, fakeRes, next);
+  };
+}

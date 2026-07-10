@@ -23,7 +23,7 @@ function shell(contentEl, activeHash) {
   const u = Store.session.user;
   const el = h(`<div>
     <header class="topbar">
-      <div class="logo" onclick="location.hash='#/products'">VEY<span>O</span>RA</div>
+      <img class="logo" src="assets/logo-white.svg" alt="Veyora" style="width:126px;cursor:pointer" onclick="location.hash='#/products'"/>
       <div class="spacer"></div>
       <button class="icon-btn" title="Favourites" onclick="location.hash='#/favourites'">♡</button>
       <button class="icon-btn" title="Cart" onclick="location.hash='#/cart'">🛒<span class="badge" id="cartBadge" style="${Store.cartCount ? '' : 'display:none'}">${Store.cartCount}</span></button>
@@ -51,30 +51,35 @@ async function refreshCartBadge() {
   } catch { /* not logged in */ }
 }
 
+async function restoreSession() {
+  if (Store.session) return true;
+  try {
+    const me = await API.get('/user/get-user-detail', { noRedirect: true });
+    Store.session = { user: me.user };
+    refreshCartBadge();
+    return true;
+  } catch { return false; }
+}
+
 async function route() {
   const app = document.getElementById('app');
-  const hash = location.hash || '#/products';
-  const [path, ...rest] = hash.split('/').filter(Boolean); // ['#', 'products', ...]
-  const key = '#/' + (hash.replace(/^#\//, '').split('/')[0] || 'products');
+  const hash = location.hash || '#/';
+  const key = '#/' + (hash.replace(/^#\//, '').split('/')[0] || '');
   const args = hash.replace(/^#\//, '').split('/').slice(1).map(decodeURIComponent);
-  const page = Routes[key] || Routes['#/products'];
+  const page = Routes[key] || Routes['#/'];
 
-  if (!page.public && !Store.session) {
-    // try to restore an existing session (cookie)
-    try {
-      const me = await API.get('/user/get-user-detail', { noRedirect: true });
-      Store.session = { user: me.user };
-      refreshCartBadge();
-    } catch {
-      sessionStorage.setItem('veyora_after_login', hash);
-      location.hash = '#/login';
-      return;
-    }
+  if (page.public || page.optional) {
+    await restoreSession();               // nice-to-have; render either way
+  } else if (!(await restoreSession())) {
+    sessionStorage.setItem('veyora_after_login', hash);
+    location.hash = '#/login';
+    return;
   }
 
+  document.body.classList.toggle('hm-dark', key === '#/' || key === '#/home');
   app.innerHTML = '';
   const content = document.createElement('div');
-  if (page.public) {
+  if (page.public || (page.optional && !Store.session)) {
     app.appendChild(content);
   } else {
     app.appendChild(shell(content, key));
