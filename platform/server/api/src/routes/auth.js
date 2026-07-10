@@ -5,6 +5,7 @@ import crypto from 'crypto';
 import { q, audit } from '../db.js';
 import { issueSession, clearSession } from '../authmw.js';
 import { sendMail } from '../mail.js';
+import { activationCode, passwordReset } from '../emails.js';
 
 const r = Router();
 const SECRET = process.env.JWT_SECRET;
@@ -75,11 +76,9 @@ r.post('/request-activation-otp', async (req, res) => {
   // Do not reveal whether the account exists
   if (u && u.status !== 'disabled') {
     const code = await createOtp(u.id, 'activation');
-    await sendMail({
-      to: u.email,
-      subject: 'Your Veyora activation code',
-      text: `Hi ${u.first_name || u.business},\n\nYour Veyora activation code is: ${code}\nIt expires in 15 minutes.\n\n— The Veyora team`,
-    });
+    const mail = activationCode({ name: u.first_name || u.business, email: u.email, code });
+    await sendMail({ to: u.email, subject: mail.subject, html: mail.html,
+      text: `Your Veyora activation code is: ${code} (expires in 15 minutes).` });
   }
   res.json({ ok: true });
 });
@@ -114,11 +113,9 @@ r.post('/forgot-password', async (req, res) => {
   const u = await findByEmail(req.body?.email);
   if (u && u.status === 'active') {
     const code = await createOtp(u.id, 'forgot_password');
-    await sendMail({
-      to: u.email,
-      subject: 'Your Veyora password reset code',
-      text: `Hi ${u.first_name || u.business},\n\nYour password reset code is: ${code}\nIt expires in 15 minutes.\n\n— The Veyora team`,
-    });
+    const mail = passwordReset({ name: u.first_name || u.business, email: u.email, code });
+    await sendMail({ to: u.email, subject: mail.subject, html: mail.html,
+      text: `Your Veyora password reset code is: ${code} (expires in 15 minutes).` });
   }
   res.json({ ok: true });
 });

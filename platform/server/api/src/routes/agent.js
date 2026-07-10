@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import { q, audit } from '../db.js';
-import { requireAuth, AGENT_ROLES } from '../authmw.js';
+import { requireAuth, AGENT_ROLES, setPasswordLink } from '../authmw.js';
 import { sendMail } from '../mail.js';
+import { welcomeActivation } from '../emails.js';
 
 const r = Router();
 
@@ -56,11 +57,10 @@ r.post('/create-customer', requireAuth(...AGENT_ROLES), async (req, res, next) =
 
     await audit({ id: req.user.id, name: req.user.business || req.user.email, role: req.user.role },
       'customer created', b.business);
-    sendMail({
-      to: email,
-      subject: 'Welcome to Veyora — activate your account',
-      text: `Hi ${b.firstName || b.business},\n\nYour Veyora account has been created. Visit ${process.env.PUBLIC_URL || ''}/#/activate and use this email address to request your activation code.\n\n— The Veyora team`,
-    }).catch(() => {});
+    const mail = welcomeActivation({ name: b.firstName || b.business, username,
+      email, link: setPasswordLink(rows[0].id, 'activation') });
+    sendMail({ to: email, subject: mail.subject, html: mail.html,
+      text: `Welcome to Veyora. Set your password: ${setPasswordLink(rows[0].id, 'activation')}` }).catch(() => {});
     res.json({ ok: true, customer: customerShape(rows[0]) });
   } catch (e) { next(e); }
 });

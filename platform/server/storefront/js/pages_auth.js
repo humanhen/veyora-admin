@@ -118,6 +118,45 @@ Routes['#/activate'] = {
   },
 };
 
+/* Magic-link landing from the welcome/activation email: token in the URL,
+   just pick a password. */
+Routes['#/set-password'] = {
+  public: true, title: 'Set your password',
+  render(el, [token]) {
+    if (!token) { location.hash = '#/activate'; return; }
+    const card = authCard(`
+      <p class="sub" style="margin-bottom:16px">Welcome to Veyora — choose a password to activate your account.</p>
+      <div class="auth-err" style="display:none"></div>
+      <form>
+        <div class="field"><label>New password (8+ characters)</label>
+          <input name="password" type="password" minlength="8" autocomplete="new-password" required autofocus /></div>
+        <div class="field"><label>Confirm password</label>
+          <input name="confirm" type="password" minlength="8" autocomplete="new-password" required /></div>
+        <button class="btn" type="submit">Set password &amp; sign in</button>
+      </form>`);
+    const err = card.querySelector('.auth-err');
+    card.querySelector('form').onsubmit = async (e) => {
+      e.preventDefault();
+      const f = e.target;
+      if (f.password.value !== f.confirm.value) {
+        err.textContent = 'Passwords do not match'; err.style.display = ''; return;
+      }
+      f.querySelector('button').disabled = true;
+      err.style.display = 'none';
+      try {
+        await API.post('/auth/set-password', { token, password: f.password.value }, { noRedirect: true });
+        toast('Account activated — signing you in');
+        location.hash = '#/login';
+      } catch (ex) {
+        err.textContent = ex.data?.error || ex.message || 'This link has expired — request a new one';
+        err.style.display = '';
+        f.querySelector('button').disabled = false;
+      }
+    };
+    el.appendChild(card);
+  },
+};
+
 Routes['#/forgot'] = {
   public: true, title: 'Reset password',
   render(el) {

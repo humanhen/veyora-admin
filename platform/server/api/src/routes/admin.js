@@ -8,6 +8,8 @@ import { q, tx } from '../db.js';
 import { requireAuth } from '../authmw.js';
 import { SIMPLE_COLLECTIONS, rowToJs, jsToRow } from '../shape.js';
 import { sendMail } from '../mail.js';
+import { setPasswordLink } from '../authmw.js';
+import { welcomeActivation } from '../emails.js';
 
 const r = Router();
 r.use(requireAuth('admin', 'warehouse'));
@@ -378,12 +380,29 @@ r.post('/send-activation/:userId', async (req, res) => {
   const { rows } = await q(`select * from users where id=$1`, [req.params.userId]);
   if (!rows.length) return res.status(404).json({ error: 'User not found' });
   const u = rows[0];
-  await sendMail({
-    to: u.email,
-    subject: 'Veyora has been upgraded — set your new password',
-    text: `Hi ${u.first_name || u.business},\n\nVeyora has been upgraded. Visit ${process.env.PUBLIC_URL || ''}/#/activate and use this email address to request your activation code, then set your password.\n\n— The Veyora team`,
-  });
+  const mail = welcomeActivation({ name: u.first_name || u.business, username: u.username,
+    email: u.email, link: setPasswordLink(u.id, 'activation') });
+  await sendMail({ to: u.email, subject: mail.subject, html: mail.html,
+    text: `Welcome to Veyora. Set your password: ${setPasswordLink(u.id, 'activation')}` });
   res.json({ ok: true });
+});
+
+/** Bulk-send activation/welcome emails to all pending (or all) customers. */
+r.post('/send-activation-bulk', async (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'forbidden' });
+  const onlyPending = req.body?.all !== true;
+  const { rows } = await q(`
+    select * from users where role in ('customer','special customer')
+      and email not like '%@import.veyora.local' ${onlyPending ? `and status='pending'` : ''}`);
+  let sent = 0;
+  for (const u of rows) {
+    const mail = welcomeActivation({ name: u.first_name || u.business, username: u.username,
+      email: u.email, link: setPasswordLink(u.id, 'activation') });
+    try { await sendMail({ to: u.email, subject: mail.subject, html: mail.html,
+      text: `Welcome to Veyora. Set your password: ${setPasswordLink(u.id, 'activation')}` }); sent++; }
+    catch { /* skip failures */ }
+  }
+  res.json({ ok: true, sent, total: rows.length });
 });
 
 /** Directly set a user's password (admin action, e.g. for staff accounts). */

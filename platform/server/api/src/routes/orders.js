@@ -4,6 +4,7 @@ import { requireAuth } from '../authmw.js';
 import { round2 } from '../pricing.js';
 import { cartSummary } from './cart.js';
 import { sendMail } from '../mail.js';
+import { orderConfirmation } from '../emails.js';
 
 const r = Router();
 r.use(requireAuth());
@@ -154,11 +155,13 @@ r.post('/place-order', async (req, res, next) => {
     const actor = { id: user.id, name: user.business || user.email, role: user.role };
     if (result.order) {
       await audit(actor, 'order placed', result.order.number, `total $${result.order.total}`);
-      sendMail({
-        to: customer.email,
-        subject: `Veyora order ${result.order.number} received`,
-        text: `Hi ${customer.first_name || customer.business},\n\nWe received your order ${result.order.number} (total $${result.order.total}). We'll email you when it ships.\n\n— The Veyora team`,
-      }).catch(() => {});
+      q(`select sku, name, color, qty, price from order_items where order_id=$1`, [result.order.id])
+        .then(({ rows }) => {
+          const m = orderConfirmation({ name: customer.first_name || customer.business,
+            email: customer.email, order: { ...result.order, items: rows }, hidePrices: customer.hide_prices });
+          return sendMail({ to: customer.email, subject: m.subject, html: m.html,
+            text: `We received your order ${result.order.number} (total $${result.order.total}).` });
+        }).catch(() => {});
     }
     if (result.backorder) {
       await audit(actor, 'backorder created', result.backorder.number, 'out of stock at order time');

@@ -62,6 +62,8 @@ async function restoreSession() {
 }
 
 async function route() {
+  // Navigating away closes any open overlay (product modal, lightbox)
+  document.querySelectorAll('.modal-back, .lightbox').forEach(el => el.remove());
   const app = document.getElementById('app');
   const hash = location.hash || '#/';
   const key = '#/' + (hash.replace(/^#\//, '').split('/')[0] || '');

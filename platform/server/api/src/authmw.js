@@ -88,6 +88,16 @@ export function requireAuth(...roles) {
 export const ADMIN_ROLES = ['admin', 'warehouse'];
 export const AGENT_ROLES = ['agent', 'super-agent', 'admin'];
 
+/** Signed 3-day token for the "set your password" magic link in emails. */
+export function setPasswordToken(userId, purpose = 'activation') {
+  return jwt.sign({ sub: userId, purpose }, SECRET, { expiresIn: '3d' });
+}
+
+export function setPasswordLink(userId, purpose = 'activation') {
+  const base = process.env.PUBLIC_URL || 'https://veyora.design';
+  return `${base}/#/set-password/${setPasswordToken(userId, purpose)}`;
+}
+
 /** Like requireAuth, but anonymous visitors get a read-only guest identity
     (prices hidden) instead of a 401 — mirrors the old site's public catalog. */
 export function optionalAuth() {
