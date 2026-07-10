@@ -27,11 +27,12 @@ Routes['#/products'] = {
     const guest = !Store.session;
     if (guest) {
       el.innerHTML = `<div class="guest-head">${homeHeader()}</div>
-        <div class="guest-bar">Browsing as a guest — <a href="#/login">sign in</a> to see wholesale prices and order, or <a href="#/activate">activate your account</a>.</div>
-        <main class="page" style="background:var(--bg);color:var(--ink);border-radius:0;max-width:1440px"><div id="guestPage"></div></main>
+        <main class="page prod-page"><div id="guestPage"></div></main>
         ${whatsappFloat()}`;
       document.body.classList.remove('hm-dark');
       el = el.querySelector('#guestPage');
+    } else {
+      el.classList.add('prod-page-inner');
     }
 
     const chip = (group, value, label, extra) => `
@@ -154,8 +155,10 @@ function productCard(p) {
   const card = h(`<div class="pcard2">
     ${sellerBadge(p)}
     ${u.guest ? '' : `<button class="fav ${p.isFavourite ? 'on' : ''}" title="Favourite">${p.isFavourite ? '♥' : '♡'}</button>`}
-    <div class="imgbox2">${imgOr(mainImg)}</div>
-    <div class="attrline">${attrLine(p) || '&nbsp;'} ${lensChip(p)}</div>
+    <div class="photo-wrap">
+      <div class="imgbox2">${imgOr(mainImg)}</div>
+      <div class="attrline">${attrLine(p) || '&nbsp;'} ${lensChip(p)}</div>
+    </div>
     <div class="rowname">
       <span class="pname">${esc(p.name)}</span>
       <button class="share" title="Copy link">

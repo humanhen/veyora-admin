@@ -264,27 +264,28 @@ body.hm-dark{background:#0e0d0d;color:#fff}
 .pcard2 .seller.good{background:#F5D563;color:#221F20}
 .pcard2 .fav{position:absolute;top:8px;right:8px;z-index:2;background:rgba(255,255,255,.92);border:1px solid var(--line);border-radius:999px;width:32px;height:32px;font-size:16px;line-height:1;color:#94a3b8;cursor:pointer}
 .pcard2 .fav.on{color:#e11d48}
-.pcard2 .imgbox2{aspect-ratio:1/0.86;background:#f4f3f1;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.pcard2 .photo-wrap{background:#f4f3f1;display:flex;flex-direction:column}
+.pcard2 .imgbox2{aspect-ratio:1/0.92;display:flex;align-items:center;justify-content:center;overflow:hidden}
 .pcard2 .imgbox2 img{object-fit:cover;width:100%;height:100%}
 .pcard2 .imgbox2 .noimg{color:#cbd5e1;font-size:38px;letter-spacing:.2em}
-.pcard2 .attrline{text-align:center;color:#8a857f;font-size:12.5px;padding:10px 10px 2px;letter-spacing:.06em}
+.pcard2 .attrline{text-align:center;color:#8a857f;font-size:12.5px;padding:2px 10px 12px;letter-spacing:.06em}
 .lens-chip{display:inline-block;background:#efe9f5;color:#56416d;font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:4px;margin-left:6px;vertical-align:1px}
 .pcard2 .rowname{display:flex;justify-content:space-between;align-items:center;padding:8px 14px 4px}
 .pcard2 .pname{font-size:13.5px;font-weight:700;letter-spacing:.09em;text-transform:uppercase}
 .pcard2 .share{background:none;border:none;color:#8a857f;cursor:pointer;padding:4px}
 .pcard2 .share:hover{color:var(--ink)}
-.pcard2 .vthumbs{display:flex;gap:7px;align-items:center;padding:6px 14px 12px;min-height:48px;flex-wrap:wrap}
-.pcard2 .vthumbs img{width:36px;height:36px;border-radius:999px;object-fit:cover;border:1.5px solid #ddd9d2;cursor:pointer;background:#f4f3f1}
+.pcard2 .vthumbs{display:flex;gap:8px;align-items:center;padding:6px 14px 12px;min-height:56px;flex-wrap:wrap}
+.pcard2 .vthumbs img{width:42px;height:42px;border-radius:999px;object-fit:cover;border:1.5px solid #ddd9d2;cursor:pointer;background:#f4f3f1}
 .pcard2 .vthumbs img.sel{border-color:#221F20}
 .pcard2 .vthumbs .more{font-size:12px;color:#8a857f;font-weight:600}
 .pcard2 .orderbtn{margin-top:auto;background:#221F20;color:#fff;border:none;padding:14px;font-size:12.5px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;cursor:pointer}
 .pcard2 .orderbtn:hover{background:#3a3536}
 .pcard2 .orderbtn:disabled{background:#c9c5bf;cursor:default}
 
-/* guest catalog header + banner */
+/* guest catalog header + full-width product grid */
 .guest-head .hm-head{position:static;background:var(--ink)}
-.guest-bar{background:#3a3536;color:#fff;text-align:center;padding:10px 14px;font-size:13px}
-.guest-bar a{color:#e7c9b0;font-weight:700;text-decoration:underline}
+.page.prod-page{max-width:none;padding:18px 24px 90px;background:var(--bg);color:var(--ink)}
+.page:has(.prod-page-inner){max-width:none;padding-left:24px;padding-right:24px}
 
 @media(max-width:900px){
   .hm-hero-inner h1{font-size:44px;letter-spacing:3px}
