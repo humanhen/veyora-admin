@@ -81,6 +81,9 @@ for (const op of olds) {
   const categories = catIds.map(id => CATS[id]).filter(Boolean);
   const tags = catIds.map(id => TAG_CATS[id]).filter(Boolean);
   if (op.label && op.label !== '0') tags.push('label:' + op.label);
+  // popularity badges shown on the old product cards
+  if (op.popularity_tier === 'very_popular') tags.push('best-seller');
+  else if (op.is_popular) tags.push('good-seller');
 
   const images = (op.image || []).map(im => {
     enqueue(im.url, localName(im));

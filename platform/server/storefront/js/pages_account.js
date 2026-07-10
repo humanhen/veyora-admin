@@ -99,7 +99,7 @@ Routes['#/favourites'] = {
   async render(el) {
     el.innerHTML = `<h1 class="pagetitle" style="display:flex;justify-content:space-between;align-items:center">Favourites
       <button class="btn sm" id="allToCart">Add all to cart</button></h1>
-      <div id="grid" class="pgrid"></div>`;
+      <div id="grid" class="pgrid2"></div>`;
     const res = await API.get('/user/favourites');
     const grid = el.querySelector('#grid');
     if (!res.products.length) {

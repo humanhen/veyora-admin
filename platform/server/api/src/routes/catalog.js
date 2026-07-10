@@ -47,6 +47,7 @@ export async function loadProducts(user, { ids = null, skus = null, activeOnly =
       productionStatus: p.production_status, estimatedArrival: p.estimated_arrival,
       price: hide ? null : priceForCustomer(user, p, null),
       basePrice: hide ? null : (p.sale_price ?? p.price),
+      onSale: p.sale_price != null,
       qty: variations.reduce((s, v) => s + v.qty, 0),
       variations,
       createdAt: p.created_at,
@@ -65,6 +66,12 @@ async function getProducts(req, res) {
   const search = (b.search || '').trim().toLowerCase();
   const brands = [].concat(b.brands || b.brand || []).filter(Boolean);
   const categories = [].concat(b.categories || b.category || []).filter(Boolean);
+  // grouped filters (AND across groups, OR within a group) like the old site
+  const catGroups = ['types', 'genders', 'materials']
+    .map(k => [].concat(b[k] || []).filter(Boolean)).filter(g => g.length);
+  const sizes = [].concat(b.sizes || []).filter(Boolean);
+  const saleOnly = b.sale === true || b.sale === 'true';
+  const newOnly = b.isNew === true || b.isNew === 'true';
   const inStockOnly = b.inStockOnly === true || b.inStockOnly === 'true';
   const sort = b.sort || 'newest';
   const page = Math.max(1, parseInt(b.page, 10) || 1);
@@ -82,9 +89,20 @@ async function getProducts(req, res) {
   }
   if (brands.length) items = items.filter(p => brands.includes(p.brand));
   if (categories.length) items = items.filter(p => categories.some(c => p.categories.includes(c)));
+  for (const group of catGroups) {
+    items = items.filter(p => group.some(c => p.categories.includes(c)));
+  }
+  if (sizes.length) items = items.filter(p => sizes.includes(p.size));
+  if (saleOnly) items = items.filter(p => p.onSale);
+  if (newOnly) items = items.filter(p => (Date.now() - new Date(p.createdAt).getTime()) < 30 * 864e5);
   if (inStockOnly) items = items.filter(p => p.qty > 0);
 
+  const popScore = p => (p.tags?.includes('best-seller') ? 4 : 0)
+    + (p.tags?.includes('good-seller') ? 2 : 0)
+    + (p.images?.length ? 1 : 0);
   const sorters = {
+    popular: (a, b2) => (popScore(b2) - popScore(a))
+      || (new Date(b2.createdAt) - new Date(a.createdAt)),
     newest: (a, b2) => new Date(b2.createdAt) - new Date(a.createdAt),
     price_asc: (a, b2) => (a.price ?? 0) - (b2.price ?? 0),
     price_desc: (a, b2) => (b2.price ?? 0) - (a.price ?? 0),
