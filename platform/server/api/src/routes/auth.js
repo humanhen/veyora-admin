@@ -111,7 +111,9 @@ r.post('/set-password', handleSetPassword);
 
 r.post('/forgot-password', async (req, res) => {
   const u = await findByEmail(req.body?.email);
-  if (u && u.status === 'active') {
+  // pending (not-yet-activated) accounts may also use this flow — completing
+  // it sets a password and activates them, mirroring the old site's popup
+  if (u && u.status !== 'disabled') {
     const code = await createOtp(u.id, 'forgot_password');
     const mail = passwordReset({ name: u.first_name || u.business, email: u.email, code });
     await sendMail({ to: u.email, subject: mail.subject, html: mail.html,

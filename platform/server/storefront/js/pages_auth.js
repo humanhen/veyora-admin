@@ -39,9 +39,9 @@ Routes['#/login'] = {
             <button class="login-btn" type="submit">Sign in</button>
           </form>
           <div class="login-tagline">Veyora · Quality · Precision · Vision</div>
-          <div class="login-activate">First order with the new portal? <a href="#/activate">Activate your account</a></div>
         </div></div>
       </div>
+      ${whatsappFloat()}
       <div class="login-foot">
         <span>© ${new Date().getFullYear()} Veyora. All rights reserved.</span>
         <nav>
