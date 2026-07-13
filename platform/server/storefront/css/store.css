@@ -18,6 +18,7 @@
 }
 *{box-sizing:border-box;margin:0;padding:0}
 html{-webkit-text-size-adjust:100%}
+html{overflow-x:clip}
 body{font-family:'Montserrat',sans-serif;background:var(--bg);color:var(--ink);font-size:14px;line-height:1.45}
 a{color:var(--accent);text-decoration:none}
 button{font-family:inherit;cursor:pointer}
@@ -135,6 +136,44 @@ table.list tr.click:hover td{background:var(--soft-blue)}
   .pdetail{flex-direction:column}
   .pdetail-img{flex:none;width:100%;position:static}
   .pdetail-info{padding-right:0}
+}
+
+/* sign-in page — replica of old veyora.com /my-account (measured values) */
+.login-page{min-height:100vh;display:flex;flex-direction:column;background:#fafaf9}
+.login-page .guest-head .hm-head{position:static;background:var(--ink)}
+.login-split{flex:1;display:flex}
+.login-photo{flex:1;background:url('../assets/login-hero.jpg') center 30%/cover no-repeat}
+.login-panel{flex:0 0 521px;display:flex;align-items:center;justify-content:center;background:#fafaf9;padding:40px}
+.login-box{width:380px;max-width:100%}
+.login-logo{width:132px;height:18px;display:block;margin-bottom:30px}
+.login-eyebrow{font-size:11px;font-weight:500;letter-spacing:2.2px;text-transform:uppercase;color:rgba(28,25,23,.55);margin-bottom:10px}
+.login-box h1{font-size:36px;font-weight:600;letter-spacing:-.72px;color:#1c1917;margin:0 0 6px}
+.login-sub{font-size:14px;font-weight:400;color:rgba(28,25,23,.6);margin:0 0 34px}
+.login-label{font-size:11px;font-weight:600;letter-spacing:1.32px;text-transform:uppercase;color:rgba(28,25,23,.7)}
+.login-label-row{display:flex;justify-content:space-between;align-items:center;margin-top:24px}
+.login-forgot{font-size:12px;font-weight:500;color:#55406c}
+.login-field{position:relative;border-bottom:1px solid rgba(28,25,23,.18);margin-top:2px}
+.login-field:focus-within{border-bottom-color:#1c1917}
+.login-field input{width:100%;border:none;background:transparent;font-size:16px;padding:4px 30px 5px 0;outline:none;color:#1c1917}
+.login-field input::placeholder{color:rgba(28,25,23,.35)}
+.login-eye{position:absolute;right:0;top:3px;background:none;border:none;color:rgba(28,25,23,.45);cursor:pointer;padding:2px;line-height:1}
+.login-eye:hover{color:#1c1917}
+.login-btn{width:100%;height:52px;margin-top:34px;background:#1c1917;color:#fafaf9;border:none;border-radius:6px;font-size:13px;font-weight:600;letter-spacing:2.34px;text-transform:uppercase;cursor:pointer}
+.login-btn:hover{background:#332e2b}
+.login-btn:disabled{opacity:.6;cursor:default}
+.login-tagline{margin-top:28px;text-align:center;font-size:11px;letter-spacing:1.98px;text-transform:uppercase;color:rgba(28,25,23,.4)}
+.login-activate{margin-top:14px;text-align:center;font-size:12px;color:rgba(28,25,23,.6)}
+.login-activate a{color:#55406c;font-weight:600}
+.login-page .auth-err{background:#fee2e2;color:#b91c1c;border-radius:6px;padding:9px 12px;font-size:13px;margin-bottom:14px}
+.login-foot{background:#fff;border-top:1px solid #eee;display:flex;justify-content:space-between;align-items:center;padding:13px 24px;font-size:12px;color:rgba(28,25,23,.6)}
+.login-foot a{color:rgba(28,25,23,.75)}
+.login-foot a[href]:hover{color:#1c1917}
+.login-foot i{color:#ccc;font-style:normal;margin:0 10px}
+@media(max-width:900px){
+  .login-split{flex-direction:column}
+  .login-photo{flex:none;height:160px;background-position:50% 28%}
+  .login-panel{flex:1;padding:32px 20px}
+  .login-foot{flex-direction:column;gap:8px;text-align:center}
 }
 
 /* fullscreen image viewer — white card, measured from the old veyora.com
@@ -275,14 +314,14 @@ body.hm-dark{background:#0e0d0d;color:#fff}
 
 /* ==================== products page (old veyora.com card design) ==================== */
 .prod-head{display:flex;justify-content:space-between;align-items:center;margin:6px 0 14px}
-.prod-head h1{font-size:28px;font-weight:700;letter-spacing:.5px}
+.prod-head h1{font-size:22px;font-weight:600;letter-spacing:.5px;color:#000}
 .density{display:flex;gap:4px;background:#eceae6;border-radius:8px;padding:3px}
 .density button{border:none;background:transparent;border-radius:6px;padding:4px 10px;font-size:14px;letter-spacing:1px;color:#8a857f;cursor:pointer}
 .density button.on{background:#221F20;color:#fff}
 .bigsearch{position:relative;margin-bottom:14px}
-.bigsearch input{width:100%;padding:9px 14px 9px 44px;border:none;border-radius:8px;background:#f3ecdd;font-size:16px;font-weight:500;outline:none;color:var(--ink)}
+.bigsearch input{width:100%;height:42px;padding:0 14px 0 46px;border:none;border-radius:10px;background:#f5efe4;font-size:16px;font-weight:500;outline:none;color:var(--ink)}
 .bigsearch input::placeholder{color:#a89f90;font-weight:400}
-.bigsearch::before{content:'⌕';position:absolute;left:16px;top:5px;font-size:21px;color:#4c463d}
+.bigsearch::before{content:'⌕';position:absolute;left:16px;top:50%;transform:translateY(-50%);font-size:21px;color:#4c463d}
 .fbar{background:#fafafa;border:.667px solid #eee;border-radius:12px;padding:12px 16px;margin-bottom:18px}
 .frow{display:flex;align-items:center;flex-wrap:wrap}
 .frow.groups{gap:12px}
@@ -300,9 +339,9 @@ body.hm-dark{background:#0e0d0d;color:#fff}
 @media(max-width:480px){.pgrid2,.pgrid2.cols3{grid-template-columns:1fr}}
 .pcard2{position:relative;background:#fff;border:none;border-radius:2px;cursor:pointer;display:flex;flex-direction:column;transition:box-shadow .15s}
 .pcard2:hover{box-shadow:var(--shadow)}
-.pcard2 .seller{position:absolute;top:10px;left:10px;z-index:2;font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;padding:4px 9px;border-radius:3px}
+.pcard2 .seller{position:absolute;top:10px;left:10px;z-index:2;font-size:8px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;padding:2.8px 6.4px;border-radius:3px}
 .pcard2 .seller.best{background:#E8730C;color:#fff}
-.pcard2 .seller.good{background:#F5D563;color:#221F20}
+.pcard2 .seller.good{background:#f4d96e;color:#1a1a1a}
 .pcard2 .fav{position:absolute;top:8px;right:8px;z-index:2;background:rgba(255,255,255,.92);border:1px solid var(--line);border-radius:999px;width:32px;height:32px;font-size:16px;line-height:1;color:#94a3b8;cursor:pointer}
 .pcard2 .fav.on{color:#e11d48}
 .pcard2 .photo-wrap{background:#f4f3f1;display:flex;flex-direction:column}
@@ -319,7 +358,7 @@ body.hm-dark{background:#0e0d0d;color:#fff}
 .pcard2 .vthumbs img{width:44px;height:44px;border-radius:999px;object-fit:cover;border:1.5px solid #ddd9d2;cursor:pointer;background:#f4f3f1}
 .pcard2 .vthumbs img.sel{border-color:#221F20}
 .pcard2 .vthumbs .more{font-size:12px;color:#8a857f;font-weight:600}
-.pcard2 .orderbtn{margin-top:auto;background:#1a1a1a;color:#fff;border:none;padding:9px 8px;font-size:9px;font-weight:500;letter-spacing:1.5px;text-transform:uppercase;cursor:pointer}
+.pcard2 .orderbtn{margin-top:auto;background:#1a1a1a;color:#fff;border:none;height:30px;padding:0 8px;font-size:8.8px;font-weight:500;letter-spacing:1.5px;text-transform:uppercase;cursor:pointer}
 .pcard2 .orderbtn:hover{background:#3a3536}
 .pcard2 .orderbtn:disabled{background:#c9c5bf;cursor:default}
 

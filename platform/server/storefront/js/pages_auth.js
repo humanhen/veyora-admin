@@ -9,27 +9,57 @@ function authCard(inner) {
   </div></div>`);
 }
 
+/* Sign-in page — replica of old veyora.com /my-account (photo left, panel right). */
 Routes['#/login'] = {
   public: true, title: 'Sign in',
   render(el) {
-    const card = authCard(`
-      <div class="auth-err" style="display:none"></div>
-      <form>
-        <div class="field"><label>Email or username</label>
-          <input name="email" autocomplete="username" required autofocus /></div>
-        <div class="field"><label>Password</label>
-          <input name="password" type="password" autocomplete="current-password" required /></div>
-        <button class="btn" type="submit">Sign in</button>
-      </form>
-      <div class="auth-links">
-        <a href="#/forgot">Forgot password?</a>
-        <a href="#/activate">Activate account</a>
-      </div>`);
-    const err = card.querySelector('.auth-err');
-    card.querySelector('form').onsubmit = async (e) => {
+    document.body.classList.remove('hm-dark');
+    const page = h(`<div class="login-page">
+      <div class="guest-head">${homeHeader()}</div>
+      <div class="login-split">
+        <div class="login-photo"></div>
+        <div class="login-panel"><div class="login-box">
+          <img class="login-logo" src="assets/logo-black.svg" alt="Veyora"/>
+          <div class="login-eyebrow">Welcome back</div>
+          <h1>Sign in</h1>
+          <p class="login-sub">Sign in to your account</p>
+          <div class="auth-err" style="display:none"></div>
+          <form>
+            <label class="login-label" for="lg-email">Email</label>
+            <div class="login-field">
+              <input id="lg-email" name="email" autocomplete="username" placeholder="you@example.com" required autofocus /></div>
+            <div class="login-label-row">
+              <label class="login-label" for="lg-pass">Password</label>
+              <a class="login-forgot" href="#/forgot">Forgot password?</a>
+            </div>
+            <div class="login-field">
+              <input id="lg-pass" name="password" type="password" autocomplete="current-password" placeholder="••••••••" required />
+              <button type="button" class="login-eye" aria-label="Show password">${eyeIcon()}</button>
+            </div>
+            <button class="login-btn" type="submit">Sign in</button>
+          </form>
+          <div class="login-tagline">Veyora · Quality · Precision · Vision</div>
+          <div class="login-activate">First order with the new portal? <a href="#/activate">Activate your account</a></div>
+        </div></div>
+      </div>
+      <div class="login-foot">
+        <span>© ${new Date().getFullYear()} Veyora. All rights reserved.</span>
+        <nav>
+          <a>Privacy policy</a><i>|</i>
+          <a>Terms of service</a><i>|</i>
+          <a>Accessibility Statement</a><i>|</i>
+          <a href="${WHATSAPP}" target="_blank" rel="noopener">Talk to sales</a>
+        </nav>
+      </div>
+    </div>`);
+    const err = page.querySelector('.auth-err');
+    const eye = page.querySelector('.login-eye');
+    const pass = page.querySelector('#lg-pass');
+    eye.onclick = () => { pass.type = pass.type === 'password' ? 'text' : 'password'; };
+    page.querySelector('form').onsubmit = async (e) => {
       e.preventDefault();
       const f = e.target;
-      f.querySelector('button').disabled = true;
+      f.querySelector('.login-btn').disabled = true;
       err.style.display = 'none';
       try {
         const res = await API.post('/auth/login',
@@ -42,12 +72,17 @@ Routes['#/login'] = {
       } catch (ex) {
         err.textContent = ex.data?.message || ex.message;
         err.style.display = '';
-        f.querySelector('button').disabled = false;
+        f.querySelector('.login-btn').disabled = false;
       }
     };
-    el.appendChild(card);
+    el.appendChild(page);
   },
 };
+
+function eyeIcon() {
+  return `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+    <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg>`;
+}
 
 /** Shared two-step OTP flow (activation + forgot password). */
 function otpFlow(el, { title, requestPath, verifyPath, donePath, doneMsg }) {
