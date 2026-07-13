@@ -18,7 +18,9 @@
 }
 *{box-sizing:border-box;margin:0;padding:0}
 html{-webkit-text-size-adjust:100%}
-html{overflow-x:clip}
+/* never allow the page itself to pan sideways (inner scrollers unaffected) */
+html,body{overflow-x:clip}
+@supports not (overflow:clip){html,body{overflow-x:hidden}}
 body{font-family:'Montserrat',sans-serif;background:var(--bg);color:var(--ink);font-size:14px;line-height:1.45}
 a{color:var(--accent);text-decoration:none}
 button{font-family:inherit;cursor:pointer}
@@ -379,7 +381,8 @@ body.hm-dark{background:#0e0d0d;color:#fff}
   .hm-head{padding:16px 18px}
   .hm-logo img{width:140px}
   .hm-hero-inner{left:20px;right:20px;max-width:none}
-  .hm-collage{grid-template-columns:1fr 1fr;grid-auto-rows:minmax(180px,42vw)}
+  /* full-bleed margin must cancel the 6% mobile padding exactly (6/88) */
+  .hm-collage{grid-template-columns:1fr 1fr;grid-auto-rows:minmax(180px,42vw);margin:0 -6.82%}
   .hm-collage .c-a{grid-column:1/3;grid-row:auto/span 1}
   .hm-collage .c-b,.hm-collage .c-c,.hm-collage .c-d,.hm-collage .c-e,
   .hm-collage .c-g,.hm-collage .c-h,.hm-collage .c-i{grid-column:auto;grid-row:auto}
