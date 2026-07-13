@@ -16,9 +16,13 @@ function catalogUser() {
 const FILTER_GROUPS = [
   { key: 'types',     label: 'Lens type', options: ['Sunglasses', 'Eyeglasses'] },
   { key: 'genders',   label: 'Gender',    options: ['Men', 'Women', 'Kids'] },
-  { key: 'sizes',     label: 'Size',      options: [['M', 'Medium'], ['L', 'Large'], ['S', 'Small']] },
+  { key: 'sizes',     label: 'Size',      options: [['M', 'Medium'], ['L', 'Large'], ['Kids', 'Small']] },
   { key: 'materials', label: 'Material',  options: ['Metal', 'Plastic', 'Acetate'] },
 ];
+
+// The old site's public filter bar lists exactly these brands, in this order.
+const FILTER_BRANDS = ['Charlett', 'Essedue', 'Extreme', 'Kyme', 'Laura Ferre',
+  'Liv London', 'Puro', 'Spike'];
 
 Routes['#/products'] = {
   title: 'Products', optional: true,
@@ -49,17 +53,18 @@ Routes['#/products'] = {
       </div>
       <div class="bigsearch"><input placeholder="Search products..." value="${esc(F.search)}"/></div>
       <div class="fbar">
-        <div class="frow">
+        <div class="frow groups">
           ${FILTER_GROUPS.map(g => `
-            <span class="flabel">${g.label}</span>
-            ${g.options.map(o => Array.isArray(o)
-              ? chip(g.key, o[1], o[0])
-              : chip(g.key, o, o)).join('')}`).join('')}
-          ${chip('sale', 'sale', 'Sale', 'sale')}
+            <span class="fgroup">
+              <span class="flabel">${g.label}</span>
+              ${g.options.map(o => Array.isArray(o)
+                ? chip(g.key, o[1], o[0])
+                : chip(g.key, o, o)).join('')}
+            </span>
+            <span class="fdiv"></span>`).join('')}
           ${chip('isNew', 'new', 'New')}
-          ${chip('inStockOnly', 'stock', 'In stock')}
         </div>
-        <div class="frow" id="brandRow"><span class="flabel">Brand</span></div>
+        <div class="frow brands" id="brandRow"><span class="flabel">Brand</span></div>
       </div>
       <div id="grid" class="pgrid2 ${Catalog.density === 3 ? 'cols3' : ''}"></div>
       <div class="pager" id="pager"></div>`;
@@ -86,10 +91,11 @@ Routes['#/products'] = {
       });
     }
 
-    // brand chips from live data
+    // brand chips from live data, limited to the old site's public brand list
     API.get('/user/product-filter-data').then(fd => {
       const row = el.querySelector('#brandRow');
-      row.insertAdjacentHTML('beforeend', fd.brands.map(b =>
+      const brands = FILTER_BRANDS.filter(b => fd.brands.includes(b));
+      row.insertAdjacentHTML('beforeend', brands.map(b =>
         `<span class="fchip ${F.brands.includes(b) ? 'on' : ''}" data-g="brands" data-v="${esc(b)}">${esc(b)}</span>`).join(''));
       bindChips();
     }).catch(() => {});
