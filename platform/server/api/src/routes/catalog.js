@@ -87,14 +87,19 @@ async function getProducts(req, res) {
       (p.brand || '').toLowerCase().includes(search) ||
       p.variations.some(v => v.sku.toLowerCase().includes(search)));
   }
-  if (brands.length) items = items.filter(p => brands.includes(p.brand));
+  // Brand chips mirror the old site's brand *category*: Zoho splits some
+  // brands (e.g. "Charlett" vs "Charlett Sunglass") but the old site groups
+  // them under one name, which is present in `categories`. Fall back to the
+  // brand column for Zoho-only products not in the old-site export.
+  if (brands.length) items = items.filter(p =>
+    brands.some(b => p.categories.includes(b) || p.brand === b));
   if (categories.length) items = items.filter(p => categories.some(c => p.categories.includes(c)));
   for (const group of catGroups) {
     items = items.filter(p => group.some(c => p.categories.includes(c)));
   }
   if (sizes.length) items = items.filter(p => sizes.includes(p.size));
   if (saleOnly) items = items.filter(p => p.onSale);
-  if (newOnly) items = items.filter(p => (Date.now() - new Date(p.createdAt).getTime()) < 30 * 864e5);
+  if (newOnly) items = items.filter(p => p.categories.includes('New'));   // old site tags "New" as a category
   if (inStockOnly) items = items.filter(p => p.qty > 0);
 
   const popScore = p => (p.tags?.includes('best-seller') ? 4 : 0)
