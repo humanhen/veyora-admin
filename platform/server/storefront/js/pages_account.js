@@ -47,7 +47,7 @@ Routes['#/account'] = {
             <div class="summary-row"><span>Terms</span><b>Net ${u.paymentTerms || 30}</b></div>
             <div class="summary-row"><span>Balance</span><b>${money(u.balance)}</b></div>
             <div class="summary-row"><span>Prices in catalog</span>
-              <button class="btn ghost sm" id="hideP">${u.hidePrices ? 'Show' : 'Hide'}</button></div>
+              <button class="btn ghost sm" id="hideP">${Store.realHide ? 'Show' : 'Hide'}</button></div>
             <button class="btn danger sm" style="width:100%;margin-top:14px" id="logoutBtn">Sign out</button>
           </div></div>
 
@@ -82,8 +82,9 @@ Routes['#/account'] = {
     };
     el.querySelector('#hideP').onclick = async () => {
       const r = await API.post('/user/toggle-hide-prices');
-      Store.session.user.hidePrices = r.hidePrices;
-      toast(r.hidePrices ? 'Prices hidden' : 'Prices shown');
+      Store.realHide = r.hidePrices;      // the permanent account setting
+      applyPricingMode();
+      toast(r.hidePrices ? 'Prices hidden by default' : 'Prices shown by default');
       route();
     };
     el.querySelector('#logoutBtn').onclick = async () => {

@@ -32,8 +32,18 @@ img{max-width:100%}
 .topbar .logo{font-weight:800;letter-spacing:.24em;font-size:19px;color:#fff;cursor:pointer;user-select:none}
 .topbar .logo span{color:#bda0d3}
 .topbar .spacer{flex:1}
-.topbar .icon-btn{position:relative;background:none;border:none;color:#fff;font-size:20px;padding:8px;border-radius:8px}
+.topbar .icon-btn{position:relative;background:none;border:none;color:#fff;font-size:20px;padding:8px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
 .topbar .icon-btn:hover{background:rgba(255,255,255,.12)}
+.topbar .present-toggle svg{display:block}
+.topbar .present-toggle.on{background:#8f6db3;color:#fff}
+.topbar .present-toggle.on:hover{background:#9a78bf}
+/* presentation-mode banner (agent is hiding their prices to show customers) */
+.present-bar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;background:var(--ink-3);color:#fff;padding:8px 18px;font-size:13px;font-weight:600}
+.present-bar span{display:inline-flex;align-items:center;gap:8px}
+.present-bar svg{width:16px;height:16px;flex:none}
+.present-bar b{font-weight:700}
+.present-bar button{background:rgba(255,255,255,.16);color:#fff;border:1px solid rgba(255,255,255,.4);border-radius:999px;padding:5px 15px;font-weight:600;font-size:12.5px;cursor:pointer;white-space:nowrap}
+.present-bar button:hover{background:rgba(255,255,255,.28)}
 .topbar .badge{position:absolute;top:2px;right:0;background:#bda0d3;color:var(--ink);font-size:10px;font-weight:700;border-radius:999px;min-width:16px;height:16px;line-height:16px;text-align:center;padding:0 3px}
 .nav{position:sticky;top:58px;z-index:39;display:flex;gap:2px;background:#fff;border-bottom:1px solid var(--line);padding:0 12px;overflow-x:auto;scrollbar-width:none}
 .nav::-webkit-scrollbar{display:none}

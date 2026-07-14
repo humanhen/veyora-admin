@@ -19,12 +19,34 @@ function navFor(user) {
   return NAV.filter(n => !n.roles || n.roles.includes(user.role));
 }
 
+/** Effective hide-prices = the account setting OR presentation mode. Every
+    price on the site reads Store.session.user.hidePrices, so setting it here
+    hides prices everywhere with no other changes. */
+function applyPricingMode() {
+  if (Store.session?.user) Store.session.user.hidePrices = Store.realHide || Store.presenting;
+}
+
+function setPresenting(on) {
+  Store.presenting = on;
+  try { localStorage.setItem('veyora_present', on ? '1' : '0'); } catch { /* private mode */ }
+  applyPricingMode();
+  route();   // re-render current page with prices shown/hidden
+}
+
+function eyeIcon(off) {
+  return off
+    ? `<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M3 3l18 18"/><path d="M10.6 10.7a2 2 0 002.7 2.8"/><path d="M9.4 5.2A9.5 9.5 0 0112 5c5 0 9 4.5 10 7-.5 1.2-1.6 2.8-3.2 4.1M6.1 6.2C4 7.5 2.6 9.5 2 12c1 2.5 5 7 10 7 1.2 0 2.4-.3 3.4-.7"/></svg>`
+    : `<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>`;
+}
+
 function shell(contentEl, activeHash) {
   const u = Store.session.user;
   const el = h(`<div>
     <header class="topbar">
       <img class="logo" src="assets/logo-white.svg" alt="Veyora" style="width:126px;cursor:pointer" onclick="location.hash='#/products'"/>
       <div class="spacer"></div>
+      <button class="icon-btn present-toggle ${Store.presenting ? 'on' : ''}" data-present
+        title="${Store.presenting ? 'Presentation mode ON — prices hidden. Click to show prices.' : 'Presentation mode — hide your prices to show frames to customers'}">${eyeIcon(Store.presenting)}</button>
       <button class="icon-btn" title="Favourites" onclick="location.hash='#/favourites'">♡</button>
       <button class="icon-btn" title="Cart" onclick="location.hash='#/cart'">🛒<span class="badge" id="cartBadge" style="${Store.cartCount ? '' : 'display:none'}">${Store.cartCount}</span></button>
       <button class="icon-btn" title="My Account" onclick="location.hash='#/account'">👤</button>
@@ -32,8 +54,14 @@ function shell(contentEl, activeHash) {
     <nav class="nav">${navFor(u).map(n =>
       `<a href="${n.hash}" class="${activeHash.startsWith(n.hash) ? 'active' : ''}">${n.label}</a>`).join('')}
     </nav>
+    ${Store.presenting ? `<div class="present-bar">
+      <span>${eyeIcon(true)} <b>Presentation mode</b> — your prices are hidden, so you can show frames to customers.</span>
+      <button data-present-exit>Show my prices</button></div>` : ''}
     <main class="page"></main>
   </div>`);
+  el.querySelector('[data-present]').onclick = () => setPresenting(!Store.presenting);
+  const exitBtn = el.querySelector('[data-present-exit]');
+  if (exitBtn) exitBtn.onclick = () => setPresenting(false);
   el.querySelector('main').appendChild(contentEl);
   return el;
 }
@@ -56,6 +84,8 @@ async function restoreSession() {
   try {
     const me = await API.get('/user/get-user-detail', { noRedirect: true });
     Store.session = { user: me.user };
+    Store.realHide = !!me.user.hidePrices;
+    applyPricingMode();
     refreshCartBadge();
     return true;
   } catch { return false; }

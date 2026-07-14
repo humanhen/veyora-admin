@@ -65,6 +65,8 @@ Routes['#/login'] = {
         const res = await API.post('/auth/login',
           { email: f.email.value.trim(), password: f.password.value }, { noRedirect: true });
         Store.session = { user: res.user };
+        Store.realHide = !!res.user.hidePrices;
+        applyPricingMode();
         refreshCartBadge();
         const dest = sessionStorage.getItem('veyora_after_login') || '#/products';
         sessionStorage.removeItem('veyora_after_login');

@@ -39,4 +39,8 @@ const Store = {
   session: null,        // {user}
   cartCount: 0,
   favourites: new Set(),
+  // Presentation mode: temporarily hide the customer's own prices so they can
+  // show frames to their retail customers. Per-browser, not saved to the server.
+  presenting: (() => { try { return localStorage.getItem('veyora_present') === '1'; } catch { return false; } })(),
+  realHide: false,      // the account's actual hide-prices setting (from server)
 };
