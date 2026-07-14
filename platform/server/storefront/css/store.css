@@ -334,6 +334,29 @@ body.hm-dark{background:#0e0d0d;color:#fff}
 .fchip{display:inline-flex;align-items:center;height:24px;padding:0 8px;background:transparent;border:.667px solid #bdbdbd;border-radius:16px;font-size:13px;font-weight:600;color:#000;cursor:pointer;user-select:none;transition:all .12s}
 .fchip:hover{background:rgba(0,0,0,.04)}
 .fchip.on{background:#221F20;border-color:#221F20;color:#fff}
+
+/* mobile filters: button beside search opens a bottom sheet (old-site pattern) */
+.fbtn{display:none;align-items:center;gap:6px;height:42px;padding:3px 12px;background:transparent;border:1px solid rgba(34,31,32,.5);border-radius:10px;color:#221f20;font-size:14px;font-weight:500;letter-spacing:.5px;cursor:pointer;flex:0 0 auto}
+.fsheet-back{position:fixed;inset:0;z-index:70;background:rgba(0,0,0,.4);opacity:0;pointer-events:none;transition:opacity .25s}
+.fsheet-back.open{opacity:1;pointer-events:auto}
+.fsheet{position:absolute;left:0;right:0;bottom:0;background:#fff;border-radius:16px 16px 0 0;padding:16px 16px 90px;max-height:78vh;overflow-y:auto;transform:translateY(100%);transition:transform .3s}
+.fsheet-back.open .fsheet{transform:none}
+.fsheet-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
+.fsheet-head b{font-size:16px;font-weight:600}
+.fsheet-head button{background:none;border:none;font-size:14px;font-weight:500;color:#221f20;cursor:pointer;padding:4px 5px}
+.fsheet .fbar{background:none;border:none;border-radius:0;padding:0;margin:0}
+.fsheet .frow.groups{flex-direction:column;align-items:stretch;gap:12px}
+.fsheet .fdiv{display:none}
+.fsheet .fgroup{display:flex;flex-wrap:wrap;gap:6px}
+.fsheet .fgroup .flabel,.fsheet .frow.brands .flabel{width:100%;margin:0 0 2px}
+.fsheet .frow.brands{margin-top:12px;gap:6px}
+@media(max-width:760px){
+  .fbar{display:none}
+  .fsheet .fbar{display:block}
+  .fbtn{display:inline-flex}
+  .bigsearch{display:flex;gap:8px}
+  .bigsearch input{flex:1;min-width:0}
+}
 .pgrid2{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
 .pgrid2.cols3{grid-template-columns:repeat(3,1fr)}
 @media(max-width:1100px){.pgrid2,.pgrid2.cols3{grid-template-columns:repeat(3,1fr)}}

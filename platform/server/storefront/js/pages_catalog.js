@@ -51,7 +51,11 @@ Routes['#/products'] = {
           <button data-d="4" class="${Catalog.density === 4 ? 'on' : ''}" title="Smaller cards">••••</button>
         </div>
       </div>
-      <div class="bigsearch"><input placeholder="Search products..." value="${esc(F.search)}"/></div>
+      <div class="bigsearch">
+        <input placeholder="Search products..." value="${esc(F.search)}"/>
+        <button class="fbtn" type="button">${funnelIcon()} Filters</button>
+      </div>
+      <span id="fbarSlot"></span>
       <div class="fbar">
         <div class="frow groups">
           ${FILTER_GROUPS.map(g => `
@@ -66,8 +70,23 @@ Routes['#/products'] = {
         </div>
         <div class="frow brands" id="brandRow"><span class="flabel">Brand</span></div>
       </div>
+      <div class="fsheet-back">
+        <div class="fsheet">
+          <div class="fsheet-head"><b>Filters</b><button type="button" id="fsDone">Done</button></div>
+          <div class="fsheet-body"></div>
+        </div>
+      </div>
       <div id="grid" class="pgrid2 ${Catalog.density === 3 ? 'cols3' : ''}"></div>
       <div class="pager" id="pager"></div>`;
+
+    // mobile: the same filter bar moves into a bottom sheet (old-site pattern)
+    const fbar = el.querySelector('.fbar');
+    const sheetBack = el.querySelector('.fsheet-back');
+    const openSheet = () => { sheetBack.querySelector('.fsheet-body').appendChild(fbar); sheetBack.classList.add('open'); };
+    const closeSheet = () => { sheetBack.classList.remove('open'); el.querySelector('#fbarSlot').after(fbar); };
+    el.querySelector('.fbtn').onclick = openSheet;
+    el.querySelector('#fsDone').onclick = closeSheet;
+    sheetBack.addEventListener('click', e => { if (e.target === sheetBack) closeSheet(); });
 
     const grid = el.querySelector('#grid');
     const pager = el.querySelector('#pager');
@@ -127,6 +146,11 @@ Routes['#/products'] = {
     await load();
   },
 };
+
+function funnelIcon() {
+  return `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+    <path d="M3 5h18l-7 8v5l-4 2v-7L3 5z"/></svg>`;
+}
 
 function sellerBadge(p) {
   if ((p.tags || []).includes('best-seller')) {
