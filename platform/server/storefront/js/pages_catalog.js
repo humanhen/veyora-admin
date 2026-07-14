@@ -50,10 +50,10 @@ Routes['#/products'] = {
           <button data-d="3" class="${Catalog.density === 3 ? 'on' : ''}" title="Larger cards">•••</button>
           <button data-d="4" class="${Catalog.density === 4 ? 'on' : ''}" title="Smaller cards">••••</button>
         </div>
+        <button class="fbtn" type="button">${funnelIcon()} Filters</button>
       </div>
       <div class="bigsearch">
         <input placeholder="Search products..." value="${esc(F.search)}"/>
-        <button class="fbtn" type="button">${funnelIcon()} Filters</button>
       </div>
       <span id="fbarSlot"></span>
       <div class="fbar">

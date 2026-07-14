@@ -354,14 +354,14 @@ body.hm-dark{background:#0e0d0d;color:#fff}
   .fbar{display:none}
   .fsheet .fbar{display:block}
   .fbtn{display:inline-flex}
-  .bigsearch{display:flex;gap:8px}
-  .bigsearch input{flex:1;min-width:0}
+  .density{display:none}
+  .prod-head h1{font-size:16px}
 }
 .pgrid2{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
 .pgrid2.cols3{grid-template-columns:repeat(3,1fr)}
 @media(max-width:1100px){.pgrid2,.pgrid2.cols3{grid-template-columns:repeat(3,1fr)}}
 @media(max-width:840px){.pgrid2,.pgrid2.cols3{grid-template-columns:repeat(2,1fr)}}
-@media(max-width:480px){.pgrid2,.pgrid2.cols3{grid-template-columns:1fr}}
+@media(max-width:480px){.pgrid2,.pgrid2.cols3{grid-template-columns:1fr 1fr}}
 .pcard2{position:relative;background:#fff;border:none;border-radius:2px;cursor:pointer;display:flex;flex-direction:column;transition:box-shadow .15s}
 .pcard2:hover{box-shadow:var(--shadow)}
 .pcard2 .seller{position:absolute;top:10px;left:10px;z-index:2;font-size:8px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;padding:2.8px 6.4px;border-radius:3px}
@@ -391,6 +391,10 @@ body.hm-dark{background:#0e0d0d;color:#fff}
 .guest-head .hm-head{position:static;background:var(--ink)}
 .page.prod-page{max-width:none;padding:18px 24px 90px;background:var(--bg);color:var(--ink)}
 .page:has(.prod-page-inner){max-width:none;padding-left:24px;padding-right:24px}
+@media(max-width:760px){
+  .page.prod-page{padding:12px 12px 90px}
+  .page:has(.prod-page-inner){padding-left:12px;padding-right:12px}
+}
 
 @media(max-width:900px){
   .hm-hero-inner h1{font-size:44px;letter-spacing:3px}
