@@ -339,8 +339,10 @@ body.hm-dark{background:#0e0d0d;color:#fff}
 .fbtn{display:none;align-items:center;gap:6px;height:42px;padding:3px 12px;background:transparent;border:1px solid rgba(34,31,32,.5);border-radius:10px;color:#221f20;font-size:14px;font-weight:500;letter-spacing:.5px;cursor:pointer;flex:0 0 auto}
 .fsheet-back{position:fixed;inset:0;z-index:70;background:rgba(0,0,0,.4);opacity:0;pointer-events:none;transition:opacity .25s}
 .fsheet-back.open{opacity:1;pointer-events:auto}
-.fsheet{position:absolute;left:0;right:0;bottom:0;background:#fff;border-radius:16px 16px 0 0;padding:16px 16px 90px;max-height:78vh;overflow-y:auto;transform:translateY(100%);transition:transform .3s}
-.fsheet-back.open .fsheet{transform:none}
+/* pinned to the bottom, always in place — the whole overlay fades in via the
+   backdrop's opacity, so there is no transform transition that could strand
+   the panel off-screen if animation is throttled/skipped (bulletproof) */
+.fsheet{position:absolute;left:0;right:0;bottom:0;background:#fff;border-radius:16px 16px 0 0;padding:16px 16px 90px;max-height:82vh;overflow-y:auto}
 .fsheet-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
 .fsheet-head b{font-size:16px;font-weight:600}
 .fsheet-head button{background:none;border:none;font-size:14px;font-weight:500;color:#221f20;cursor:pointer;padding:4px 5px}

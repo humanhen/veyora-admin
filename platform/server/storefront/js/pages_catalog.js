@@ -82,8 +82,16 @@ Routes['#/products'] = {
     // mobile: the same filter bar moves into a bottom sheet (old-site pattern)
     const fbar = el.querySelector('.fbar');
     const sheetBack = el.querySelector('.fsheet-back');
-    const openSheet = () => { sheetBack.querySelector('.fsheet-body').appendChild(fbar); sheetBack.classList.add('open'); };
-    const closeSheet = () => { sheetBack.classList.remove('open'); el.querySelector('#fbarSlot').after(fbar); };
+    const openSheet = () => {
+      sheetBack.querySelector('.fsheet-body').appendChild(fbar);
+      sheetBack.classList.add('open');
+      document.body.style.overflow = 'hidden';
+    };
+    const closeSheet = () => {
+      sheetBack.classList.remove('open');
+      document.body.style.overflow = '';
+      el.querySelector('#fbarSlot').after(fbar);
+    };
     el.querySelector('.fbtn').onclick = openSheet;
     el.querySelector('#fsDone').onclick = closeSheet;
     sheetBack.addEventListener('click', e => { if (e.target === sheetBack) closeSheet(); });
