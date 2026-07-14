@@ -5,8 +5,8 @@
 (veyora_site) {
 	encode gzip
 
-	# CSS/JS always revalidate (cheap 304s) so deploys reach browsers instantly
-	@assets path *.css *.js
+	# CSS/JS/HTML always revalidate (cheap 304s) so deploys reach browsers instantly
+	@assets path *.css *.js *.html /
 	header @assets Cache-Control "no-cache"
 
 	# API
