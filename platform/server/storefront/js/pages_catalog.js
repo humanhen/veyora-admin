@@ -237,8 +237,27 @@ function productCard(p) {
     if (catalogUser().guest) { location.hash = '#/login'; return; }
     productModal(p);
   };
-  card.onclick = () => productModal(p);
+  // Old-site behavior: guests clicking the card get the image viewer directly
+  // (arrows through the photos); customers get the ordering modal.
+  card.onclick = () => {
+    if (catalogUser().guest) {
+      const { gallery, colorAt } = productGallery(p);
+      imageLightbox(gallery, 0, p.name, colorAt);
+    } else productModal(p);
+  };
   return card;
+}
+
+/** Product + variation images, deduped, with a color caption per index. */
+function productGallery(p) {
+  const gallery = [...new Set([...(p.images || []),
+    ...p.variations.map(v => v.image).filter(Boolean)])];
+  const colorAt = idx => {
+    const src = gallery[idx];
+    const v = p.variations.find(x => x.image === src);
+    return v ? (v.color || v.sku) : '';
+  };
+  return { gallery, colorAt };
 }
 
 function productModal(p) {
@@ -252,13 +271,7 @@ function productModal(p) {
     ['Size', p.size], ['EAN', p.ean],
   ].filter(x => x[1]);
   // gallery = product images + any per-variation images (deduped)
-  const gallery = [...new Set([...(p.images || []),
-    ...p.variations.map(v => v.image).filter(Boolean)])];
-  const colorAt = idx => {
-    const src = gallery[idx];
-    const v = p.variations.find(x => x.image === src);
-    return v ? (v.color || v.sku) : '';
-  };
+  const { gallery, colorAt } = productGallery(p);
   const m = modal(`
     <div class="pdetail">
       <div class="pdetail-img">
