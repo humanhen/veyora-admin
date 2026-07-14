@@ -5,6 +5,17 @@
 (veyora_site) {
 	encode gzip
 
+	# Security headers (defense-in-depth). HSTS only meaningful over TLS but
+	# harmless on :80; browsers ignore it on plain HTTP.
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "SAMEORIGIN"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-X-Powered-By
+		-Server
+	}
+
 	# CSS/JS/HTML always revalidate (cheap 304s) so deploys reach browsers instantly
 	@assets path *.css *.js *.html /
 	header @assets Cache-Control "no-cache"

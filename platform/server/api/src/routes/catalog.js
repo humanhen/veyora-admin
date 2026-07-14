@@ -69,7 +69,12 @@ async function getProducts(req, res) {
   // grouped filters (AND across groups, OR within a group) like the old site
   const catGroups = ['types', 'genders', 'materials']
     .map(k => [].concat(b[k] || []).filter(Boolean)).filter(g => g.length);
-  const sizes = [].concat(b.sizes || []).filter(Boolean);
+  // Accept both the mapped size names the UI sends (Medium/Large/Small) and the
+  // raw chip labels (M/L/Kids) for robustness against alt clients.
+  const SIZE_ALIAS = { m: 'Medium', l: 'Large', s: 'Small', kids: 'Small',
+    medium: 'Medium', large: 'Large', small: 'Small' };
+  const sizes = [].concat(b.sizes || []).filter(Boolean)
+    .map(x => SIZE_ALIAS[String(x).toLowerCase()] || x);
   const saleOnly = b.sale === true || b.sale === 'true';
   const newOnly = b.isNew === true || b.isNew === 'true';
   const inStockOnly = b.inStockOnly === true || b.inStockOnly === 'true';
@@ -105,10 +110,16 @@ async function getProducts(req, res) {
   const popScore = p => (p.tags?.includes('best-seller') ? 4 : 0)
     + (p.tags?.includes('good-seller') ? 2 : 0)
     + (p.images?.length ? 1 : 0);
+  // A card shows a photo if the product OR any variation has an image; products
+  // with none render a placeholder, so keep them off the front of the browse
+  // view (default popular/newest sorts only — explicit price/name sorts stay pure).
+  const noPhoto = p => (p.images?.length || p.variations?.some(v => v.image)) ? 0 : 1;
   const sorters = {
-    popular: (a, b2) => (popScore(b2) - popScore(a))
+    popular: (a, b2) => (noPhoto(a) - noPhoto(b2))
+      || (popScore(b2) - popScore(a))
       || (new Date(b2.createdAt) - new Date(a.createdAt)),
-    newest: (a, b2) => new Date(b2.createdAt) - new Date(a.createdAt),
+    newest: (a, b2) => (noPhoto(a) - noPhoto(b2))
+      || (new Date(b2.createdAt) - new Date(a.createdAt)),
     price_asc: (a, b2) => (a.price ?? 0) - (b2.price ?? 0),
     price_desc: (a, b2) => (b2.price ?? 0) - (a.price ?? 0),
     name: (a, b2) => a.name.localeCompare(b2.name),

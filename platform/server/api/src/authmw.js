@@ -7,7 +7,9 @@ if (!SECRET) throw new Error('JWT_SECRET is required');
 
 const ACCESS_TTL = '30m';
 const REFRESH_DAYS = 30;
-const COOKIE_OPTS = { httpOnly: true, sameSite: 'lax', secure: false, path: '/' };
+// Secure flag on when served over HTTPS (PUBLIC_URL set to https, i.e. prod).
+const SECURE_COOKIES = /^https:/i.test(process.env.PUBLIC_URL || '');
+const COOKIE_OPTS = { httpOnly: true, sameSite: 'lax', secure: SECURE_COOKIES, path: '/' };
 
 export function signAccess(user) {
   return jwt.sign({ sub: user.id, role: user.role }, SECRET, { expiresIn: ACCESS_TTL });
