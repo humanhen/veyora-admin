@@ -101,6 +101,34 @@ for all operations.
   INGEST_KEY dropped from /opt/veyora/.env, API rebuilt; POST /api/ingest/*
   now 404s even with the old key).
 
+## UPDATE 2026-07-13 — parity sweep + mobile hardening
+- **Login page** rebuilt as an exact old-site /my-account replica (split
+  photo left using the old site's login-hero-v3.jpg, warm-white panel right,
+  eye toggle, WhatsApp float). Forgot-password now also activates pending
+  users (so the removed "activate" link isn't needed).
+- **Filter bar** matched to old site (M/L/Kids sizes, only "New", 8 public
+  brands, measured chip/divider styling). Products page h1/badge/search/
+  order-bar remeasured.
+- **Mobile bulletproofing** (audited at 375px across home, products, modal,
+  login, orders, cart, account, backorders, returns, favourites, reorder —
+  scrollW==viewport everywhere, no page pan, no broken images):
+  - collage full-bleed margin was overflowing → page could pan sideways;
+    fixed + `overflow-x:clip` on html/body (hidden fallback).
+  - **Mobile filters** = old-site pattern: chip bar hidden, a "Filters"
+    button (in the header row) opens a bottom sheet holding the same chip
+    bar (groups stacked). The sheet is a fade-in overlay pinned to the
+    bottom — deliberately NO transform-slide, because a throttled/skipped
+    transition was stranding it off-screen. Same `.fbar` node moves in/out
+    so filter state + bindings stay live. Body scroll locks while open.
+  - Products mobile: 2-col grid, 16px title, density toggle hidden, 12px pad.
+- **Caddy**: `Cache-Control: no-cache` on *.css/*.js so deploys reach
+  browsers immediately (ETag revalidation).
+- Verified core commerce on desktop: product modal → qty → add-to-cart →
+  cart line + total + badge → remove-from-cart all work.
+- Parity caveat unchanged: signed-in customer pages (cart/checkout/orders)
+  have no old-site reference to measure against (need a customer login on
+  veyora.com); they're verified functional + overflow-clean, not pixel-matched.
+
 ## OPEN ITEMS
 1. **SMTP**: need a Google App password for info@veyora.com so activation /
    order emails send (see RUNBOOK). Customers are imported as `pending` and
