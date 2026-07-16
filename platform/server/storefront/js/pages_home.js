@@ -72,7 +72,7 @@ Routes['#/'] = Routes['#/home'] = {
       <section class="hm-sec hm-map-sec">
         <div class="hm-label hm-center">Worldwide reach</div>
         <h2 class="hm-h2">Global Distribution</h2>
-        <img class="hm-map" src="assets/global-distribution-map-B9WDMC-1.webp" alt="Veyora global distribution map" loading="lazy"/>
+        <img class="hm-map" src="assets/global-distribution-map-B9WDMC-2.webp" alt="Veyora global distribution map" loading="lazy"/>
       </section>
 
       <!-- ============ collections ============ -->
