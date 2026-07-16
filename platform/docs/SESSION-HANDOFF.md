@@ -205,3 +205,18 @@ veyora.design and verified live (measured via DOM, mobile 375px + desktop).
   explicitly kept per his message).
 - Avichai's 7:01-7:13pm notes are about the **AmeriSelect USA app**, not
   veyora — tracked separately, nothing done here.
+
+## UPDATE 2026-07-16 — Zoho live sync CONNECTED and running
+- Credentials installed in /opt/veyora/.env (self client under
+  info@veyora.com, org 875980504, scope ZohoInventory.FullAccess.all).
+- First sync: 3,983 Zoho items / 3,982 matched / 264 stock corrections /
+  0 price changes / 1 new SKU auto-created (95011 "WARRANTY KYME") /
+  0 local-only SKUs. 14s. Runs every 30 min; summary in settings.zohoSync,
+  each run in audit_log.
+- The 264 stock corrections = drift since the July-10 CSV import — this was
+  the "copied data isn't ready" complaint; it can't drift anymore.
+- Zoho hygiene worth doing (their side): mark WARRANTY KYME + test items
+  (ANDRII_TEST_0001, "111") Inactive in Zoho so they stay off the site —
+  local deactivation gets overwritten because Zoho is authoritative.
+- Still open: order push (site orders → Zoho sales orders) not built;
+  needed only if they fulfill/account out of Zoho during dual-running.
