@@ -160,3 +160,48 @@ for all operations.
 - veyora.com admin: Info@veyora.com · Zoho: info@veyora.com (org 875980504)
 - IONOS VPS: root@209.46.125.226 (key auth; rotate password)
 - Platform admin: info@veyora.com (role admin)
+
+## UPDATE 2026-07-15 — feedback round from the Veyora Development group
+Source: WhatsApp (Sam / Yehuda / Avichai notes 7/14-7/15). All deployed to
+veyora.design and verified live (measured via DOM, mobile 375px + desktop).
+- **Liv London photos fixed server-side**: the 14 new models' raw 6000x4000
+  studio shots (3.7MB each; 170 files incl. the admin-uploaded product
+  copies) were square-cropped around the frame (bg-aware bbox, 7% margin,
+  real backdrop kept — NOT white-padded) and capped at 2000px/~100KB.
+  This was Yehuda's "pictures very small + viewer closes" report: 24MP
+  images were letterboxing tiny in the square boxes and blowing up mobile
+  Safari. Originals: uploads volume `products-orig-liv/` (~248MB).
+- **No quantities anywhere** (Sam: "Copy the web. No quantities please"):
+  stock pills now say just "in stock"; cart over-order note de-numbered.
+- **Per-item price reveal** (Sam): presentation/hidden-price mode now shows
+  a "Show price" eye-button per product modal; prices render pre-hidden
+  (.pr-hidden) and toggle per item. Global eye toggle still enters/exits.
+- **Swipe galleries**: bindSwipe() (ui.js) on modal stage + fullscreen
+  viewer; drag-click suppression so a swipe never triggers zoom/close.
+- **Notify me** reflects true subscription state (GET /user/restock-notify
+  marks buttons; press flips to "✓ We'll email you").
+- **Mobile fit**: modal color rows wrap 2 lines; order detail Price column
+  hides <760px (Shipped→"Shp."); modal padding tightened. No page pans.
+- **Returns exchange**: return_items.exchange_sku (migration 0003, applied
+  live) end-to-end — form asks "Exchange for — SKU", API stores, customer
+  list + admin return view show "exchange → SKU". Admin snapshot/upsert
+  round-trips it.
+- **Home**: motion video autoplays on scroll (IO + scroll fallback — IO
+  alone can be throttled; plays/pauses on visibility). Footer links
+  centered on mobile. Mobile home header = OG copy: centered 150px
+  transparent logo only (measured veyora.com: toolbar justify center,
+  logo 150px, bg transparent; pill/account hidden <=820px, home only).
+- **Misc**: Favourites→Favorites (labels only, hashes/API unchanged); nav
+  auto-scrolls active tab into view; modal stage borderless w/ multiply
+  blend; tap-highlight + user-select killed on controls (iPad blue copy
+  sign).
+- Verification note: logged-in flows checked with a server-minted 45-min
+  JWT for test customer u_e35faedcf84e (no password entry); cookie cleared
+  after. Return-submit UI not exercised end-to-end (permission classifier);
+  storage path proven via rolled-back SQL insert.
+- **Still open from the group chat**: Zoho API connection (Sam: "connect it
+  to Zoho first of all... APIs") — needs Zoho OAuth credentials/decision;
+  and Sam's broader "cleaner, more international" design pass (base layout
+  explicitly kept per his message).
+- Avichai's 7:01-7:13pm notes are about the **AmeriSelect USA app**, not
+  veyora — tracked separately, nothing done here.

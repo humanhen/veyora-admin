@@ -154,18 +154,28 @@ Routes['#/'] = Routes['#/home'] = {
     dots.forEach(d => d.onclick = () => show(parseInt(d.dataset.dot, 10)));
 
     /* the motion video starts by itself when scrolled into view — no play
-       button. iOS Low-Power blocks play() until any touch, so retry on the
-       first touch as well. */
+       button. IO + a plain scroll fallback (some browsers throttle IO), and
+       a touch retry because iOS Low-Power blocks play() until any gesture. */
     const vid = el.querySelector('.hm-video-sec video');
     vid.muted = true;   // belt & braces: some browsers ignore the attribute
-    const tryPlay = () => vid.play().catch(() => {});
-    const io = new IntersectionObserver(entries => {
-      entries.forEach(en => { if (en.isIntersecting) tryPlay(); else vid.pause(); });
-    }, { threshold: 0.25 });
-    io.observe(vid);
-    document.addEventListener('touchend', function once() {
-      if (vid.paused && vid.getBoundingClientRect().top < innerHeight) tryPlay();
-      if (!document.body.contains(vid)) document.removeEventListener('touchend', once);
-    }, { passive: true });
+    const inView = () => {
+      const r = vid.getBoundingClientRect();
+      return r.top < innerHeight * 0.85 && r.bottom > innerHeight * 0.15;
+    };
+    const sync = () => {
+      if (!document.body.contains(vid)) {
+        removeEventListener('scroll', sync);
+        removeEventListener('touchend', sync);
+        return;
+      }
+      if (inView()) { if (vid.paused) vid.play().catch(() => {}); }
+      else if (!vid.paused) vid.pause();
+    };
+    try {
+      new IntersectionObserver(sync, { threshold: 0.25 }).observe(vid);
+    } catch { /* very old browser */ }
+    addEventListener('scroll', sync, { passive: true });
+    addEventListener('touchend', sync, { passive: true });
+    sync();
   },
 };
