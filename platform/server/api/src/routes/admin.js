@@ -10,11 +10,23 @@ import { SIMPLE_COLLECTIONS, rowToJs, jsToRow } from '../shape.js';
 import { sendMail } from '../mail.js';
 import { setPasswordLink } from '../authmw.js';
 import { welcomeActivation } from '../emails.js';
+import { syncZohoInventory, zohoStatus } from '../zoho.js';
 
 const r = Router();
 r.use(requireAuth('admin', 'warehouse'));
 
 const UPLOADS = process.env.UPLOADS_DIR || '/uploads';
+
+/* ============================ zoho sync ============================ */
+
+r.get('/zoho/status', async (req, res, next) => {
+  try { res.json(await zohoStatus()); } catch (e) { next(e); }
+});
+// run a sync now; ?dryRun=1 reports what would change without writing
+r.post('/zoho/sync', async (req, res, next) => {
+  try { res.json(await syncZohoInventory({ dryRun: req.query.dryRun === '1' })); }
+  catch (e) { next(e); }
+});
 
 /* ============================ snapshot ============================ */
 

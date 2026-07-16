@@ -9,6 +9,7 @@ import orderRoutes from './routes/orders.js';
 import accountRoutes from './routes/account.js';
 import agentRoutes from './routes/agent.js';
 import adminRoutes from './routes/admin.js';
+import { startZohoSchedule } from './zoho.js';
 
 const app = express();
 app.set('trust proxy', true);
@@ -54,3 +55,4 @@ app.use((err, req, res, next) => {
 
 const port = process.env.PORT || 3000;
 app.listen(port, () => console.log(`veyora api listening on :${port}`));
+startZohoSchedule();

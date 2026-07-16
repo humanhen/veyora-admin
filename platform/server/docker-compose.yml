@@ -31,6 +31,12 @@ services:
       SMTP_FROM: ${SMTP_FROM:-Veyora <info@veyora.com>}
       PUBLIC_URL: ${PUBLIC_URL:-http://209.46.125.226}
       INGEST_KEY: ${INGEST_KEY:-}
+      ZOHO_CLIENT_ID: ${ZOHO_CLIENT_ID:-}
+      ZOHO_CLIENT_SECRET: ${ZOHO_CLIENT_SECRET:-}
+      ZOHO_REFRESH_TOKEN: ${ZOHO_REFRESH_TOKEN:-}
+      ZOHO_ORG_ID: ${ZOHO_ORG_ID:-875980504}
+      ZOHO_DC: ${ZOHO_DC:-com}
+      ZOHO_SYNC_MINUTES: ${ZOHO_SYNC_MINUTES:-30}
     volumes:
       - uploads:/uploads
       - ./data/import:/import

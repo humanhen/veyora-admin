@@ -53,7 +53,7 @@ then `cd /opt/veyora && docker compose up -d api`.
   `sh platform/server/deploy.sh`
 - **Restart everything:** `ssh veyora-vps "cd /opt/veyora && docker compose restart"`
 - **Logs:** `ssh veyora-vps "cd /opt/veyora && docker compose logs -f api"`
-- **Re-import a fresh Zoho item export:** copy the CSV to
+- **Re-import a fresh Zoho item export (manual fallback):** copy the CSV to
   `/opt/veyora/data/import/Item.csv`, then
   `docker compose exec -T api node scripts/import-zoho.mjs`
   (idempotent — updates by SKU; run any time to resync stock from Zoho).
@@ -61,6 +61,49 @@ then `cd /opt/veyora && docker compose up -d api`.
   `/opt/veyora/data/import/photos/`, then
   `docker compose exec -T api node scripts/import-photos.mjs`
   (files named `<variation sku>.jpg` also become that color's image).
+
+## Live Zoho Inventory sync (API)
+
+The API syncs stock/prices/active status straight from Zoho Inventory every
+30 minutes (`api/src/zoho.js`) — no more CSV exports — as soon as it has
+credentials. Zoho stays authoritative for the same fields as the CSV import
+(price, purchase price, stock on hand, active status). Locally curated
+categories/colors/images/attributes are never touched. New Zoho SKUs are
+created automatically (with item details pulled per new model).
+
+**One-time setup (~5 minutes, needs the info@veyora.com Zoho login):**
+1. Open https://api-console.zoho.com → **Add Client** → **Self Client**.
+   Copy the *Client ID* and *Client Secret*.
+2. In the Self Client's **Generate Code** tab enter scope
+   `ZohoInventory.FullAccess.all` (or the minimum:
+   `ZohoInventory.items.READ,ZohoInventory.settings.READ`), duration
+   10 minutes, any description → **Create** → copy the code.
+3. Within those 10 minutes, exchange the code for a refresh token (Git Bash):
+   ```
+   curl -s -X POST "https://accounts.zoho.com/oauth/v2/token" \
+     -d grant_type=authorization_code \
+     -d client_id=CLIENT_ID -d client_secret=CLIENT_SECRET \
+     -d code=PASTE_CODE_HERE
+   ```
+   Copy `refresh_token` from the response (it does not expire).
+4. Add to `/opt/veyora/.env`:
+   ```
+   ZOHO_CLIENT_ID=...
+   ZOHO_CLIENT_SECRET=...
+   ZOHO_REFRESH_TOKEN=...
+   ```
+   Optional overrides: `ZOHO_ORG_ID` (default 875980504), `ZOHO_DC`
+   (default `com`), `ZOHO_SYNC_MINUTES` (default 30).
+5. `ssh veyora-vps "cd /opt/veyora && docker compose up -d api"` — the api
+   log should show `[zoho] live sync enabled`.
+
+**Endpoints (admin session):**
+- `GET  /api/admin/zoho/status` — configured? + last sync summary.
+- `POST /api/admin/zoho/sync?dryRun=1` — report what would change, write nothing.
+- `POST /api/admin/zoho/sync` — sync now.
+The last sync summary is stored in settings (`data.zohoSync`) and every run
+lands in the audit log. Order push (platform → Zoho sales orders) is NOT
+built — decide whether it's needed before Zoho decommission.
 
 ## Backups
 
