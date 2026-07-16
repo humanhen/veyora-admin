@@ -99,7 +99,8 @@ r.get('/snapshot', async (req, res, next) => {
               eligible: b.eligible, convertedOrderId: b.converted_order_id,
               createdAt: b.created_at, items: b.items }));
     out.returns = await nestedNumberSnapshot('returns', 'return_items', 'return_id',
-      `'sku', i.sku, 'name', i.name, 'qty', i.qty, 'price', i.price, 'resolution', i.resolution`,
+      `'sku', i.sku, 'name', i.name, 'qty', i.qty, 'price', i.price, 'resolution', i.resolution,
+       'exchangeSku', i.exchange_sku`,
       x => ({ id: x.id, number: x.number, customerId: x.customer_id, orderNumber: x.order_number,
               status: x.status, notes: x.notes, createdAt: x.created_at, items: x.items }));
     const { rows: settingsRow } = await q(`select data from settings where id=1`);
@@ -258,10 +259,11 @@ async function upsertReturn(c, x) {
   await c.query(`delete from return_items where return_id=$1`, [x.id]);
   for (const i of (x.items || [])) {
     await c.query(`
-      insert into return_items (return_id, sku, name, qty, price, resolution)
-      values ($1,$2,$3,$4,$5,$6)`,
+      insert into return_items (return_id, sku, name, qty, price, resolution, exchange_sku)
+      values ($1,$2,$3,$4,$5,$6,$7)`,
       [x.id, String(i.sku), i.name || '', parseInt(i.qty, 10) || 0, num(i.price) ?? 0,
-       ['credit', 'exchange'].includes(i.resolution) ? i.resolution : 'credit']);
+       ['credit', 'exchange'].includes(i.resolution) ? i.resolution : 'credit',
+       i.exchangeSku || null]);
   }
 }
 

@@ -298,7 +298,8 @@ r.get('/returns', async (req, res) => {
   const { rows } = await q(`
     select rt.*, coalesce((
       select json_agg(json_build_object('sku', ri.sku, 'name', ri.name, 'qty', ri.qty,
-                                        'price', ri.price, 'resolution', ri.resolution))
+                                        'price', ri.price, 'resolution', ri.resolution,
+                                        'exchangeSku', ri.exchange_sku))
         from return_items ri where ri.return_id = rt.id), '[]') as items
       from returns rt where rt.customer_id=$1 order by rt.created_at desc`, [req.user.id]);
   res.json({
@@ -333,12 +334,13 @@ r.post('/returns', async (req, res, next) => {
         const { rows: v } = await c.query(`
           select v.sku, p.name, coalesce(v.sale_price, v.price, p.sale_price, p.price, 0) as price
             from variations v join products p on p.id=v.product_id where v.sku=$1`, [it.sku]);
+        const resolution = ['credit', 'exchange'].includes(it.resolution) ? it.resolution : 'credit';
         await c.query(`
-          insert into return_items (return_id, sku, name, qty, price, resolution)
-          values ($1,$2,$3,$4,$5,$6)`,
+          insert into return_items (return_id, sku, name, qty, price, resolution, exchange_sku)
+          values ($1,$2,$3,$4,$5,$6,$7)`,
           [ret[0].id, it.sku, v[0]?.name || it.name || '', Math.max(1, parseInt(it.qty, 10) || 1),
-           it.price ?? v[0]?.price ?? 0,
-           ['credit', 'exchange'].includes(it.resolution) ? it.resolution : 'credit']);
+           it.price ?? v[0]?.price ?? 0, resolution,
+           resolution === 'exchange' ? String(it.exchangeSku || '').slice(0, 40) || null : null]);
       }
       return ret[0];
     });

@@ -29,7 +29,8 @@ function pill(status) {
   return `<span class="pill ${esc(String(status).replace(/\s+/g, ''))}">${esc(status)}</span>`;
 }
 function stockPill(v) {
-  if (v.qty > 0) return `<span class="stockpill in">${v.qty} in stock</span>`;
+  // Old-site behavior: availability only, never the quantity number.
+  if (v.qty > 0) return `<span class="stockpill in">in stock</span>`;
   if (v.stockStatus === 'in production') return `<span class="stockpill prod">in production</span>`;
   return `<span class="stockpill out">out of stock</span>`;
 }
@@ -79,6 +80,33 @@ function debounce(fn, ms) {
   return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); };
 }
 
+/** Horizontal finger-swipe / mouse-drag on a gallery stage.
+    onSwipe(+1|-1). Vertical scrolling stays native (touch-action: pan-y). */
+function bindSwipe(el, onSwipe) {
+  let x0 = null, y0 = null, swiped = false;
+  el.style.touchAction = 'pan-y';
+  el.addEventListener('pointerdown', e => {
+    if (e.button > 0) return;
+    x0 = e.clientX; y0 = e.clientY; swiped = false;
+  });
+  el.addEventListener('pointermove', e => {
+    if (x0 == null || swiped) return;
+    const dx = e.clientX - x0, dy = e.clientY - y0;
+    if (Math.abs(dx) > 42 && Math.abs(dx) > Math.abs(dy) * 1.4) {
+      swiped = true;
+      onSwipe(dx < 0 ? 1 : -1);
+    }
+  });
+  const end = () => { x0 = null; };
+  el.addEventListener('pointerup', end);
+  el.addEventListener('pointercancel', end);
+  // a drag must not fire the element's click (open zoom / close overlay)
+  el.addEventListener('click', e => {
+    if (swiped) { e.stopPropagation(); e.preventDefault(); swiped = false; }
+  }, true);
+  el.addEventListener('dragstart', e => e.preventDefault());
+}
+
 /* Fullscreen image gallery (arrows + dots + caption), like the old veyora.com. */
 function imageLightbox(images, startIndex, title, colorFor) {
   if (!images || !images.length) return;
@@ -108,6 +136,7 @@ function imageLightbox(images, startIndex, title, colorFor) {
   const prev = back.querySelector('.prev'), next = back.querySelector('.next');
   if (prev) prev.onclick = e => { e.stopPropagation(); show(i - 1); };
   if (next) next.onclick = e => { e.stopPropagation(); show(i + 1); };
+  if (images.length > 1) bindSwipe(back.querySelector('.lb-stage'), d => show(i + d));
   dots.forEach(d => d.onclick = e => { e.stopPropagation(); show(parseInt(d.dataset.k, 10)); });
   back.querySelector('.lb-close').onclick = () => close();
   back.addEventListener('click', e => { if (e.target === back) close(); });

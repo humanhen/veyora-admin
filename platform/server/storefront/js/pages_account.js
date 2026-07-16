@@ -96,20 +96,20 @@ Routes['#/account'] = {
 };
 
 Routes['#/favourites'] = {
-  title: 'Favourites',
+  title: 'Favorites',
   async render(el) {
-    el.innerHTML = `<h1 class="pagetitle" style="display:flex;justify-content:space-between;align-items:center">Favourites
+    el.innerHTML = `<h1 class="pagetitle" style="display:flex;justify-content:space-between;align-items:center">Favorites
       <button class="btn sm" id="allToCart">Add all to cart</button></h1>
       <div id="grid" class="pgrid2"></div>`;
     const res = await API.get('/user/favourites');
     const grid = el.querySelector('#grid');
     if (!res.products.length) {
-      grid.innerHTML = `<div class="empty" style="grid-column:1/-1"><div class="big">♡</div>No favourites yet — tap the heart on any product</div>`;
+      grid.innerHTML = `<div class="empty" style="grid-column:1/-1"><div class="big">♡</div>No favorites yet — tap the heart on any product</div>`;
     }
     for (const p of res.products) grid.appendChild(productCard(p));
     el.querySelector('#allToCart').onclick = async () => {
       await API.post('/user/favourites/add-all-to-cart');
-      toast('In-stock favourites added to cart');
+      toast('In-stock favorites added to cart');
       refreshCartBadge();
     };
   },

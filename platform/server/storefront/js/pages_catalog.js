@@ -192,7 +192,7 @@ function productCard(p) {
 
   const card = h(`<div class="pcard2">
     ${sellerBadge(p)}
-    ${u.guest ? '' : `<button class="fav ${p.isFavourite ? 'on' : ''}" title="Favourite">${p.isFavourite ? '♥' : '♡'}</button>`}
+    ${u.guest ? '' : `<button class="fav ${p.isFavourite ? 'on' : ''}" title="Favorite">${p.isFavourite ? '♥' : '♡'}</button>`}
     <div class="photo-wrap">
       <div class="imgbox2">${imgOr(mainImg)}</div>
       <div class="attrline">${attrLine(p) || '&nbsp;'} ${lensChip(p)}</div>
@@ -286,7 +286,11 @@ function productModal(p) {
       <div class="pdetail-info">
         <div class="sub">${esc(p.sku)} · ${esc(p.brand || '')}</div>
         <h2 style="margin:2px 0 6px;font-size:19px">${esc(p.name)}</h2>
-        ${hide ? '' : `<div class="price" style="font-size:18px;font-weight:800">${money(p.price)}</div>`}
+        ${!hide ? `<div class="price" style="font-size:18px;font-weight:800">${money(p.price)}</div>`
+          : guest ? '' : `<div class="reveal-row">
+              <span class="price pr-hidden" style="font-size:18px;font-weight:800">${money(p.price)}</span>
+              <button class="reveal-btn" id="revealP" type="button">${eyeIcon(false)} Show price</button>
+            </div>`}
         ${p.description ? `<p class="sub" style="margin-top:8px">${esc(p.description)}</p>` : ''}
         ${attrs.length ? `<div class="attr-grid">${attrs.map(x =>
           `<div class="a">${esc(x[0])}<b>${esc(x[1])}</b></div>`).join('')}</div>` : ''}
@@ -298,7 +302,8 @@ function productModal(p) {
               <span class="vsku">${esc(v.sku)}</span>
               <span class="vcol">${esc(v.color || '')}</span>
               ${stockPill(v)}
-              ${hide ? '' : `<b style="min-width:56px;text-align:right">${money(v.price)}</b>`}
+              ${!hide ? `<b class="vprice">${money(v.price)}</b>`
+                : guest ? '' : `<b class="vprice pr-hidden">${money(v.price)}</b>`}
               ${guest ? '' : (v.qty > 0 ? qtyBox(0, 0, v.qty)
                 : `<button class="btn ghost sm notify" data-sku="${esc(v.sku)}">Notify me</button>`)}
             </div>`).join('')}
@@ -321,6 +326,16 @@ function productModal(p) {
   m.querySelectorAll('.thumbstrip img').forEach(t =>
     t.onclick = () => setMain(parseInt(t.dataset.i, 10)));
   mainBox.onclick = () => imageLightbox(gallery, curIdx, p.name, colorAt);
+  // roll through photos with a finger / mouse drag, no buttons needed
+  if (gallery.length > 1) bindSwipe(mainBox, d =>
+    setMain((curIdx + d + gallery.length) % gallery.length));
+
+  // presentation / hidden-price mode: price shows per item, on demand only
+  const revealBtn = m.querySelector('#revealP');
+  if (revealBtn) revealBtn.onclick = () => {
+    const on = m.querySelector('.pdetail').classList.toggle('show-prices');
+    revealBtn.innerHTML = on ? `${eyeIcon(true)} Hide price` : `${eyeIcon(false)} Show price`;
+  };
   // clicking a color row jumps the gallery to that variation's image
   m.querySelectorAll('.vrow').forEach(row => {
     const sku = row.dataset.sku;
@@ -340,8 +355,21 @@ function productModal(p) {
       m.querySelector('#addSummary').textContent = total ? `${total} pcs selected` : '';
     });
   });
-  m.querySelectorAll('.notify').forEach(b => b.onclick = async () => {
+  // notify buttons reflect their real state (pressed = "✓ We'll email you")
+  const setNotify = (b, on) => {
+    b.classList.toggle('on', on);
+    b.textContent = on ? '✓ We\'ll email you' : 'Notify me';
+  };
+  const notifyBtns = [...m.querySelectorAll('.notify')];
+  if (notifyBtns.length) {
+    API.get('/user/restock-notify').then(r => {
+      const mine = new Set(r.skus || []);
+      notifyBtns.forEach(b => setNotify(b, mine.has(b.dataset.sku)));
+    }).catch(() => {});
+  }
+  notifyBtns.forEach(b => b.onclick = async () => {
     const r = await API.post('/user/restock-notify', { sku: b.dataset.sku });
+    setNotify(b, r.notify);
     toast(r.notify ? 'We\'ll email you when it\'s back' : 'Notification removed');
   });
   const addBtn = m.querySelector('#addBtn');

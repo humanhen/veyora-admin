@@ -126,7 +126,7 @@ Routes['#/'] = Routes['#/home'] = {
       <!-- ============ veyora in motion ============ -->
       <section class="hm-video-sec">
         <video src="assets/home/charlett-video.mp4" poster="assets/home/charlett-poster.webp"
-               autoplay muted loop playsinline></video>
+               muted loop playsinline preload="metadata" disableremoteplayback></video>
       </section>
       <section class="hm-sec hm-cta">
         <div class="hm-label hm-center">Veyora in motion</div>
@@ -152,5 +152,20 @@ Routes['#/'] = Routes['#/home'] = {
       show(cur + 1);
     }, 6000);
     dots.forEach(d => d.onclick = () => show(parseInt(d.dataset.dot, 10)));
+
+    /* the motion video starts by itself when scrolled into view — no play
+       button. iOS Low-Power blocks play() until any touch, so retry on the
+       first touch as well. */
+    const vid = el.querySelector('.hm-video-sec video');
+    vid.muted = true;   // belt & braces: some browsers ignore the attribute
+    const tryPlay = () => vid.play().catch(() => {});
+    const io = new IntersectionObserver(entries => {
+      entries.forEach(en => { if (en.isIntersecting) tryPlay(); else vid.pause(); });
+    }, { threshold: 0.25 });
+    io.observe(vid);
+    document.addEventListener('touchend', function once() {
+      if (vid.paused && vid.getBoundingClientRect().top < innerHeight) tryPlay();
+      if (!document.body.contains(vid)) document.removeEventListener('touchend', once);
+    }, { passive: true });
   },
 };

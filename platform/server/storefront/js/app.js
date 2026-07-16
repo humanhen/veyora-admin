@@ -8,7 +8,7 @@ const NAV = [
   { hash: '#/orders',      label: 'Orders' },
   { hash: '#/backorders',  label: 'Backorders' },
   { hash: '#/returns',     label: 'Returns' },
-  { hash: '#/favourites',  label: 'Favourites' },
+  { hash: '#/favourites',  label: 'Favorites' },
   { hash: '#/replenishment', label: 'Reorder' },
   { hash: '#/spare-parts', label: 'Spare Parts' },
   { hash: '#/customers',   label: 'My Customers', roles: ['agent', 'super-agent', 'admin'] },
@@ -47,7 +47,7 @@ function shell(contentEl, activeHash) {
       <div class="spacer"></div>
       <button class="icon-btn present-toggle ${Store.presenting ? 'on' : ''}" data-present
         title="${Store.presenting ? 'Presentation mode ON — prices hidden. Click to show prices.' : 'Presentation mode — hide your prices to show frames to customers'}">${eyeIcon(Store.presenting)}</button>
-      <button class="icon-btn" title="Favourites" onclick="location.hash='#/favourites'">♡</button>
+      <button class="icon-btn" title="Favorites" onclick="location.hash='#/favourites'">♡</button>
       <button class="icon-btn" title="Cart" onclick="location.hash='#/cart'">🛒<span class="badge" id="cartBadge" style="${Store.cartCount ? '' : 'display:none'}">${Store.cartCount}</span></button>
       <button class="icon-btn" title="My Account" onclick="location.hash='#/account'">👤</button>
     </header>
@@ -115,6 +115,9 @@ async function route() {
     app.appendChild(content);
   } else {
     app.appendChild(shell(content, key));
+    // keep the active tab visible when the nav scrolls sideways on mobile
+    const nav = app.querySelector('.nav'), act = nav?.querySelector('a.active');
+    if (nav && act) nav.scrollLeft = act.offsetLeft - (nav.clientWidth - act.offsetWidth) / 2;
   }
   document.title = (page.title ? page.title + ' — ' : '') + 'Veyora';
   try {

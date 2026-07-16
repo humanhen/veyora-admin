@@ -52,11 +52,13 @@ Routes['#/order'] = {
       <h1 class="pagetitle">Order ${esc(o.number)} ${pill(o.status)}</h1>
       <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start">
         <div class="card" style="flex:2;min-width:300px"><div class="pad">
-          <table class="list"><thead><tr><th>SKU</th><th>Item</th><th>Qty</th><th>Shipped</th>${hide ? '' : '<th>Price</th><th>Total</th>'}</tr></thead>
+          <table class="list"><thead><tr><th>SKU</th><th>Item</th><th>Qty</th>
+            <th><span class="desktop-only">Shipped</span><span class="mobile-only">Shp.</span></th>
+            ${hide ? '' : '<th class="hide-m">Price</th><th>Total</th>'}</tr></thead>
           <tbody>${o.items.map(i => `
             <tr><td><b>${esc(i.sku)}</b></td><td>${esc(i.name)}${i.color ? ' · ' + esc(i.color) : ''}</td>
             <td>${i.qty}</td><td>${i.collected}</td>
-            ${hide ? '' : `<td>${money(i.price)}</td><td>${money(i.qty * i.price)}</td>`}</tr>`).join('')}
+            ${hide ? '' : `<td class="hide-m">${money(i.price)}</td><td>${money(i.qty * i.price)}</td>`}</tr>`).join('')}
           </tbody></table>
         </div></div>
         <div class="card" style="flex:1;min-width:250px"><div class="pad">
@@ -140,7 +142,8 @@ Routes['#/returns'] = {
           <span class="sub">· ${x.orderNumber ? 'order ' + esc(x.orderNumber) + ' · ' : ''}${fmtDate(x.createdAt)}</span></div>
         <table class="list" style="margin-top:8px"><tbody>
           ${x.items.map(i => `<tr><td><b>${esc(i.sku)}</b></td><td>${esc(i.name)}</td>
-            <td>× ${i.qty}</td><td class="sub">${esc(i.resolution)}</td></tr>`).join('')}
+            <td>× ${i.qty}</td><td class="sub">${esc(i.resolution)}${i.exchangeSku
+              ? ` → ${esc(i.exchangeSku)}` : ''}</td></tr>`).join('')}
         </tbody></table>
         ${x.notes ? `<p class="sub" style="margin-top:6px">${esc(x.notes)}</p>` : ''}
       </div></div>`).join('');
@@ -158,25 +161,40 @@ async function renderCreateReturn(el) {
     </div></div>`;
   const itemsBox = el.querySelector('#rItems');
   function addRow() {
-    const row = h(`<div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">
-      <input placeholder="SKU (e.g. 20894.1)" style="flex:2;min-width:130px;padding:9px 11px;border:1px solid var(--line);border-radius:8px"/>
-      <input type="number" min="1" value="1" style="width:70px;padding:9px 11px;border:1px solid var(--line);border-radius:8px"/>
-      <select style="flex:1;min-width:110px;padding:9px 11px;border:1px solid var(--line);border-radius:8px">
-        <option value="credit">Credit</option><option value="exchange">Exchange</option>
-      </select>
-      <button class="btn ghost sm" type="button">✕</button>
+    const row = h(`<div class="ret-row" style="margin-bottom:8px">
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <input class="r-sku" placeholder="SKU (e.g. 20894.1)" style="flex:2;min-width:120px;padding:9px 11px;border:1px solid var(--line);border-radius:8px"/>
+        <input class="r-qty" type="number" min="1" value="1" style="width:64px;padding:9px 11px;border:1px solid var(--line);border-radius:8px"/>
+        <select class="r-res" style="flex:1;min-width:132px;padding:9px 8px;border:1px solid var(--line);border-radius:8px">
+          <option value="credit">Credit</option><option value="exchange">Exchange</option>
+        </select>
+        <button class="btn ghost sm" type="button">✕</button>
+      </div>
+      <div class="r-exwrap" style="display:none;margin-top:6px">
+        <input class="r-ex" placeholder="Exchange for — SKU of the frame you want instead"
+          style="width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:8px"/>
+      </div>
     </div>`);
     row.querySelector('button').onclick = () => row.remove();
+    // exchanges must say which frame they want instead
+    const res = row.querySelector('.r-res'), exwrap = row.querySelector('.r-exwrap');
+    res.onchange = () => { exwrap.style.display = res.value === 'exchange' ? '' : 'none'; };
     itemsBox.appendChild(row);
   }
   addRow();
   el.querySelector('#addRow').onclick = addRow;
   el.querySelector('#submitR').onclick = async () => {
     const items = [...itemsBox.children].map(row => {
-      const [skuIn, qtyIn] = row.querySelectorAll('input');
-      return { sku: skuIn.value.trim(), qty: parseInt(qtyIn.value, 10) || 1,
-               resolution: row.querySelector('select').value };
+      const resolution = row.querySelector('.r-res').value;
+      return { sku: row.querySelector('.r-sku').value.trim(),
+               qty: parseInt(row.querySelector('.r-qty').value, 10) || 1,
+               resolution,
+               exchangeSku: resolution === 'exchange'
+                 ? row.querySelector('.r-ex').value.trim() || null : null };
     }).filter(i => i.sku);
+    if (items.some(i => i.resolution === 'exchange' && !i.exchangeSku)) {
+      toast('For an exchange, enter the SKU of the frame you want instead', true); return;
+    }
     if (!items.length) { toast('Add at least one item', true); return; }
     try {
       const res = await API.post('/user/returns', {

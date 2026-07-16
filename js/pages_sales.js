@@ -805,7 +805,7 @@ App.register('returns',function(el){
         body:`<div class="kv"><dt>Customer</dt><dd>${esc(DB.userName(r.customerId))}</dd>
           <dt>Order</dt><dd>${esc(r.orderNumber||'—')}</dd><dt>Status</dt><dd>${statusBadge(r.status)}</dd></div>
         <div class="table-wrap"><table class="tbl"><thead><tr><th>SKU</th><th>Product</th><th>Qty</th><th>Resolution</th></tr></thead>
-        <tbody>${r.items.map(i=>`<tr><td>${esc(i.sku)}</td><td>${esc(i.name)}</td><td>${i.qty}</td><td>${statusBadge(i.resolution)}</td></tr>`).join('')}</tbody></table></div>`,
+        <tbody>${r.items.map(i=>`<tr><td>${esc(i.sku)}</td><td>${esc(i.name)}</td><td>${i.qty}</td><td>${statusBadge(i.resolution)}${i.exchangeSku?` <span class="muted">→ ${esc(i.exchangeSku)}</span>`:''}</td></tr>`).join('')}</tbody></table></div>`,
         foot:`<button class="btn" data-x>Close</button>`,
         setup(ov,close){ov.querySelector('[data-x]').onclick=close;}});
     });

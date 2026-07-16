@@ -39,7 +39,7 @@ Routes['#/cart'] = {
           <div class="info">
             <div class="nm">${esc(i.name || i.sku)}</div>
             <div class="meta">${esc(i.sku)}${i.color ? ' · ' + esc(i.color) : ''}
-              ${i.available < i.qty ? ` · <span style="color:var(--warn)">only ${i.available} in stock — rest will backorder</span>` : ''}
+              ${i.available < i.qty ? ` · <span style="color:var(--warn)">not all in stock — the rest will backorder</span>` : ''}
             </div>
             <div class="meta"><a href="javascript:void 0" class="noteLink">${i.note ? '✎ ' + esc(i.note) : '+ add note'}</a></div>
           </div>
