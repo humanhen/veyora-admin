@@ -43,7 +43,7 @@ function shell(contentEl, activeHash) {
   const u = Store.session.user;
   const el = h(`<div>
     <header class="topbar">
-      <img class="logo" src="assets/logo-white.svg" alt="Veyora" style="width:126px;cursor:pointer" onclick="location.hash='#/products'"/>
+      <img class="logo" src="assets/logo-white.svg" alt="Veyora" style="width:126px;cursor:pointer" onclick="location.hash='#/dashboard'"/>
       <div class="spacer"></div>
       <button class="icon-btn present-toggle ${Store.presenting ? 'on' : ''}" data-present
         title="${Store.presenting ? 'Presentation mode ON — prices hidden. Click to show prices.' : 'Presentation mode — hide your prices to show frames to customers'}">${eyeIcon(Store.presenting)}</button>

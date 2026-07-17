@@ -220,3 +220,18 @@ veyora.design and verified live (measured via DOM, mobile 375px + desktop).
   local deactivation gets overwritten because Zoho is authoritative.
 - Still open: order push (site orders → Zoho sales orders) not built;
   needed only if they fulfill/account out of Zoho during dual-running.
+
+## UPDATE 2026-07-17 — customer dashboard (post-login landing) migrated
+The old site's /dashboard index page (lazy chunk Dashboard-CRGwRZTJ.js —
+missed in the original route sweep) is now rebuilt: '#/dashboard' with the
+old page's exact content in the new panel style. Stat tiles (Total Orders
+w/ This month / Last 90 days / Year to date picker, Items in Cart + total,
+Backorders open + "N ready to approve", Returns open — all clickable),
+"Time to reorder" (cadence "Every Nd" / "Overdue by Nd" computed from
+first/last order dates + distinct order count, now returned by
+/user/replenishment), shortcuts My Account / Cart / Report a defect
+(→ returns, same as old). Login now lands on '#/dashboard' (was products);
+logo click → dashboard. Money respects hide-prices/presentation mode.
+NOT migrated (old dashboard had them, super-agent only): sales-coaching
+leaderboard / team widgets — no super-agents active; revisit if needed.
+Verified live desktop+mobile with test-customer session; cookie cleared.

@@ -179,7 +179,8 @@ r.post('/restock-notify', async (req, res) => {
 
 r.get('/replenishment', async (req, res) => {
   const { rows } = await q(`
-    select oi.sku, sum(oi.qty) as bought, max(o.order_date) as last_ordered
+    select oi.sku, sum(oi.qty) as bought, max(o.order_date) as last_ordered,
+           min(o.order_date) as first_ordered, count(distinct o.id) as times
       from order_items oi join orders o on o.id = oi.order_id
      where o.customer_id = $1 and o.status <> 'cancelled'
      group by oi.sku order by 2 desc limit 40`, [req.user.id]);
@@ -194,6 +195,7 @@ r.get('/replenishment', async (req, res) => {
       return { sku: x.sku, name: p.name, brand: p.brand, color: v.color,
                image: v.image || p.images[0] || null,
                bought: Number(x.bought), lastOrdered: x.last_ordered,
+               firstOrdered: x.first_ordered, times: Number(x.times),
                available: v.qty, price: v.price };
     }),
   });

@@ -68,9 +68,9 @@ Routes['#/login'] = {
         Store.realHide = !!res.user.hidePrices;
         applyPricingMode();
         refreshCartBadge();
-        const dest = sessionStorage.getItem('veyora_after_login') || '#/products';
+        const dest = sessionStorage.getItem('veyora_after_login') || '#/dashboard';
         sessionStorage.removeItem('veyora_after_login');
-        location.hash = dest === '#/login' ? '#/products' : dest;
+        location.hash = dest === '#/login' ? '#/dashboard' : dest;
       } catch (ex) {
         err.textContent = ex.data?.message || ex.message;
         err.style.display = '';
