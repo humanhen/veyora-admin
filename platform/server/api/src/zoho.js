@@ -151,19 +151,23 @@ export async function syncZohoInventory({ dryRun = false } = {}) {
         }
       }
 
-      // product-level rollup for every model Zoho knows about: price of the
-      // first variation, active if any variation is active (pseudo products
-      // like shipping fees stay inactive — guarded by our stored brand)
-      const models = new Map();
+      // product-level rollup: group items by the product that actually owns
+      // their variation (grouping-agnostic — works for dot SKUs like 3507.15
+      // AND dash colorways like VEDETTE-2002 that live under one parent).
+      // Price = first item's, active if any colorway is active (pseudo
+      // products like shipping fees stay inactive — guarded by brand).
+      const prodById = new Map(prods.map(p => [p.id, p]));
+      const byProduct = new Map();
       for (const it of zItems) {
-        const { model } = splitSku(it.sku);
-        if (!models.has(model)) models.set(model, []);
-        models.get(model).push(it);
+        const v = bySku.get(it.sku);
+        if (!v) continue;
+        if (!byProduct.has(v.product_id)) byProduct.set(v.product_id, []);
+        byProduct.get(v.product_id).push(it);
       }
-      for (const [model, items] of models) {
+      for (const [pid, items] of byProduct) {
         items.sort((a, b) => a.sku.localeCompare(b.sku, undefined, { numeric: true }));
-        const p = prodBySku.get(model);
-        if (!p) continue; // whole model is new — handled below
+        const p = prodById.get(pid);
+        if (!p) continue;
         const pseudo = /shipping|shiping/i.test(String(p.brand || ''));
         if (c) {
           await c.query(`
@@ -191,6 +195,14 @@ export async function syncZohoInventory({ dryRun = false } = {}) {
           const brand = titleCase(detail.brand || '');
           const pseudo = /shipping|shiping/i.test(brand);
           let productId = prodBySku.get(model)?.id;
+          if (!productId && /-\d+$/.test(model)) {
+            // dash colorway (VEDETTE-2005): attach to the product that owns
+            // its siblings (VEDETTE-2001…) instead of creating a duplicate
+            const prefix = model.replace(/-\d+$/, '') + '-';
+            for (const [sku, v] of bySku) {
+              if (sku.startsWith(prefix)) { productId = v.product_id; break; }
+            }
+          }
           if (!productId) {
             const { rows } = await c.query(`
               insert into products (sku, name, brand, categories, price, is_active,

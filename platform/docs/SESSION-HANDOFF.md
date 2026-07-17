@@ -256,3 +256,22 @@ Now replicated on veyora.design for logged-in users at <=900px:
 Verified live at 830px (the comparison width), and 1280px desktop
 unchanged. Old desktop (lg 1200+) actually uses a permanent 280px left
 sidebar — NOT replicated; our approved top-tab desktop stays.
+
+## UPDATE 2026-07-17 (evening) — colorway regrouping (Sam: "missing colors")
+Sam's tablet photo showed Essedue cards with one color circle each. Cause:
+brands whose Zoho SKUs have no dot (Essedue VEDETTE-2002, Kyme CAMERON-1,
+Spike/Puro/Laura dash styles) were imported as one product per colorway.
+Nothing was missing — 202 Essedue colorways existed as 202 cards vs the
+old site's 55 grouped models.
+Fix: scripts/regroup-oldsite.mjs (kept in repo, idempotent) regrouped
+using the old site's own public catalog as truth (snapshot at
+data/import/old-products.json on the VPS): moved 330 variations across
+103 models, deleted 323 empty per-colorway products. DB 1318->996
+products, all 3,983 variations intact. DB backup taken first
+(veyora-20260717-1723.sql.gz).
+Zoho sync made grouping-agnostic: product rollup now groups items by the
+owning product of each variation (not sku-dot parsing), and brand-new
+dash colorways attach to their siblings' product instead of creating a
+new card. Post-regroup sync verified: 3983/3983 matched, 0 new, no error.
+Old parents with synthetic SKUs (312-LAU, Spike414...) were already
+grouped via dot-SKUs — skipped correctly.
