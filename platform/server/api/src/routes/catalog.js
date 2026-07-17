@@ -201,10 +201,13 @@ function slugify(s) {
 }
 
 /** One frame (variation) per matched SKU, ordered by paste order.
-    A variation SKU (e.g. "264.231") matches just that colorway; a model/product
-    SKU (e.g. "264") expands to all of that product's active colorways. This keeps
-    a curated list faithful to the exact frames it names, rather than collapsing
-    to a product card that would also show colors the list never mentioned. */
+    A variation SKU (e.g. "264.231") matches just that colorway. A *pure* model
+    SKU (a product sku with no same-named variation, e.g. "264") expands to all
+    of that product's active colorways. Crucially, a variation match wins: some
+    "named" models carry a product sku equal to one of their variation skus
+    (e.g. product "ALLEN-1" with a variation "ALLEN-1"), so listing "ALLEN-1"
+    means that one frame, not the whole model. This keeps a curated list faithful
+    to the exact frames it names instead of dragging in unlisted colorways. */
 async function framesForSkus(user, skus) {
   const wanted = normSkus(skus);
   if (!wanted.length) return [];
@@ -217,7 +220,11 @@ async function framesForSkus(user, skus) {
       from variations v
       join products p on p.id = v.product_id
      where p.is_active and v.is_active
-       and (upper(v.sku) = any($1) or upper(p.sku) = any($1))`, [upper]);
+       and (upper(v.sku) = any($1)
+            or (upper(p.sku) = any($1)
+                and not exists (select 1 from variations vv
+                                where vv.product_id = p.id and upper(vv.sku) = upper(p.sku))))`,
+    [upper]);
   const hide = user.hide_prices;
   const rankOf = (vsku, psku) => {
     for (let i = 0; i < upper.length; i++) if (upper[i] === vsku || upper[i] === psku) return i;
