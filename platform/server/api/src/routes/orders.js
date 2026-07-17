@@ -5,6 +5,7 @@ import { round2 } from '../pricing.js';
 import { cartSummary } from './cart.js';
 import { sendMail } from '../mail.js';
 import { orderConfirmation } from '../emails.js';
+import { pushOrderToZoho } from '../zoho.js';
 
 const r = Router();
 r.use(requireAuth());
@@ -165,6 +166,12 @@ r.post('/place-order', async (req, res, next) => {
     }
     if (result.backorder) {
       await audit(actor, 'backorder created', result.backorder.number, 'out of stock at order time');
+    }
+
+    // keep Zoho's books in step while it is the system of record
+    if (result.order) {
+      pushOrderToZoho(result.order.id)
+        .catch(e => console.error('[zoho] order push failed:', e.message));
     }
 
     res.json({

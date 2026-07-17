@@ -88,6 +88,67 @@ const money = v => {
   return Number.isFinite(n) ? n : null;
 };
 
+async function zPost(path, body) {
+  const token = await accessToken();
+  const url = new URL(`https://www.zohoapis.${DC}/inventory/v1${path}`);
+  url.searchParams.set('organization_id', ORG);
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { Authorization: `Zoho-oauthtoken ${token}`, 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const j = await res.json().catch(() => ({}));
+  if (j.code !== 0) throw new Error(`Zoho POST ${path}: ${j.message || `HTTP ${res.status}`}`);
+  return j;
+}
+
+/* Push a placed order into Zoho as a sales order (while Zoho is the
+   system of record, orders must land there or its stock goes stale —
+   Sam: "I should see it in Zoho"). Idempotent per order. */
+export async function pushOrderToZoho(orderId) {
+  if (!zohoConfigured() || await zohoPaused()) return null;
+  const { rows: [o] } = await q(`
+    select o.*, u.business, u.email, u.first_name, u.last_name
+      from orders o join users u on u.id = o.customer_id where o.id=$1`, [orderId]);
+  if (!o) throw new Error('order not found');
+  if (o.zoho_so_id) return o.zoho_so_id;
+  const { rows: items } = await q(`
+    select oi.sku, oi.qty, oi.price, v.zoho_item_id
+      from order_items oi left join variations v on v.sku = oi.sku
+     where oi.order_id=$1`, [orderId]);
+  const lines = items.filter(i => i.zoho_item_id)
+    .map(i => ({ item_id: i.zoho_item_id, quantity: i.qty, rate: Number(i.price) || 0 }));
+  if (!lines.length) throw new Error(`${o.number}: no Zoho-linked items`);
+
+  const name = (o.business || `${o.first_name || ''} ${o.last_name || ''}`.trim() || o.email).slice(0, 200);
+  let contactId = null;
+  try {
+    const found = await zGet('/contacts', { search_text: name.slice(0, 60) });
+    contactId = (found.contacts || []).find(c =>
+      c.contact_name.toLowerCase() === name.toLowerCase())?.contact_id
+      || found.contacts?.[0]?.contact_id || null;
+  } catch { /* fall through to create */ }
+  if (!contactId) {
+    const made = await zPost('/contacts', { contact_name: name, company_name: o.business || '',
+      contact_persons: o.email ? [{ email: o.email, is_primary_contact: true }] : [] });
+    contactId = made.contact.contact_id;
+  }
+
+  const so = await zPost('/salesorders', {
+    customer_id: contactId,
+    date: String(o.order_date),
+    reference_number: o.number,
+    line_items: lines,
+    notes: `veyora.design order ${o.number}`,
+  });
+  const soId = so.salesorder.salesorder_id;
+  await q(`update orders set zoho_so_id=$2 where id=$1`, [orderId, soId]);
+  await audit({ id: 'system', name: 'Zoho sync', role: 'system' }, 'order pushed to zoho',
+    o.number, `SO ${so.salesorder.salesorder_number}`, 'zoho');
+  console.log(`[zoho] order ${o.number} -> zoho salesorder ${so.salesorder.salesorder_number}`);
+  return soId;
+}
+
 /* ----------------------------- sync ----------------------------- */
 
 let running = false;

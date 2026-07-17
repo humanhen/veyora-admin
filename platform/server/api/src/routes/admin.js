@@ -10,7 +10,7 @@ import { SIMPLE_COLLECTIONS, rowToJs, jsToRow } from '../shape.js';
 import { sendMail } from '../mail.js';
 import { setPasswordLink } from '../authmw.js';
 import { welcomeActivation } from '../emails.js';
-import { syncZohoInventory, zohoStatus } from '../zoho.js';
+import { syncZohoInventory, zohoStatus, pushOrderToZoho } from '../zoho.js';
 
 const r = Router();
 r.use(requireAuth('admin', 'warehouse'));
@@ -25,6 +25,11 @@ r.get('/zoho/status', async (req, res, next) => {
 // run a sync now; ?dryRun=1 reports what would change without writing
 r.post('/zoho/sync', async (req, res, next) => {
   try { res.json(await syncZohoInventory({ dryRun: req.query.dryRun === '1' })); }
+  catch (e) { next(e); }
+});
+// (re)push an order into Zoho as a sales order — for retries/backfill
+r.post('/zoho/push-order', async (req, res, next) => {
+  try { res.json({ ok: true, zohoSoId: await pushOrderToZoho(String(req.body?.orderId || '')) }); }
   catch (e) { next(e); }
 });
 // cutover switch: pause = the platform stops following Zoho (admin edits

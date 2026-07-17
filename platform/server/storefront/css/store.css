@@ -108,8 +108,14 @@ h1.pagetitle{font-size:20px;font-weight:700;margin-bottom:14px}
   .bottomnav .badge{position:absolute;top:-4px;right:8px;background:#bda0d3;color:var(--ink);font-size:10px;font-weight:700;border-radius:999px;min-width:16px;height:16px;line-height:16px;text-align:center;padding:0 3px}
   #toasts{bottom:86px}
 }
+/* customer WhatsApp button in the logged-in shell: the prefilled message
+   identifies who is writing (Sam: "talk to the customer with his login name") */
+.shell-wa{width:48px;height:48px}
+@media(max-width:900px){.shell-wa{bottom:82px;right:16px}}
 /* products page: cart summary under the search, like the old app layout */
 .cart-total-row{display:none}
+.cart-total-row .btn{position:relative}
+.cart-total-row .badge{position:absolute;top:-7px;right:-7px;background:#bda0d3;color:var(--ink);font-size:10.5px;font-weight:700;border-radius:999px;min-width:17px;height:17px;line-height:17px;text-align:center;padding:0 4px}
 @media(max-width:900px){
   .cart-total-row{display:flex;align-items:center;gap:12px;margin:0 0 14px}
   .cart-total-row .amt{font-size:15px;font-weight:700}

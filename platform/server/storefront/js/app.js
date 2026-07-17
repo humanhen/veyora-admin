@@ -89,6 +89,8 @@ function shell(contentEl, activeHash) {
       <span>${eyeIcon(true)} <b>Presentation mode</b> — your prices are hidden, so you can show frames to customers.</span>
       <button data-present-exit>Show my prices</button></div>` : ''}
     <main class="page"></main>
+    <a class="hm-wa shell-wa" target="_blank" rel="noopener" title="Chat with us on WhatsApp"
+       href="${WHATSAPP}?text=${encodeURIComponent(`Hi, it's ${u.business || u.email}${u.customerNumber ? ` (customer #${u.customerNumber})` : ''}`)}">${waIcon()}</a>
     <nav class="bottomnav">${BOTTOM_NAV.map(n => `
       <a href="${n.hash}" class="${(n.hash === '#/' ? activeHash === '#/' : activeHash.startsWith(n.hash)) ? 'active' : ''}">
         ${NAVICON[n.icon]}${n.badge ? `<span class="badge" id="cartBadgeM" style="${Store.cartCount ? '' : 'display:none'}">${Store.cartCount}</span>` : ''}
@@ -108,7 +110,7 @@ function shell(contentEl, activeHash) {
 
 function setCartBadge(count) {
   Store.cartCount = count;
-  for (const id of ['cartBadge', 'cartBadgeM']) {
+  for (const id of ['cartBadge', 'cartBadgeM', 'cartBadgeT']) {
     const b = document.getElementById(id);
     if (b) { b.textContent = count; b.style.display = count ? '' : 'none'; }
   }

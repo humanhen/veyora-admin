@@ -308,3 +308,20 @@ decide. The two missing pieces are now built, deployed, and tested live:
 NOTE: admin nav lives in admin-overrides/js/app.js (the deploy overwrites
 the repo-root app.js) — nav items must be added in BOTH files.
 Zoho remains active/authoritative — nothing flipped.
+
+## UPDATE 2026-07-17 (late night) — Sam's 3 asks: order push LIVE
+1. Orders now push to Zoho as sales orders automatically at checkout
+   (zoho.js pushOrderToZoho: contact find-or-create by business name,
+   line items by zoho_item_id, reference_number = SO number; idempotent
+   via orders.zoho_so_id, migration 0005; skipped when Zoho paused).
+   Admin retry/backfill: POST /api/admin/zoho/push-order {orderId}.
+   VERIFIED LIVE: Sam's test orders SO11884/SO11883 pushed -> Zoho
+   SO12160/SO12161. Failures log, never block checkout.
+2. Cart button in the products Total row shows the item-count badge
+   (cartBadgeT; setCartBadge updates all three badges).
+3. Logged-in shell has a WhatsApp float whose prefilled message
+   identifies the customer: "Hi, it's {business} (customer #N)" —
+   Sam's "talk to the customer with his login name". Sits above the
+   bottom nav on mobile.
+Note: Sam has been testing with the Claude Test Optics login — today's
+orders in Zoho are under that contact name (deletable in Zoho later).
