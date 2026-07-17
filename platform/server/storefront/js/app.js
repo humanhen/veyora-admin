@@ -12,6 +12,7 @@ const NAV = [
   { hash: '#/replenishment', label: 'Reorder' },
   { hash: '#/spare-parts', label: 'Spare Parts' },
   { hash: '#/customers',   label: 'My Customers', roles: ['agent', 'super-agent', 'admin'] },
+  { hash: '#/lists',       label: 'Frame Lists',  roles: ['agent', 'super-agent', 'admin'] },
   { hash: '#/account',     label: 'My Account' },
 ];
 

@@ -453,6 +453,19 @@ create table otp_codes (
   created_at  timestamptz not null default now()
 );
 
+-- ---------- shared frame lists ----------
+-- A curated set of frames behind one shareable link (veyora.design/#/list/<slug>).
+-- Staff paste a list of SKUs (model or model.color); the storefront resolves
+-- them to products at view time. Public — guests see frames, prices hidden.
+create table shared_lists (
+  slug        text primary key,
+  name        text not null default '',
+  skus        text[] not null default '{}',
+  created_by  text references users(id) on delete set null,
+  created_at  timestamptz not null default now()
+);
+create index on shared_lists (created_at desc);
+
 -- ---------- updated_at auto-touch ----------
 create or replace function touch_updated_at() returns trigger as $$
 begin new.updated_at = now(); return new; end $$ language plpgsql;

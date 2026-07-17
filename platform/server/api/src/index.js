@@ -9,6 +9,7 @@ import orderRoutes from './routes/orders.js';
 import accountRoutes from './routes/account.js';
 import agentRoutes from './routes/agent.js';
 import adminRoutes from './routes/admin.js';
+import { ensureSchema } from './migrate.js';
 import { startZohoSchedule } from './zoho.js';
 
 const app = express();
@@ -54,5 +55,11 @@ app.use((err, req, res, next) => {
 });
 
 const port = process.env.PORT || 3000;
-app.listen(port, () => console.log(`veyora api listening on :${port}`));
-startZohoSchedule();
+// Ensure post-go-live schema top-ups exist, then start — but never let a
+// migration hiccup stop the server from booting.
+ensureSchema()
+  .catch(err => console.error('[migrate] ensureSchema failed:', err))
+  .finally(() => {
+    app.listen(port, () => console.log(`veyora api listening on :${port}`));
+    startZohoSchedule();
+  });
