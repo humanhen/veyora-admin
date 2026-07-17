@@ -50,6 +50,9 @@ Routes['#/products'] = {
           <button data-d="3" class="${Catalog.density === 3 ? 'on' : ''}" title="Larger cards">•••</button>
           <button data-d="4" class="${Catalog.density === 4 ? 'on' : ''}" title="Smaller cards">••••</button>
         </div>
+        ${guest ? '' : `<button class="fbtn scanbtn" type="button" title="Scan your list">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h4"/></svg>
+        </button>`}
         <button class="fbtn" type="button">${funnelIcon()} Filters</button>
       </div>
       <div class="bigsearch">
@@ -96,7 +99,9 @@ Routes['#/products'] = {
       document.body.style.overflow = '';
       el.querySelector('#fbarSlot').after(fbar);
     };
-    el.querySelector('.fbtn').onclick = openSheet;
+    el.querySelectorAll('.fbtn:not(.scanbtn)').forEach(b => b.onclick = openSheet);
+    const scanBtn = el.querySelector('.scanbtn');
+    if (scanBtn) scanBtn.onclick = () => scanListModal(el);
     el.querySelector('#fsDone').onclick = closeSheet;
     sheetBack.addEventListener('click', e => { if (e.target === sheetBack) closeSheet(); });
 
@@ -392,6 +397,96 @@ function productModal(p) {
     toast('Added to cart');
     m.remove();
   };
+}
+
+/* "Scan your list" — photo of a handwritten SKU list fills the cart
+   (replica of the old site's scan-tray modal, same wording). */
+function scanListModal(pageEl) {
+  const m = modal(`
+    <h2 style="font-size:18px;margin-bottom:4px">Scan your list</h2>
+    <p class="sub" style="margin-bottom:14px">Got a notepad list of SKUs? Snap a photo or drop the image
+      here and your cart will auto-populate. List each item as model.color — e.g. 2057.81.</p>
+    <div class="scan-drop" id="scanDrop">
+      <div class="scan-ic">🖼️</div>
+      <p style="max-width:420px;margin:0 auto 16px">Snap a photo of your handwritten list, or drag and drop
+        the image here. We'll match each line to a SKU and add it to your cart.
+        Format: model.color, e.g. 2057.81.</p>
+      <button class="btn" id="scanPick">📷 Upload Or Take Photo</button>
+      <p class="sub" style="margin-top:12px">…or drop the image anywhere in this box</p>
+      <p class="sub">Up to 8 photos per scan. JPG, PNG, WebP, or HEIC.</p>
+      <p style="margin-top:14px"><a href="javascript:void 0" id="scanSearch" class="sub" style="font-weight:600">🔍 Search Catalog</a></p>
+      <input type="file" id="scanFiles" accept="image/*" multiple style="display:none"/>
+    </div>
+    <div id="scanResults"></div>`);
+  const drop = m.querySelector('#scanDrop');
+  const input = m.querySelector('#scanFiles');
+  m.querySelector('#scanPick').onclick = () => input.click();
+  m.querySelector('#scanSearch').onclick = () => {
+    m.remove();
+    pageEl.querySelector('.bigsearch input')?.focus();
+  };
+  drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('over'); });
+  drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+  drop.addEventListener('drop', e => { e.preventDefault(); drop.classList.remove('over'); scan(e.dataTransfer.files); });
+  input.onchange = () => scan(input.files);
+
+  async function scan(fileList) {
+    const files = [...fileList].slice(0, 8);
+    if (!files.length) return;
+    drop.innerHTML = `<div class="skeleton" style="height:54px;margin:20px 0"></div>
+      <p class="sub" style="text-align:center">Reading your list…</p>`;
+    const fd = new FormData();
+    files.forEach(f => fd.append('photos', f));
+    let r;
+    try { r = await API.post('/user/scan-tray', fd); }
+    catch (ex) {
+      drop.innerHTML = `<p class="sub" style="color:var(--bad);text-align:center;padding:20px 0">${esc(ex.message)}</p>
+        <p style="text-align:center"><button class="btn ghost sm" onclick="location.hash='#/products'">Close</button></p>`;
+      return;
+    }
+    drop.style.display = 'none';
+    const box = m.querySelector('#scanResults');
+    if (!r.matched.length) {
+      box.innerHTML = `<div class="empty"><div class="big">🤷</div>No SKUs matched.
+        ${r.unmatched.length ? `Read but not found: ${r.unmatched.map(esc).join(', ')}` : ''}</div>`;
+      return;
+    }
+    const hide = Store.session.user.hidePrices;
+    box.innerHTML = `
+      ${r.matched.map((x, i) => `
+        <div class="vrow" data-sku="${esc(x.sku)}">
+          ${imgOr(x.image)}
+          <span class="vsku">${esc(x.sku)}</span>
+          <span class="vcol">${esc(x.name)}${x.color ? ' · ' + esc(x.color) : ''}<br/>
+            <span class="sub">read as "${esc(x.scanned)}"</span></span>
+          ${stockPill({ qty: x.available, stockStatus: 'in stock' })}
+          ${hide || x.price == null ? '' : `<b class="vprice">${money(x.price)}</b>`}
+          ${qtyBox(x.available > 0 ? x.qty : 0, 0, null)}
+        </div>`).join('')}
+      ${r.unmatched.length ? `<p class="sub" style="margin-top:10px;color:var(--warn)">
+        Couldn't match: ${r.unmatched.map(esc).join(', ')}</p>` : ''}
+      <div style="display:flex;gap:10px;margin-top:14px;align-items:center">
+        <button class="btn" id="scanAdd">Add all to cart</button><span class="sub" id="scanSum"></span>
+      </div>`;
+    const qty = new Map(r.matched.map(x => [x.sku, x.available > 0 ? x.qty : 0]));
+    const sum = () => {
+      const t = [...qty.values()].reduce((s, v) => s + v, 0);
+      m.querySelector('#scanSum').textContent = t ? `${t} pcs` : '';
+    };
+    box.querySelectorAll('.vrow .qtybox').forEach(qb =>
+      bindQtyBox(qb, (v) => { qty.set(qb.closest('.vrow').dataset.sku, v); sum(); }));
+    sum();
+    m.querySelector('#scanAdd').onclick = async () => {
+      let cart, added = 0;
+      for (const [sku, n] of qty) {
+        if (n > 0) { cart = await API.post('/user/add-to-cart', { sku, qty: n }); added += n; }
+      }
+      if (!added) { toast('Choose quantities first', true); return; }
+      setCartBadge(cart.totalQty);
+      toast(`${added} pcs added to cart`);
+      m.remove();
+    };
+  }
 }
 
 Routes['#/replenishment'] = {

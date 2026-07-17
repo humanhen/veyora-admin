@@ -275,3 +275,19 @@ dash colorways attach to their siblings' product instead of creating a
 new card. Post-regroup sync verified: 3983/3983 matched, 0 new, no error.
 Old parents with synthetic SKUs (312-LAU, Spike414...) were already
 grouped via dot-SKUs — skipped correctly.
+
+## UPDATE 2026-07-17 (late) — "Scan your list" migrated (Sam's request)
+The old site's scan-tray (photo of a handwritten SKU list → cart) is now
+on the new site: doc-icon button next to Filters on Products (logged-in
+only, all widths) opens the old modal (same wording). Server: POST
+/user/scan-tray (account.js) — up to 8 photos → Claude vision OCR
+(SCAN_MODEL, default claude-haiku-4-5) → JSON SKU lines → separator-
+insensitive match against active variations → review list with qty
+steppers → add all to cart. Unmatched lines shown. ⚠️ DORMANT until
+ANTHROPIC_API_KEY is set in /opt/veyora/.env (compose passes it through);
+until then the UI shows "List scanning is not set up yet". Get a key at
+console.anthropic.com → paste into .env → docker compose up -d api.
+Also answered Sam's stock-rules voice note: suggested a sold-out safety
+buffer + low-stock label; awaiting his two numbers (impact data: 473
+colorways have 1-2 units). Zoho "why" explained: site follows the
+warehouse; Zoho stays source of truth until they abandon it.

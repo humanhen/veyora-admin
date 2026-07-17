@@ -37,6 +37,8 @@ services:
       ZOHO_ORG_ID: ${ZOHO_ORG_ID:-875980504}
       ZOHO_DC: ${ZOHO_DC:-com}
       ZOHO_SYNC_MINUTES: ${ZOHO_SYNC_MINUTES:-30}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      SCAN_MODEL: ${SCAN_MODEL:-claude-haiku-4-5-20251001}
     volumes:
       - uploads:/uploads
       - ./data/import:/import

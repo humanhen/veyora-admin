@@ -201,6 +201,85 @@ r.get('/replenishment', async (req, res) => {
   });
 });
 
+/* ---------- scan your list (old-site "scan tray": photo of a handwritten
+   SKU list → OCR via the Claude API → matched cart candidates) ---------- */
+
+const scanUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 12 * 1024 * 1024, files: 8 },
+  fileFilter: (rq, f, cb) => cb(null, /image\//.test(f.mimetype)),
+});
+
+const normSku = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+r.post('/scan-tray', scanUpload.array('photos', 8), async (req, res, next) => {
+  try {
+    if (!process.env.ANTHROPIC_API_KEY) {
+      return res.status(503).json({ error: 'List scanning is not set up yet — ask the admin to add the scanning key.' });
+    }
+    if (!req.files?.length) return res.status(400).json({ error: 'no photos' });
+
+    const content = req.files.map(f => ({
+      type: 'image',
+      source: {
+        type: 'base64',
+        media_type: ['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(f.mimetype)
+          ? f.mimetype : 'image/jpeg',
+        data: f.buffer.toString('base64'),
+      },
+    }));
+    content.push({ type: 'text', text:
+      'These photos show a handwritten or printed list of eyewear SKUs an optician wants to order. ' +
+      'SKUs look like model.color (e.g. 2057.81, 3507.15), NAME-1234 (e.g. VEDETTE-2002, CAMERON-1), ' +
+      'or plain model numbers. A quantity may be written next to a SKU (e.g. "x2" or "2x"). ' +
+      'Read every line. Reply with ONLY a JSON array, one element per line, ' +
+      'like [{"sku":"2057.81","qty":1}]. qty is 1 unless clearly written. ' +
+      'Transcribe exactly what is written — never invent or autocomplete SKUs.' });
+
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': process.env.ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: process.env.SCAN_MODEL || 'claude-haiku-4-5-20251001',
+        max_tokens: 2000,
+        messages: [{ role: 'user', content }],
+      }),
+    });
+    const j = await resp.json();
+    if (!Array.isArray(j.content)) {
+      throw new Error(`scan failed: ${JSON.stringify(j).slice(0, 200)}`);
+    }
+    const text = j.content.map(b => b.text || '').join('');
+    let lines = [];
+    try { lines = JSON.parse(text.slice(text.indexOf('['), text.lastIndexOf(']') + 1)); }
+    catch { throw new Error('could not read the list from the photo'); }
+
+    // match scanned lines to real variations (separator-insensitive)
+    const { rows: vars } = await q(`
+      select v.sku, v.price, v.image, v.color, p.name,
+             coalesce((select sum(s.qty) from stock s where s.variation_id=v.id),0) as qty
+        from variations v join products p on p.id=v.product_id
+       where v.is_active and p.is_active`);
+    const byNorm = new Map(vars.map(v => [normSku(v.sku), v]));
+    const matched = [], unmatched = [];
+    for (const line of lines) {
+      const raw = String(line?.sku || '').trim();
+      if (!raw) continue;
+      const v = byNorm.get(normSku(raw));
+      if (v) {
+        matched.push({ scanned: raw, sku: v.sku, name: v.name, color: v.color,
+          image: v.image, price: req.user.hide_prices ? null : v.price,
+          available: Number(v.qty), qty: Math.max(1, parseInt(line.qty, 10) || 1) });
+      } else unmatched.push(raw);
+    }
+    res.json({ matched, unmatched });
+  } catch (e) { next(e); }
+});
+
 /* ---------- spare parts ---------- */
 
 const spareUpload = multer({
