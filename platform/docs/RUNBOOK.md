@@ -105,6 +105,39 @@ The last sync summary is stored in settings (`data.zohoSync`) and every run
 lands in the audit log. Order push (platform → Zoho sales orders) is NOT
 built — decide whether it's needed before Zoho decommission.
 
+## Running WITHOUT Zoho (cutover — ready whenever the business decides)
+
+Everything Zoho does is now covered in the platform: stock lives per
+warehouse (editable on each product's detail page + Stock/Inventory CSV
+imports), and supplier purchasing lives in **Admin → Catalog →
+Purchasing** (create POs, receive against them — receiving adds stock and
+the storefront updates immediately).
+
+While the Zoho sync is ACTIVE, Zoho still overwrites stock/prices every
+15 min — so admin stock edits and PO receiving only become authoritative
+after cutover. The cutover itself is ONE reversible switch:
+
+```
+# pause (platform becomes the source of truth):
+curl -X POST https://veyora.design/api/admin/zoho/pause \
+  -H "Cookie: veyora_access=<admin session>" \
+  -H "Content-Type: application/json" -d '{"paused":true}'
+# resume (Zoho takes back over on the next sync):  {"paused":false}
+```
+State shows in GET /api/admin/zoho/status (`paused`), is stored in
+settings (survives restarts/deploys), and every flip lands in the audit
+log. Manual syncs refuse while paused.
+
+Cutover checklist (do in this order, any day):
+1. Make sure Zoho is fully up to date, wait for/trigger one last sync.
+2. Flip the pause switch (above). From this moment the admin panel's
+   numbers are the truth.
+3. Warehouse team starts receiving via Admin → Purchasing and adjusting
+   stock on product pages instead of in Zoho.
+4. Keep Zoho read-only for reference for a few weeks, then archive it.
+Rollback at any point = flip the switch back (Zoho re-imposes its
+numbers on the next sync).
+
 ## Backups
 
 - Nightly at 03:20 server time: `pg_dump` gzip into `/opt/veyora/backups/`,

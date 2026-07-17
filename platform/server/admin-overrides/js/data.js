@@ -15,9 +15,9 @@ const DB = (function(){
 
   /* collections that sync row-by-row (order matters: parents before children refs) */
   const SYNCED = ['warehouses','users','products','orders','backorders','returns',
-    'promotions','campaigns','invoices','payments','creditNotes','collectionFlags',
-    'shippingRules','freeShipping','leads','chains','suitcases','emailTemplates',
-    'tasks','audit'];
+    'purchaseOrders','promotions','campaigns','invoices','payments','creditNotes',
+    'collectionFlags','shippingRules','freeShipping','leads','chains','suitcases',
+    'emailTemplates','tasks','audit'];
 
   function emptyDb(){
     const d = { meta:{}, settings:{sellingFastThreshold:20,cartRecovery:{enabled:false,delayHours:24,minValue:50}} };
@@ -61,6 +61,7 @@ const DB = (function(){
     db.nextBackorderNumber= snap.meta.nextBackorderNumber;
     db.nextReturnNumber   = snap.meta.nextReturnNumber;
     db.nextInvoiceNumber  = snap.meta.nextInvoiceNumber;
+    db.nextPoNumber       = snap.meta.nextPoNumber || 1;
     buildShadow();
     return true;
   }

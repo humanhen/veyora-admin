@@ -40,6 +40,15 @@ export const SIMPLE_COLLECTIONS = {
       createdAt: { col: 'created_at', ro: true },
     },
   },
+  purchaseOrders: {
+    table: 'purchase_orders',
+    fields: {
+      id: 'id', number: 'number', supplier: 'supplier', status: 'status',
+      notes: 'notes', expectedOn: 'expected_on', items: { col: 'items', json: true },
+      createdAt: { col: 'created_at', ro: true },
+    },
+    sequence: { name: 'po_number_seq', numberKey: 'number', prefix: 'PO' },
+  },
   campaigns: {
     table: 'campaigns',
     fields: { id: 'id', name: 'name', data: { col: 'data', json: true },

@@ -291,3 +291,20 @@ Also answered Sam's stock-rules voice note: suggested a sold-out safety
 buffer + low-stock label; awaiting his two numbers (impact data: 473
 colorways have 1-2 units). Zoho "why" explained: site follows the
 warehouse; Zoho stays source of truth until they abandon it.
+
+## UPDATE 2026-07-17 (night) — READY TO RUN WITHOUT ZOHO (not flipped)
+Moshe wants to tell the partners it's ready to drop Zoho whenever they
+decide. The two missing pieces are now built, deployed, and tested live:
+1. Supplier purchasing: Admin → Catalog → Purchasing (migration 0004,
+   purchase_orders jsonb items, PO number seq, full admin page: create
+   PO / receive into any warehouse → stock increments / partial receive /
+   cancel / view). Verified end-to-end in the real UI: PO1 created,
+   received, stock 3507.61 went 8→9 in DB, then cleaned up.
+2. Cutover switch: POST /api/admin/zoho/pause {paused:bool} — stored in
+   settings, audited, shown in zoho/status; scheduled + manual syncs
+   refuse while paused. Tested: pause→sync refused→unpause→sync ran
+   (and re-imposed Zoho's stock, reverting the test bump — exactly the
+   designed authority model). RUNBOOK has the cutover checklist.
+NOTE: admin nav lives in admin-overrides/js/app.js (the deploy overwrites
+the repo-root app.js) — nav items must be added in BOTH files.
+Zoho remains active/authoritative — nothing flipped.

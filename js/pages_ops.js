@@ -128,6 +128,143 @@ App.register('free-shipping',function(el){
   render();
 });
 
+/* ============================================================ PURCHASING (supplier POs + receiving into stock) */
+App.register('purchasing',function(el){
+  const d=DB.d;d.purchaseOrders=d.purchaseOrders||[];d.nextPoNumber=d.nextPoNumber||1;
+  const sumQ=po=>po.items.reduce((s,i)=>s+(i.qty||0),0);
+  const sumR=po=>po.items.reduce((s,i)=>s+(i.received||0),0);
+  function render(){
+    el.innerHTML=`
+    <div class="page-head">
+      <div class="page-title">Purchasing</div>
+      <button class="btn btn-dark" id="po-add">${I.plus} New Purchase Order</button>
+    </div>
+    <div class="card">
+      <div class="table-wrap"><table class="tbl">
+        <thead><tr><th>PO</th><th>Supplier</th><th>Expected</th><th>Items</th><th>Received</th><th>Status</th><th>Actions</th></tr></thead>
+        <tbody>${d.purchaseOrders.length?d.purchaseOrders.map(po=>`<tr>
+          <td class="cell-main">${esc(po.number)}</td>
+          <td>${esc(po.supplier)}</td>
+          <td>${po.expectedOn?fmtDateShort(po.expectedOn):'—'}</td>
+          <td>${po.items.length} lines · ${sumQ(po)} pcs</td>
+          <td>${sumR(po)} / ${sumQ(po)}</td>
+          <td>${statusBadge(po.status)}</td>
+          <td><div class="row-actions">
+            ${['ordered','partially received'].includes(po.status)?`<button class="btn btn-sm" data-recv="${po.id}">Receive</button>`:''}
+            <button class="btn btn-sm" data-view="${po.id}">View</button>
+            ${['draft','ordered'].includes(po.status)?`<button class="icon-btn danger" title="Cancel" data-cancel="${po.id}">${I.trash}</button>`:''}
+          </div></td>
+        </tr>`).join(''):`<tr><td colspan="7" class="empty-cell">No purchase orders yet. "New Purchase Order" records what you buy from suppliers; receiving it adds the stock.</td></tr>`}
+        </tbody></table></div>
+    </div>
+    <div class="small muted" style="margin-top:10px">Receiving a PO adds the quantities to warehouse stock and shows on the storefront immediately. (While the Zoho sync is active, Zoho still overrides stock — purchasing becomes authoritative after cutover.)</div>`;
+
+    el.querySelector('#po-add').onclick=()=>{
+      const items=[];
+      Modal.open({title:'New Purchase Order',
+        body:`
+        <div class="grid-2">
+          <div class="field"><label>Supplier</label><input class="input" id="po-sup" placeholder="e.g. Kyme SRL"></div>
+          <div class="field"><label>Expected arrival</label><input class="input" type="date" id="po-exp"></div>
+        </div>
+        <div class="field"><label>Add line — variation SKU</label><div class="flex">
+          <input class="input" id="po-sku" placeholder="e.g. 3507.61" style="flex:2">
+          <input class="input" id="po-qty" type="number" min="1" value="10" style="width:80px">
+          <input class="input" id="po-cost" type="number" min="0" step="0.01" placeholder="unit cost" style="width:110px">
+          <button class="btn" id="po-line-add">Add</button>
+        </div></div>
+        <div id="po-lines"></div>
+        <div class="field" style="margin-top:8px"><label>Notes</label><input class="input" id="po-notes"></div>`,
+        foot:`<button class="btn" data-x>Cancel</button><button class="btn btn-dark" data-ok>Create PO</button>`,
+        setup(ov,close){
+          function paint(){
+            ov.querySelector('#po-lines').innerHTML=items.map((it,ix)=>`
+              <div class="flex" style="border:1px solid var(--line);border-radius:9px;padding:7px 12px;margin-bottom:6px">
+                <b>${esc(it.sku)}</b><span class="muted">${esc(it.name)}</span>
+                <span>× ${it.qty}</span>${it.cost?`<span class="muted">@ ${money(it.cost)}</span>`:''}
+                <button class="icon-btn danger right" data-rm="${ix}">${I.trash}</button>
+              </div>`).join('');
+            ov.querySelectorAll('[data-rm]').forEach(b=>b.onclick=()=>{items.splice(parseInt(b.dataset.rm,10),1);paint();});
+          }
+          ov.querySelector('#po-line-add').onclick=()=>{
+            const sku=ov.querySelector('#po-sku').value.trim();
+            const hit=DB.variationBySku(sku);
+            if(!hit)return toast('SKU not found',true);
+            items.push({sku:hit.v.sku,name:hit.p.name,qty:parseInt(ov.querySelector('#po-qty').value,10)||1,
+              received:0,cost:parseFloat(ov.querySelector('#po-cost').value)||null});
+            ov.querySelector('#po-sku').value='';paint();
+          };
+          ov.querySelector('[data-x]').onclick=close;
+          ov.querySelector('[data-ok]').onclick=()=>{
+            if(!items.length)return toast('Add at least one line',true);
+            const num='PO'+(d.nextPoNumber++);
+            d.purchaseOrders.unshift({id:uid('po'),number:num,supplier:ov.querySelector('#po-sup').value.trim(),
+              status:'ordered',notes:ov.querySelector('#po-notes').value,expectedOn:ov.querySelector('#po-exp').value||null,
+              items,createdAt:new Date().toISOString()});
+            DB.save();DB.audit('po.create',num,items.length+' line(s), '+items.reduce((s,i)=>s+i.qty,0)+' pcs');
+            close();render();toast('Purchase order '+num+' created');
+          };
+        }});
+    };
+
+    el.querySelectorAll('[data-recv]').forEach(b=>b.onclick=()=>{
+      const po=d.purchaseOrders.find(x=>x.id===b.dataset.recv);
+      Modal.open({title:'Receive '+po.number,
+        body:`
+        <div class="field"><label>Into warehouse</label>
+          <select class="select" id="rc-wh">${d.warehouses.map(w=>`<option value="${w.id}">${esc(w.name)}</option>`).join('')}</select></div>
+        <div class="table-wrap"><table class="tbl">
+          <thead><tr><th>SKU</th><th>Product</th><th>Ordered</th><th>Received</th><th style="width:110px">Receive now</th></tr></thead>
+          <tbody>${po.items.map((it,ix)=>`<tr>
+            <td class="cell-main">${esc(it.sku)}</td><td>${esc(it.name)}</td>
+            <td>${it.qty}</td><td>${it.received||0}</td>
+            <td><input class="input" type="number" min="0" style="width:90px;padding:5px 8px" data-rc="${ix}"
+              value="${Math.max(0,it.qty-(it.received||0))}" onwheel="this.blur()"></td>
+          </tr>`).join('')}</tbody></table></div>
+        <div class="dashed-banner">Received quantities are added to the selected warehouse's stock and appear on the storefront right away.</div>`,
+        foot:`<button class="btn" data-x>Cancel</button><button class="btn btn-dark" data-ok>Receive</button>`,
+        setup(ov,close){
+          ov.querySelector('[data-x]').onclick=close;
+          ov.querySelector('[data-ok]').onclick=()=>{
+            const wh=ov.querySelector('#rc-wh').value;let total=0;
+            po.items.forEach((it,ix)=>{
+              const n=Math.max(0,parseInt(ov.querySelector(`[data-rc="${ix}"]`).value,10)||0);
+              if(!n)return;
+              const hit=DB.variationBySku(it.sku);
+              if(!hit)return toast(it.sku+' no longer exists — skipped',true);
+              hit.v.stock=hit.v.stock||{};hit.v.stock[wh]=hit.v.stock[wh]||{qty:0,shelf:''};
+              hit.v.stock[wh].qty+=n;it.received=(it.received||0)+n;total+=n;
+            });
+            if(!total)return toast('Nothing to receive',true);
+            po.status=po.items.every(it=>(it.received||0)>=it.qty)?'received':'partially received';
+            DB.save();DB.audit('po.receive',po.number,total+' pcs into '+ (DB.d.warehouses.find(w=>w.id===wh)?.name||wh));
+            close();render();toast(total+' pcs received into stock');
+          };
+        }});
+    });
+
+    el.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>{
+      const po=d.purchaseOrders.find(x=>x.id===b.dataset.view);
+      Modal.open({title:po.number+' — '+(po.supplier||'supplier'),
+        body:`<div class="kv"><dt>Status</dt><dd>${statusBadge(po.status)}</dd>
+          <dt>Expected</dt><dd>${po.expectedOn?fmtDateShort(po.expectedOn):'—'}</dd>
+          ${po.notes?`<dt>Notes</dt><dd>${esc(po.notes)}</dd>`:''}</div>
+        <div class="table-wrap"><table class="tbl"><thead><tr><th>SKU</th><th>Product</th><th>Ordered</th><th>Received</th><th>Unit cost</th></tr></thead>
+        <tbody>${po.items.map(it=>`<tr><td>${esc(it.sku)}</td><td>${esc(it.name)}</td><td>${it.qty}</td><td>${it.received||0}</td><td>${it.cost?money(it.cost):'—'}</td></tr>`).join('')}</tbody></table></div>`,
+        foot:`<button class="btn" data-x>Close</button>`,
+        setup(ov,close){ov.querySelector('[data-x]').onclick=close;}});
+    });
+
+    el.querySelectorAll('[data-cancel]').forEach(b=>b.onclick=()=>{
+      const po=d.purchaseOrders.find(x=>x.id===b.dataset.cancel);
+      Modal.confirm('Cancel PO','Cancel <b>'+esc(po.number)+'</b>? Nothing already received is removed from stock.',()=>{
+        po.status='cancelled';DB.save();DB.audit('po.cancel',po.number,'');render();
+      },'Cancel PO');
+    });
+  }
+  render();
+});
+
 /* ============================================================ AGENT REVENUE */
 App.register('agent-revenue',function(el){
   const state=App._ar||(App._ar={from:todayISO(),to:todayISO(),direct:15,referral:5,country:'',placedBy:'',rows:null,drill:null});

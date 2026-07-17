@@ -48,6 +48,7 @@ const NAV=[
     {route:'production',label:'Production',icon:'production'},
     {route:'inventory',label:'Inventory',icon:'inventory'},
     {route:'warehouses',label:'Warehouses',icon:'warehouse'},
+    {route:'purchasing',label:'Purchasing',icon:'truck'},
     {route:'stock-csv',label:'Stock CSV Import',icon:'fileCsv'},
     {route:'inventory-csv',label:'Inventory CSV (set/adjust)',icon:'fileCsv'},
     {route:'import-data',label:'Import Data',icon:'importData'},

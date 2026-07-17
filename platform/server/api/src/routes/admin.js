@@ -4,7 +4,7 @@ import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
-import { q, tx } from '../db.js';
+import { q, tx, audit } from '../db.js';
 import { requireAuth } from '../authmw.js';
 import { SIMPLE_COLLECTIONS, rowToJs, jsToRow } from '../shape.js';
 import { sendMail } from '../mail.js';
@@ -26,6 +26,18 @@ r.get('/zoho/status', async (req, res, next) => {
 r.post('/zoho/sync', async (req, res, next) => {
   try { res.json(await syncZohoInventory({ dryRun: req.query.dryRun === '1' })); }
   catch (e) { next(e); }
+});
+// cutover switch: pause = the platform stops following Zoho (admin edits
+// become authoritative); unpause = Zoho takes back over on the next sync
+r.post('/zoho/pause', async (req, res, next) => {
+  try {
+    const paused = !!req.body?.paused;
+    await q(`update settings set data = jsonb_set(coalesce(data,'{}'::jsonb),
+             '{zohoPaused}', $1::jsonb) where id=1`, [JSON.stringify(paused)]);
+    await audit({ id: req.user.id, name: req.user.email, role: req.user.role },
+      paused ? 'zoho sync paused (platform is source of truth)' : 'zoho sync resumed', 'zoho');
+    res.json({ ok: true, paused });
+  } catch (e) { next(e); }
 });
 
 /* ============================ snapshot ============================ */
@@ -124,6 +136,7 @@ r.get('/snapshot', async (req, res, next) => {
         nextBackorderNumber: await seqNext('backorder_number_seq'),
         nextReturnNumber: await seqNext('return_number_seq'),
         nextInvoiceNumber: await seqNext('invoice_number_seq'),
+        nextPoNumber: await seqNext('po_number_seq'),
         serverTime: new Date().toISOString(),
       },
     });
@@ -284,6 +297,7 @@ const SEQ_SYNC = [
   ['backorders', 'backorder_number_seq', 'BO'],
   ['returns', 'return_number_seq', 'RT'],
   ['invoices', 'invoice_number_seq', 'IN'],
+  ['purchaseOrders', 'po_number_seq', 'PO'],
 ];
 
 r.post('/sync', async (req, res, next) => {
@@ -344,7 +358,7 @@ r.post('/sync', async (req, res, next) => {
       // keep server sequences ahead of any client-assigned numbers
       for (const [coll, seq, prefix] of SEQ_SYNC) {
         if (!touched.has(coll)) continue;
-        const table = coll === 'invoices' ? 'invoices' : coll;
+        const table = SIMPLE_COLLECTIONS[coll]?.table || coll;
         await c.query(`
           select setval('${seq}', greatest(
             (select last_value from ${seq}),

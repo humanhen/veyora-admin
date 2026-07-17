@@ -94,8 +94,17 @@ let running = false;
 
 /** Pull all Zoho items and update the catalog. Returns a summary object.
     dryRun computes the same summary without writing anything. */
-export async function syncZohoInventory({ dryRun = false } = {}) {
+export async function zohoPaused() {
+  const { rows } = await q(`select data->>'zohoPaused' as p from settings where id=1`);
+  return rows[0]?.p === 'true';
+}
+
+export async function syncZohoInventory({ dryRun = false, force = false } = {}) {
   if (!zohoConfigured()) throw Object.assign(new Error('Zoho is not configured'), { status: 400 });
+  if (!force && !dryRun && await zohoPaused()) {
+    throw Object.assign(new Error(
+      'Zoho sync is paused — the platform is running as the source of truth'), { status: 409 });
+  }
   if (running) throw Object.assign(new Error('a Zoho sync is already running'), { status: 409 });
   running = true;
   const started = Date.now();
@@ -271,6 +280,7 @@ export async function zohoStatus() {
   const { rows } = await q(`select data->'zohoSync' as last from settings where id=1`);
   return {
     configured: zohoConfigured(),
+    paused: await zohoPaused(),
     dc: DC, orgId: ORG,
     intervalMinutes: Math.max(5, parseInt(process.env.ZOHO_SYNC_MINUTES || '30', 10)),
     syncRunning: running,
@@ -286,7 +296,8 @@ export function startZohoSchedule() {
     return;
   }
   const mins = Math.max(5, parseInt(process.env.ZOHO_SYNC_MINUTES || '30', 10));
-  setTimeout(() => syncZohoInventory().catch(e => console.error('[zoho] initial sync:', e.message)), 20_000);
-  setInterval(() => syncZohoInventory().catch(e => console.error('[zoho] sync:', e.message)), mins * 60_000);
+  const quiet = e => { if (!/paused/.test(e.message)) console.error('[zoho] sync:', e.message); };
+  setTimeout(() => syncZohoInventory().catch(quiet), 20_000);
+  setInterval(() => syncZohoInventory().catch(quiet), mins * 60_000);
   console.log(`[zoho] live sync enabled: org ${ORG}, every ${mins} min`);
 }
