@@ -200,30 +200,47 @@ function slugify(s) {
     .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
 }
 
-/** Products whose own SKU or a variation SKU is in `skus`, ordered by paste order. */
-async function productsForSkus(user, skus) {
+/** One frame (variation) per matched SKU, ordered by paste order.
+    A variation SKU (e.g. "264.231") matches just that colorway; a model/product
+    SKU (e.g. "264") expands to all of that product's active colorways. This keeps
+    a curated list faithful to the exact frames it names, rather than collapsing
+    to a product card that would also show colors the list never mentioned. */
+async function framesForSkus(user, skus) {
   const wanted = normSkus(skus);
   if (!wanted.length) return [];
   const upper = wanted.map(s => s.toUpperCase());
   const { rows } = await q(`
-    select p.id, upper(p.sku) as psku,
-      array(select upper(v.sku) from variations v where v.product_id = p.id) as vskus
-    from products p
-    where p.is_active and (
-      upper(p.sku) = any($1)
-      or exists (select 1 from variations v where v.product_id = p.id and upper(v.sku) = any($1)))`,
-    [upper]);
-  if (!rows.length) return [];
-  const items = await loadProducts(user, { ids: rows.map(x => x.id) });
-  const rank = new Map();
-  for (const row of rows) {
-    let r0 = upper.length;
-    for (let i = 0; i < upper.length; i++) {
-      if (upper[i] === row.psku || row.vskus.includes(upper[i])) { r0 = i; break; }
-    }
-    rank.set(row.id, r0);
-  }
-  return items.sort((a, b) => (rank.get(a.id) ?? 1e9) - (rank.get(b.id) ?? 1e9));
+    select v.sku, v.color, v.image, v.price, v.sale_price, v.stock_status,
+           p.id as product_id, upper(p.sku) as psku, p.name, p.brand, p.size,
+           p.images, p.attributes, p.price as p_price, p.sale_price as p_sale_price,
+           coalesce((select sum(s.qty) from stock s where s.variation_id = v.id), 0) as qty
+      from variations v
+      join products p on p.id = v.product_id
+     where p.is_active and v.is_active
+       and (upper(v.sku) = any($1) or upper(p.sku) = any($1))`, [upper]);
+  const hide = user.hide_prices;
+  const rankOf = (vsku, psku) => {
+    for (let i = 0; i < upper.length; i++) if (upper[i] === vsku || upper[i] === psku) return i;
+    return upper.length;
+  };
+  return rows.map(row => {
+    const qty = Number(row.qty) || 0;
+    return {
+      sku: row.sku, color: row.color, name: row.name, brand: row.brand, size: row.size,
+      image: row.image || (row.images && row.images[0]) || null,
+      attributes: row.attributes || {},
+      qty,
+      stockStatus: qty > 0 ? 'in stock'
+        : (row.stock_status === 'in production' ? 'in production' : 'out of stock'),
+      price: hide ? null : priceForCustomer(user,
+        { brand: row.brand, price: row.p_price, sale_price: row.p_sale_price },
+        { sku: row.sku, price: row.price, sale_price: row.sale_price }),
+      productId: row.product_id,
+      _rank: rankOf(row.sku.toUpperCase(), row.psku),
+    };
+  }).sort((a, b) => (a._rank - b._rank)
+      || a.sku.localeCompare(b.sku, undefined, { numeric: true }))
+    .map(({ _rank, ...f }) => f);
 }
 
 /** Split requested SKUs into those that match a live product/variation and those that don't. */
@@ -253,8 +270,8 @@ r.get('/shared-lists/:slug', async (req, res, next) => {
     const { rows } = await q(`select slug, name, skus from shared_lists where slug = $1`,
       [String(req.params.slug || '').toLowerCase()]);
     if (!rows[0]) return res.status(404).json({ error: 'list not found' });
-    const products = await productsForSkus(req.user, rows[0].skus);
-    res.json({ list: { slug: rows[0].slug, name: rows[0].name, count: products.length }, products });
+    const frames = await framesForSkus(req.user, rows[0].skus);
+    res.json({ list: { slug: rows[0].slug, name: rows[0].name, count: frames.length }, frames });
   } catch (e) { next(e); }
 });
 

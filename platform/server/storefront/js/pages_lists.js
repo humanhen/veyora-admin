@@ -12,6 +12,47 @@ function copyToClipboard(text, okMsg) {
     .catch(() => toast('Copy failed — long-press the link to copy', true));
 }
 
+/* One card per exact frame (variation) in a shared list. */
+function frameCard(fr) {
+  const u = Store.session?.user || { hidePrices: true, guest: true };
+  const hide = u.hidePrices || u.guest;
+  const a = fr.attributes || {};
+  const dims = [a.lens_w, a.bridge, a.temple].filter(Boolean).join(' · ');
+  const card = h(`<div class="pcard2" style="cursor:default">
+    <div class="photo-wrap">
+      <div class="imgbox2" style="cursor:zoom-in">${imgOr(fr.image)}</div>
+      <div class="attrline">${dims ? esc(dims) + (a.lens_h ? ` — H ${esc(a.lens_h)}` : '') : '&nbsp;'}</div>
+    </div>
+    <div class="rowname"><span class="pname">${esc(fr.name)}</span></div>
+    <div style="padding:0 14px 6px;color:#6b6660;font-size:11px;letter-spacing:.5px">
+      ${esc(fr.sku)}${fr.color ? ' · ' + esc(fr.color) : ''}</div>
+    <div style="padding:0 14px 10px;display:flex;align-items:center;justify-content:space-between;gap:8px">
+      ${stockPill(fr)}${hide ? '' : `<b style="font-size:13px">${money(fr.price)}</b>`}
+    </div>
+    ${u.guest
+      ? `<button class="orderbtn" onclick="location.hash='#/login'">Log in to order</button>`
+      : (fr.qty > 0
+        ? `<div class="frame-order" style="display:flex;gap:8px;padding:0 14px 12px;align-items:center;margin-top:auto">
+             ${qtyBox(0, 0, fr.qty)}<button class="btn sm add" style="flex:1">Add</button></div>`
+        : `<button class="orderbtn" disabled>Out of stock</button>`)}
+  </div>`);
+  const box = card.querySelector('.imgbox2');
+  if (fr.image) box.onclick = () =>
+    imageLightbox([fr.image], 0, fr.name + (fr.color ? ' · ' + fr.color : ''));
+  const add = card.querySelector('.add');
+  if (add) {
+    let qv = 0;
+    bindQtyBox(card.querySelector('.qtybox'), v => { qv = v; });
+    add.onclick = async () => {
+      if (qv <= 0) { toast('Choose a quantity', true); return; }
+      const cart = await API.post('/user/add-to-cart', { sku: fr.sku, qty: qv });
+      setCartBadge(cart.totalQty);
+      toast('Added to cart');
+    };
+  }
+  return card;
+}
+
 /* ---------- public: view a shared list ---------- */
 Routes['#/list'] = {
   title: 'Frames', optional: true,
@@ -52,16 +93,17 @@ Routes['#/list'] = {
     const title = res.list.name || 'Selected frames';
     el.querySelector('#listName').textContent = title;
     document.title = title + ' — Veyora';
+    const frames = res.frames || [];
     el.querySelector('#listCount').textContent =
-      res.products.length ? `${res.products.length} frame${res.products.length === 1 ? '' : 's'}` : '';
+      frames.length ? `${frames.length} frame${frames.length === 1 ? '' : 's'}` : '';
 
     grid.innerHTML = '';
-    if (!res.products.length) {
+    if (!frames.length) {
       grid.innerHTML = `<div class="empty" style="grid-column:1/-1"><div class="big">🕶️</div>
         These frames aren’t available right now.</div>`;
       return;
     }
-    for (const p of res.products) grid.appendChild(productCard(p));
+    for (const fr of frames) grid.appendChild(frameCard(fr));
   },
 };
 
