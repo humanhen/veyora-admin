@@ -55,6 +55,10 @@ Routes['#/products'] = {
       <div class="bigsearch">
         <input placeholder="Search products..." value="${esc(F.search)}"/>
       </div>
+      ${guest ? '' : `<div class="cart-total-row">
+        ${catalogUser().hidePrices ? '' : `<span>Total: <span class="amt" id="ctAmt">—</span></span>`}
+        <button class="btn sm" type="button" onclick="location.hash='#/cart'">🛒 Cart</button>
+      </div>`}
       <span id="fbarSlot"></span>
       <div class="fbar">
         <div class="frow groups">
@@ -145,6 +149,11 @@ Routes['#/products'] = {
     el.querySelector('.bigsearch input').oninput = debounce(e => {
       F.search = e.target.value; F.page = 1; load();
     }, 350);
+    // app-layout cart summary (old-site: "Total: $X" + Cart under the search)
+    const ctAmt = el.querySelector('#ctAmt');
+    if (ctAmt) API.get('/user/get-cart')
+      .then(c => { ctAmt.textContent = money(c.total || 0); })
+      .catch(() => { ctAmt.textContent = money(0); });
     el.querySelectorAll('.density button').forEach(b => b.onclick = () => {
       Catalog.density = parseInt(b.dataset.d, 10);
       el.querySelectorAll('.density button').forEach(x => x.classList.toggle('on', x === b));

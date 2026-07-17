@@ -39,10 +39,31 @@ function eyeIcon(off) {
     : `<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>`;
 }
 
+/* icons for the app-style bottom nav (matching the old site's outline set) */
+const NAVICON = {
+  home: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg>`,
+  glasses: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="6.5" cy="14.5" r="3.5"/><circle cx="17.5" cy="14.5" r="3.5"/><path d="M10 14.5q2 -1.6 4 0"/><path d="M3 14.5 2 10M21 14.5 22 10"/></svg>`,
+  gear: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.55-1 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34h0a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55h0a1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87v0a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1z"/></svg>`,
+  bag: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 7h12l1 14H5L6 7z"/><path d="M9 10V6a3 3 0 0 1 6 0v4"/></svg>`,
+  user: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`,
+  burger: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>`,
+};
+
+/* Old-site bottom nav: Home (public home), Products, Spare parts, Cart,
+   My Account (→ the dashboard, exactly like the old site). */
+const BOTTOM_NAV = [
+  { hash: '#/',            label: 'Home',       icon: 'home' },
+  { hash: '#/products',    label: 'Products',   icon: 'glasses' },
+  { hash: '#/spare-parts', label: 'Spare parts', icon: 'gear' },
+  { hash: '#/cart',        label: 'Cart',       icon: 'bag', badge: true },
+  { hash: '#/dashboard',   label: 'My Account', icon: 'user' },
+];
+
 function shell(contentEl, activeHash) {
   const u = Store.session.user;
   const el = h(`<div>
     <header class="topbar">
+      <button class="burger" aria-label="Menu">${NAVICON.burger}</button>
       <img class="logo" src="assets/logo-white.svg" alt="Veyora" style="width:126px;cursor:pointer" onclick="location.hash='#/dashboard'"/>
       <div class="spacer"></div>
       <button class="icon-btn present-toggle ${Store.presenting ? 'on' : ''}" data-present
@@ -54,22 +75,43 @@ function shell(contentEl, activeHash) {
     <nav class="nav">${navFor(u).map(n =>
       `<a href="${n.hash}" class="${activeHash.startsWith(n.hash) ? 'active' : ''}">${n.label}</a>`).join('')}
     </nav>
+    <div class="drawer-back">
+      <div class="drawer">
+        <div class="dhead"><img src="assets/logo-black.svg" alt="Veyora"/></div>
+        <a href="#/dashboard" class="${activeHash === '#/dashboard' ? 'active' : ''}">Dashboard</a>
+        ${navFor(u).map(n =>
+          `<a href="${n.hash}" class="${activeHash.startsWith(n.hash) ? 'active' : ''}">${n.label}</a>`).join('')}
+        <div class="drow" data-present-drawer>${eyeIcon(Store.presenting)}
+          ${Store.presenting ? 'Show my prices' : 'Hide prices (presentation)'}</div>
+      </div>
+    </div>
     ${Store.presenting ? `<div class="present-bar">
       <span>${eyeIcon(true)} <b>Presentation mode</b> — your prices are hidden, so you can show frames to customers.</span>
       <button data-present-exit>Show my prices</button></div>` : ''}
     <main class="page"></main>
+    <nav class="bottomnav">${BOTTOM_NAV.map(n => `
+      <a href="${n.hash}" class="${(n.hash === '#/' ? activeHash === '#/' : activeHash.startsWith(n.hash)) ? 'active' : ''}">
+        ${NAVICON[n.icon]}${n.badge ? `<span class="badge" id="cartBadgeM" style="${Store.cartCount ? '' : 'display:none'}">${Store.cartCount}</span>` : ''}
+        <span>${n.label}</span></a>`).join('')}
+    </nav>
   </div>`);
   el.querySelector('[data-present]').onclick = () => setPresenting(!Store.presenting);
   const exitBtn = el.querySelector('[data-present-exit]');
   if (exitBtn) exitBtn.onclick = () => setPresenting(false);
+  const back = el.querySelector('.drawer-back');
+  el.querySelector('.burger').onclick = () => back.classList.add('open');
+  back.addEventListener('click', e => { if (e.target === back) back.classList.remove('open'); });
+  el.querySelector('[data-present-drawer]').onclick = () => setPresenting(!Store.presenting);
   el.querySelector('main').appendChild(contentEl);
   return el;
 }
 
 function setCartBadge(count) {
   Store.cartCount = count;
-  const b = document.getElementById('cartBadge');
-  if (b) { b.textContent = count; b.style.display = count ? '' : 'none'; }
+  for (const id of ['cartBadge', 'cartBadgeM']) {
+    const b = document.getElementById(id);
+    if (b) { b.textContent = count; b.style.display = count ? '' : 'none'; }
+  }
 }
 
 async function refreshCartBadge() {

@@ -20,31 +20,37 @@ Routes['#/dashboard'] = {
   title: 'Dashboard',
   async render(el) {
     const hide = Store.session.user.hidePrices;
+    const tile = (cls, go, icon, inner) => `
+      <div class="dtile ${cls}" data-go="${go}">
+        <div class="chip">${icon}</div><div class="tx">${inner}</div>
+      </div>`;
+    const I = {
+      bag: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 7h12l1 14H5L6 7z"/><path d="M9 10V6a3 3 0 0 1 6 0v4"/></svg>`,
+      cart: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="20" r="1.4"/><circle cx="17" cy="20" r="1.4"/><path d="M3 4h2l2.6 12h10.2L20 8H6"/></svg>`,
+      dollar: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M12 2v20M16.5 6.5c-.9-1.2-2.5-2-4.5-2-2.6 0-4.5 1.4-4.5 3.5 0 4.4 9 2.7 9 7 0 2.1-1.9 3.5-4.5 3.5-2 0-3.6-.8-4.5-2"/></svg>`,
+      clock: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>`,
+      undo: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/></svg>`,
+    };
     el.innerHTML = `
-      <div class="dash-head">
-        <h1 class="pagetitle">Welcome back${Store.session.user.firstName ? ', ' + esc(Store.session.user.firstName) : ''}</h1>
+      <div class="card welcome-card"><div class="pad">
+        <h1>Welcome back${Store.session.user.firstName ? ', ' + esc(Store.session.user.firstName) : ''}.</h1>
+        <p class="sub">Manage your orders, account, and explore our latest products.</p>
         <div class="dash-links">
           <a href="#/account">My Account</a>
           <a href="#/cart">Cart</a>
           <a href="#/returns">Report a defect</a>
         </div>
-      </div>
+      </div></div>
       <div class="dash-tiles">
-        <div class="dtile t-orders" data-go="#/orders">
+        ${tile('t-orders', '#/orders', I.bag, `
           <select id="dPeriod" onclick="event.stopPropagation()">
             ${DASH_PERIODS.map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}
           </select>
-          <b id="dOrders">–</b><span>Total Orders</span><i class="sub" id="dOrdersSub"></i>
-        </div>
-        <div class="dtile t-cart" data-go="#/cart">
-          <b id="dCart">–</b><span>Items in Cart</span><i class="sub" id="dCartSub"></i>
-        </div>
-        <div class="dtile t-back" data-go="#/backorders">
-          <b id="dBack">–</b><span>Backorders open</span><i class="sub" id="dBackSub"></i>
-        </div>
-        <div class="dtile t-ret" data-go="#/returns">
-          <b id="dRet">–</b><span>Returns open</span>
-        </div>
+          <b id="dOrders">–</b><span>Total Orders</span><i class="sub" id="dOrdersSub"></i>`)}
+        ${tile('t-cart', '#/cart', I.cart, `<b id="dCart">–</b><span>Items in Cart</span>`)}
+        ${hide ? '' : tile('t-ctot', '#/cart', I.dollar, `<b id="dCartTot">–</b><span>Cart Total</span>`)}
+        ${tile('t-back', '#/backorders', I.clock, `<b id="dBack">–</b><span>Backorders open</span><i class="sub" id="dBackSub"></i>`)}
+        ${tile('t-ret', '#/returns', I.undo, `<b id="dRet">–</b><span>Returns open</span>`)}
       </div>
 
       <div class="card" style="margin-top:16px"><div class="pad">
@@ -80,7 +86,8 @@ Routes['#/dashboard'] = {
     el.querySelector('#dPeriod').onchange = paintOrders;
 
     el.querySelector('#dCart').textContent = cart.totalQty || 0;
-    el.querySelector('#dCartSub').textContent = hide || !cart.totalQty ? '' : money(cart.total);
+    const ctot = el.querySelector('#dCartTot');
+    if (ctot) ctot.textContent = money(cart.total || 0);
 
     const openBack = back.backorders.filter(b => ['open', 'approved'].includes(b.status));
     const approvable = back.backorders.filter(b => b.status === 'open').length;

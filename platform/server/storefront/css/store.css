@@ -57,23 +57,64 @@ img{max-width:100%}
 h1.pagetitle{font-size:20px;font-weight:700;margin-bottom:14px}
 .sub{color:var(--muted);font-size:13px}
 
-/* ---------- dashboard (post-login landing) ---------- */
-.dash-head{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
-.dash-links{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+/* ---------- dashboard (post-login landing, old-site look) ---------- */
+.welcome-card h1{font-size:22px;font-weight:700;margin-bottom:2px}
+.welcome-card .sub{font-size:13.5px}
+.dash-links{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
 .dash-links a{background:#fff;border:1px solid var(--line);border-radius:999px;padding:7px 14px;font-size:12.5px;font-weight:600;color:var(--ink-2)}
 .dash-links a:hover{background:var(--soft-blue)}
-.dash-tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.dash-tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:14px}
 @media(max-width:900px){.dash-tiles{grid-template-columns:repeat(2,1fr)}}
-.dtile{position:relative;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:16px;cursor:pointer;transition:transform .12s,border-color .12s;display:flex;flex-direction:column;gap:2px;min-height:96px}
+/* old-site tile: soft icon chip on the left, number + label beside it */
+.dtile{position:relative;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:16px;cursor:pointer;transition:transform .12s,border-color .12s;display:flex;align-items:center;gap:13px;min-height:92px}
 .dtile:hover{transform:translateY(-2px)}
-.dtile b{font-size:26px;font-weight:800;line-height:1.1}
+.dtile .chip{flex:0 0 46px;height:46px;border-radius:13px;display:flex;align-items:center;justify-content:center}
+.dtile .chip svg{width:24px;height:24px}
+.dtile .tx{display:flex;flex-direction:column;gap:1px;min-width:0}
+.dtile b{font-size:24px;font-weight:800;line-height:1.1}
 .dtile span{font-size:12.5px;font-weight:600;color:var(--muted)}
-.dtile i.sub{font-style:normal;font-size:12px;min-height:15px}
-.dtile select{position:absolute;top:10px;right:10px;border:1px solid var(--line);border-radius:7px;background:#fff;font-size:11.5px;padding:3px 5px;color:var(--muted);max-width:46%}
-.dtile.t-orders:hover{border-color:var(--ink-2)}   .dtile.t-orders b{color:var(--ink-2)}
-.dtile.t-cart:hover{border-color:var(--ok)}        .dtile.t-cart b{color:var(--ok)}
-.dtile.t-back:hover{border-color:var(--warn)}      .dtile.t-back b{color:var(--warn)}
-.dtile.t-ret:hover{border-color:var(--ink-3)}      .dtile.t-ret b{color:var(--ink-3)}
+.dtile i.sub{font-style:normal;font-size:11.5px;min-height:14px}
+.dtile select{position:absolute;top:8px;right:8px;border:1px solid var(--line);border-radius:7px;background:#fff;font-size:11px;padding:2px 4px;color:var(--muted);max-width:46%}
+.dtile.t-orders .chip{background:#f1f5f9;color:#475569}  .dtile.t-orders b{color:var(--ink-2)}  .dtile.t-orders:hover{border-color:var(--ink-2)}
+.dtile.t-cart .chip{background:#dcfce7;color:var(--ok)}  .dtile.t-cart b{color:var(--ok)}       .dtile.t-cart:hover{border-color:var(--ok)}
+.dtile.t-ctot .chip{background:#dbeafe;color:#2563eb}    .dtile.t-ctot b{color:#2563eb}         .dtile.t-ctot:hover{border-color:#2563eb}
+.dtile.t-back .chip{background:#fef3c7;color:var(--warn)}.dtile.t-back b{color:var(--warn)}     .dtile.t-back:hover{border-color:var(--warn)}
+.dtile.t-ret .chip{background:var(--soft-purple);color:var(--ink-3)}.dtile.t-ret b{color:var(--ink-3)}.dtile.t-ret:hover{border-color:var(--ink-3)}
+
+/* ---------- app shell under 900px (old-site layout: burger + centered
+   logo, bottom tab bar, everything else in the drawer) ---------- */
+.burger{display:none;background:none;border:none;color:#fff;padding:8px;border-radius:8px}
+.burger svg{display:block;width:24px;height:24px}
+.bottomnav{display:none}
+.drawer-back{position:fixed;inset:0;z-index:55;background:rgba(0,0,0,.45);opacity:0;pointer-events:none;transition:opacity .22s}
+.drawer-back.open{opacity:1;pointer-events:auto}
+.drawer{position:absolute;top:0;bottom:0;left:0;width:280px;max-width:84vw;background:#fff;overflow-y:auto;padding:16px 0 24px}
+.drawer .dhead{padding:6px 20px 16px;border-bottom:1px solid var(--line);margin-bottom:8px}
+.drawer .dhead img{width:118px;display:block}
+.drawer a,.drawer .drow{display:flex;align-items:center;gap:10px;padding:12.5px 20px;font-weight:600;font-size:14px;color:var(--ink);cursor:pointer}
+.drawer a.active{background:var(--soft-blue);color:var(--ink-2);box-shadow:inset 3px 0 0 var(--ink-2)}
+.drawer a:hover,.drawer .drow:hover{background:#f8fafc}
+.drawer .drow svg{width:18px;height:18px;color:var(--muted)}
+@media(max-width:900px){
+  .topbar{padding:0 12px}
+  .burger{display:inline-flex}
+  .topbar .logo{position:absolute;left:50%;transform:translateX(-50%)}
+  .topbar .spacer,.topbar .icon-btn{display:none}
+  .nav{display:none}
+  .bottomnav{position:fixed;left:0;right:0;bottom:0;z-index:45;display:flex;justify-content:space-around;background:var(--ink);padding:7px 4px calc(7px + env(safe-area-inset-bottom))}
+  .bottomnav a{position:relative;display:flex;flex-direction:column;align-items:center;gap:3px;color:#8d8a87;font-size:10.5px;font-weight:600;letter-spacing:.3px;padding:2px 8px;min-width:56px}
+  .bottomnav a.active{color:#fff}
+  .bottomnav svg{width:22px;height:22px}
+  .bottomnav .badge{position:absolute;top:-4px;right:8px;background:#bda0d3;color:var(--ink);font-size:10px;font-weight:700;border-radius:999px;min-width:16px;height:16px;line-height:16px;text-align:center;padding:0 3px}
+  #toasts{bottom:86px}
+}
+/* products page: cart summary under the search, like the old app layout */
+.cart-total-row{display:none}
+@media(max-width:900px){
+  .cart-total-row{display:flex;align-items:center;gap:12px;margin:0 0 14px}
+  .cart-total-row .amt{font-size:15px;font-weight:700}
+  .cart-total-row .btn{background:#1a1a1a;border-radius:10px}
+}
 
 /* ---------- cards / tables ---------- */
 .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow)}
@@ -410,11 +451,15 @@ body.hm-dark{background:#0e0d0d;color:#fff}
 .fsheet .fgroup{display:flex;flex-wrap:wrap;gap:6px}
 .fsheet .fgroup .flabel,.fsheet .frow.brands .flabel{width:100%;margin:0 0 2px}
 .fsheet .frow.brands{margin-top:12px;gap:6px}
-@media(max-width:760px){
+/* the old site switches to its app layout below 900px (MUI md) — filters
+   live behind the Filters button there, never as an inline bar */
+@media(max-width:900px){
   .fbar{display:none}
   .fsheet .fbar{display:block}
   .fbtn{display:inline-flex}
   .density{display:none}
+}
+@media(max-width:760px){
   .prod-head h1{font-size:16px}
 }
 .pgrid2{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}

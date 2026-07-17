@@ -235,3 +235,24 @@ logo click → dashboard. Money respects hide-prices/presentation mode.
 NOT migrated (old dashboard had them, super-agent only): sales-coaching
 leaderboard / team widgets — no super-agents active; revisit if needed.
 Verified live desktop+mobile with test-customer session; cookie cleared.
+
+## UPDATE 2026-07-17 (later) — old-site app layout under 900px
+Moshe compared old vs new side by side and asked for old-site look. Decoded
+the old PrivateLayout chunk: below 900px (MUI md) it runs an app shell.
+Now replicated on veyora.design for logged-in users at <=900px:
+- topbar = burger + centered logo (desktop >900 unchanged: left logo,
+  icon buttons, top tab nav)
+- bottom tab bar exactly like old: Home (public home), Products,
+  Spare parts, Cart (badge), My Account (-> dashboard, like old)
+- burger drawer: Dashboard + full nav + presentation-mode toggle
+  (fade-in pattern, no transform transitions — throttle-proof)
+- products page <=900: filters behind the Filters button (breakpoint
+  raised 760->900 to match old), "Total: $X + Cart" row under search
+  (hidden for guests and in presentation mode)
+- dashboard restyled to old look: welcome card + "Manage your orders,
+  account, and explore our latest products." subtitle, icon-chip tiles
+  (bag/cart/$/clock/undo) incl. separate Cart Total tile (hidden when
+  prices hidden)
+Verified live at 830px (the comparison width), and 1280px desktop
+unchanged. Old desktop (lg 1200+) actually uses a permanent 280px left
+sidebar — NOT replicated; our approved top-tab desktop stays.
