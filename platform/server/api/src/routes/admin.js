@@ -313,6 +313,13 @@ r.post('/sync', async (req, res, next) => {
     await tx(async (c) => {
       for (const ch of changes) {
         const name = ch.collection;
+        // The `warehouse` role can reach this router (for fulfilment work) but
+        // must never write the users table — otherwise a warehouse login could
+        // upsert its own row with role='admin' and self-escalate. Only a real
+        // admin may create, modify or delete user rows.
+        if (name === 'users' && req.user.role !== 'admin') {
+          throw Object.assign(new Error('users: admin only'), { status: 403 });
+        }
         touched.add(name);
         const upserts = Array.isArray(ch.upserts) ? ch.upserts : [];
         const deletes = Array.isArray(ch.deletes) ? ch.deletes : [];
@@ -374,7 +381,7 @@ r.post('/sync', async (req, res, next) => {
     });
     res.json({ ok: true, remaps });
   } catch (e) {
-    if (e.status === 400) return res.status(400).json({ error: e.message });
+    if (e.status) return res.status(e.status).json({ error: e.message });
     next(e);
   }
 });
