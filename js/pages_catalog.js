@@ -428,9 +428,14 @@ App.register('product',function(el,args){
 /* ============================================================ PRODUCTION */
 App.register('production',function(el){
   const d=DB.d;
-  if(!d.production)d.production=[];
+
+  /* Production state lives on the product itself (productionStatus +
+     estimatedArrival), which persists through sync — the old d.production
+     array was never a synced collection, so it vanished on every reload. */
+  function inProduction(){ return d.products.filter(p=>p.productionStatus==='in_production'); }
 
   function render(){
+    const list=inProduction();
     el.innerHTML=`
     <div class="page-head">
       <div class="page-title">Production Management</div>
@@ -439,18 +444,17 @@ App.register('production',function(el){
     <div class="card">
       <div class="table-wrap"><table class="tbl">
         <thead><tr><th>Image</th><th>Name</th><th>SKU</th><th>Stock</th><th>Estimated Arrival</th><th>Days Left</th><th>Actions</th></tr></thead>
-        <tbody>${d.production.length?d.production.map(pr=>{
-          const p=DB.product(pr.productId)||{name:'?',sku:'?',variations:[]};
-          const days=Math.ceil((new Date(pr.eta)-new Date())/864e5);
-          const cls=days<0?'red':days<=7?'orange':'blue';
+        <tbody>${list.length?list.map(p=>{
+          const days=p.estimatedArrival?Math.ceil((new Date(p.estimatedArrival)-new Date())/864e5):null;
+          const cls=days==null?'blue':days<0?'red':days<=7?'orange':'blue';
           return `<tr>
-            <td><div class="thumb-box">${glassesSVG()}</div></td>
+            <td><div class="thumb-box" style="overflow:hidden">${photoThumb(p.images&&p.images[0])}</div></td>
             <td class="cell-main">${esc(p.name)}</td>
             <td>${esc(p.sku)}</td>
             <td>${DB.productQty(p)}</td>
-            <td>${fmtDateShort(pr.eta)}</td>
-            <td><span class="badge ${cls}">${days<0?'Overdue':days+' days'}</span></td>
-            <td><button class="btn btn-sm btn-dark" data-back="${pr.id}">Back in Stock</button></td>
+            <td>${p.estimatedArrival?fmtDateShort(p.estimatedArrival):'—'}</td>
+            <td><span class="badge ${cls}">${days==null?'—':days<0?'Overdue':days+' days'}</span></td>
+            <td><button class="btn btn-sm btn-dark" data-back="${p.id}">Back in Stock</button></td>
           </tr>`;}).join(''):`<tr><td colspan="7" class="empty-cell">No products currently in production</td></tr>`}
         </tbody></table></div>
     </div>`;
@@ -466,19 +470,21 @@ App.register('production',function(el){
           ov.querySelector('[data-ok]').onclick=()=>{
             const p=DB.productBySku(ov.querySelector('#ap-sku').value);
             if(!p)return toast('Product not found',true);
-            d.production.unshift({id:uid('pn'),productId:p.id,eta:ov.querySelector('#ap-eta').value});
+            p.productionStatus='in_production';
+            p.estimatedArrival=ov.querySelector('#ap-eta').value||null;
             p.variations.forEach(v=>v.stockStatus='in production');
-            DB.save();DB.audit('production.add',p.sku,'ETA '+ov.querySelector('#ap-eta').value);
+            DB.save();DB.audit('production.add',p.sku,'ETA '+(p.estimatedArrival||'—'));
             close();render();toast('Added to production');
           };
         }});
     };
     el.querySelectorAll('[data-back]').forEach(b=>b.onclick=()=>{
-      const pr=d.production.find(x=>x.id===b.dataset.back);
-      const p=DB.product(pr.productId);
-      d.production=d.production.filter(x=>x.id!==pr.id);
-      if(p)p.variations.forEach(v=>v.stockStatus='in stock');
-      DB.save();DB.audit('production.back-in-stock',p?p.sku:'?','');
+      const p=DB.product(b.dataset.back);
+      if(!p)return;
+      p.productionStatus='none';
+      p.estimatedArrival=null;
+      p.variations.forEach(v=>v.stockStatus='in stock');
+      DB.save();DB.audit('production.back-in-stock',p.sku,'');
       render();toast('Marked back in stock');
     });
   }
