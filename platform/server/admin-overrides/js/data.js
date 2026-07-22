@@ -172,6 +172,15 @@ const DB = (function(){
   const api = {
     load, save, reset, audit, init,
     flush(){ clearTimeout(syncTimer); return pushSync(); },
+    /* Uploads image files to the server and returns their /s3/ paths. */
+    async uploadImages(files){
+      const fd = new FormData();
+      for (const f of Array.from(files)) fd.append('files', f);
+      const res = await fetch(API + '/admin/upload', { method:'POST', credentials:'same-origin', body: fd });
+      let data = null; try { data = await res.json(); } catch(e){}
+      if (!res.ok) throw new Error((data && data.error) || ('HTTP '+res.status));
+      return (data && data.paths) || [];
+    },
     get d(){ return load(); },
     user(id){ return load().users.find(u=>u.id===id); },
     userName(id){ const u=api.user(id); return u?(u.business||((u.firstName||'')+' '+(u.lastName||'')).trim()||u.username):'—'; },

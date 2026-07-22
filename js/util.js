@@ -90,6 +90,14 @@ function glassesSVG(color){
 }
 const COLOR_HEX = {black:'#26221c',havana:'#6b4a26',crystal:'#b9c0c4',tortoise:'#8a5a2a',gold:'#b98f2f',silver:'#9aa0a6',rose:'#c67f8e',green:'#4f6f52',blue:'#3f5e8c',red:'#a33f34',brown:'#6e4f33',grey:'#7d7f82',champagne:'#cbb287',navy:'#2d3a5c',olive:'#6c6f45'};
 
+/* Renders a real product photo (uploaded /s3 path or data: URL) when there is one,
+   otherwise the line-drawing placeholder. Legacy rows store the string 'img'. */
+function photoThumb(src, fallbackColor){
+  if (src && /^(https?:|data:|\/s3\/|\/uploads\/)/.test(src))
+    return `<img src="${esc(src)}" alt="" loading="lazy" style="width:100%;height:100%;object-fit:cover;display:block">`;
+  return glassesSVG(fallbackColor);
+}
+
 /* ---------- status badge ---------- */
 function statusBadge(s){
   const map={pending:'yellow',processing:'blue',approved:'gray',completed:'green',cancelled:'red',collected:'blue',collecting:'blue',shipped:'blue',open:'yellow',converted:'green',eligible:'green',active:'green',inactive:'gray',resolved:'green',flagged:'red',done:'green',credit:'green',exchange:'blue',draft:'gray','n/a':'gray',paid:'green'};

@@ -252,6 +252,15 @@ const DB = (function(){
   /* ---------- lookups ---------- */
   const api={
     load,save,reset,audit,
+    /* Demo build has no server — inline the images as data: URLs so the UI still works. */
+    uploadImages(files){
+      return Promise.all(Array.from(files).map(f=>new Promise((resolve,reject)=>{
+        const r=new FileReader();
+        r.onload=()=>resolve(r.result);
+        r.onerror=()=>reject(new Error('read failed'));
+        r.readAsDataURL(f);
+      })));
+    },
     get d(){return load();},
     user(id){return load().users.find(u=>u.id===id);},
     userName(id){const u=api.user(id);return u?(u.business||((u.firstName||'')+' '+(u.lastName||'')).trim()||u.username):'—';},

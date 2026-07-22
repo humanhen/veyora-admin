@@ -200,9 +200,9 @@ App.register('product-edit',function(el,args){
       <div class="field" style="margin-top:14px"><label>Product Images</label>
         <div class="hint" style="margin-bottom:6px">Upload multiple images (JPG, PNG, WEBP - Max 5MB each)</div>
         <div class="flex">
-          <div class="img-drop" id="pf-img">${I.image}</div>
-          ${p.images.map((im,ix)=>`<div class="img-drop" style="background:#fff;position:relative">${glassesSVG()}
-            <button class="icon-btn danger" data-rmimg="${ix}" style="position:absolute;top:-6px;right:-6px;background:#fff;border:1px solid var(--line)">${I.x}</button></div>`).join('')}
+          <div class="img-drop" id="pf-img" title="Add images">${I.image}</div>
+          ${p.images.map((im,ix)=>`<div class="img-drop" style="background:#fff;position:relative;overflow:hidden">${photoThumb(im)}
+            <button class="icon-btn danger" data-rmimg="${ix}" style="position:absolute;top:-6px;right:-6px;background:#fff;border:1px solid var(--line);z-index:1">${I.x}</button></div>`).join('')}
         </div></div>
       <div class="field" style="margin-top:14px"><label>Description</label>
         <textarea class="input" id="pf-desc" placeholder="Enter product description">${esc(p.description)}</textarea></div>
@@ -240,7 +240,12 @@ App.register('product-edit',function(el,args){
             <div class="field"><label>Stock status</label><select class="select" data-vstatus="${ix}">
               ${['in stock','out of stock','in production'].map(s=>`<option ${v.stockStatus===s?'selected':''}>${s}</option>`).join('')}</select></div>
             <div class="field"><label>Quantity (computed)</label><input class="input" value="${Object.values(v.stock||{}).reduce((a,w)=>a+(w.qty||0),0)}" disabled></div>
-            <div class="field"><label>Image</label><button class="btn btn-sm" type="button">${I.upload} Upload</button></div>
+            <div class="field"><label>Image</label>
+              <div class="flex" style="align-items:center;gap:8px">
+                ${v.image?`<div class="img-drop" style="width:44px;height:28px;flex:none;overflow:hidden;background:#fff">${photoThumb(v.image)}</div>`:''}
+                <button class="btn btn-sm" type="button" data-vimg="${ix}">${I.upload} ${v.image?'Replace':'Upload'}</button>
+                ${v.image?`<button class="icon-btn danger" type="button" data-vimgrm="${ix}" title="Remove image">${I.x}</button>`:''}
+              </div></div>
           </div>
         </div>`).join('')}
       </div>
@@ -255,8 +260,30 @@ App.register('product-edit',function(el,args){
       else p.categories.push(c);
       render();
     });
-    el.querySelector('#pf-img').onclick=()=>{collect();p.images.push('img');render();};
+    function pickImages(multiple){
+      return new Promise(resolve=>{
+        const inp=document.createElement('input');
+        inp.type='file';inp.accept='image/*';inp.multiple=!!multiple;
+        inp.onchange=()=>resolve(inp.files&&inp.files.length?inp.files:null);
+        inp.click();
+      });
+    }
+    el.querySelector('#pf-img').onclick=async()=>{
+      const files=await pickImages(true);
+      if(!files)return;
+      collect();
+      try{ const paths=await DB.uploadImages(files); p.images.push(...paths); render(); }
+      catch(e){ toast('Image upload failed: '+e.message,true); }
+    };
     el.querySelectorAll('[data-rmimg]').forEach(b=>b.onclick=()=>{collect();p.images.splice(+b.dataset.rmimg,1);render();});
+    el.querySelectorAll('[data-vimg]').forEach(b=>b.onclick=async()=>{
+      const files=await pickImages(false);
+      if(!files)return;
+      collect();
+      try{ const paths=await DB.uploadImages(files); if(paths[0])p.variations[+b.dataset.vimg].image=paths[0]; render(); }
+      catch(e){ toast('Image upload failed: '+e.message,true); }
+    });
+    el.querySelectorAll('[data-vimgrm]').forEach(b=>b.onclick=()=>{collect();p.variations[+b.dataset.vimgrm].image=null;render();});
     el.querySelector('#pf-addvar').onclick=()=>{
       collect();
       const st={};DB.d.warehouses.forEach(w=>st[w.id]={qty:0,shelf:''});
