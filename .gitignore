@@ -3,3 +3,8 @@
 
 node_modules/
 platform/server/api/package-lock.json
+
+# local dev stack (secrets + machine-specific overrides + import scratch)
+platform/server/.env
+platform/server/docker-compose.override.yml
+platform/server/data/

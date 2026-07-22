@@ -1132,3 +1132,83 @@ App.register('reports',function(el){
   }
   render();
 });
+
+/* Spare-part requests submitted by customers from the storefront.
+   Previously there was no admin view at all, so requests went unseen.
+   Customers create them; staff move status forward and can see the photo. */
+App.register('spare-parts',function(el){
+  const STATUSES=['open','in_review','shipped','closed'];
+  const state=App._sp||(App._sp={status:'',q:'',page:1});
+
+  function render(){
+    let list=(DB.d.spareParts||[]).slice();
+    if(state.status)list=list.filter(r=>r.status===state.status);
+    if(state.q){
+      const term=state.q.toLowerCase();
+      list=list.filter(r=>(DB.userName(r.userId)+' '+r.model+' '+r.part+' '+(r.notes||'')).toLowerCase().includes(term));
+    }
+    list.sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt)));
+    const openCount=(DB.d.spareParts||[]).filter(r=>r.status==='open').length;
+    const p=paginate(list,state.page);
+    el.innerHTML=`
+    <div class="page-head">
+      <div class="page-title">Spare Parts ${openCount?`<span class="badge">${openCount} open</span>`:''}</div>
+      <div class="flex">
+        <input class="input" id="sp-q" placeholder="Search customer, model, part…" value="${esc(state.q)}" style="width:240px">
+        <select class="select" id="sp-status"><option value="">All statuses</option>
+          ${STATUSES.map(s=>`<option value="${s}" ${state.status===s?'selected':''}>${s.replace('_',' ')}</option>`).join('')}</select>
+      </div>
+    </div>
+    <div class="card">
+      <div class="table-wrap"><table class="tbl">
+        <thead><tr><th></th><th>Customer</th><th>Model</th><th>Part needed</th><th>Status</th><th>Requested</th><th>Actions</th></tr></thead>
+        <tbody>${p.slice.length?p.slice.map(r=>`<tr>
+          <td><div class="thumb-box" style="width:44px;height:28px;overflow:hidden;background:#fff">${photoThumb(r.image)}</div></td>
+          <td class="cell-main">${esc(DB.userName(r.userId))}</td>
+          <td>${esc(r.model||'—')}</td>
+          <td>${esc(r.part||'—')}</td>
+          <td>${statusBadge(r.status)}</td>
+          <td>${fmtDateShort(r.createdAt)}</td>
+          <td><div class="row-actions">
+            <select class="select" data-setstatus="${r.id}" style="padding:4px 8px;font-size:12px;width:auto">
+              ${STATUSES.map(s=>`<option value="${s}" ${r.status===s?'selected':''}>${s.replace('_',' ')}</option>`).join('')}</select>
+            <button class="icon-btn" data-view="${r.id}">${I.eye}</button>
+          </div></td>
+        </tr>`).join(''):`<tr><td colspan="7" class="empty-cell">No spare-part requests</td></tr>`}
+        </tbody></table></div>
+      ${pagerHTML(p)}
+    </div>`;
+
+    el.querySelector('#sp-status').onchange=e=>{state.status=e.target.value;state.page=1;render();};
+    const qi=el.querySelector('#sp-q');
+    qi.oninput=e=>{state.q=e.target.value;state.page=1;render();
+      const n=el.querySelector('#sp-q');n.focus();n.setSelectionRange(n.value.length,n.value.length);};
+    bindPager(el,pg=>{state.page=pg;render();});
+
+    el.querySelectorAll('[data-setstatus]').forEach(sel=>sel.onchange=()=>{
+      const r=(DB.d.spareParts||[]).find(x=>x.id===sel.dataset.setstatus);
+      if(!r)return;
+      const from=r.status;r.status=sel.value;
+      DB.save();DB.audit('sparepart.status',r.model||r.id,from+' → '+r.status);
+      render();toast('Marked '+r.status.replace('_',' '));
+    });
+
+    el.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>{
+      const r=(DB.d.spareParts||[]).find(x=>x.id===b.dataset.view);
+      if(!r)return;
+      Modal.open({title:'Spare-part request',
+        body:`<div class="kv">
+          <dt>Customer</dt><dd>${esc(DB.userName(r.userId))}</dd>
+          <dt>Model</dt><dd>${esc(r.model||'—')}</dd>
+          <dt>Part needed</dt><dd>${esc(r.part||'—')}</dd>
+          <dt>Status</dt><dd>${statusBadge(r.status)}</dd>
+          <dt>Requested</dt><dd>${fmtDate(r.createdAt)}</dd>
+        </div>
+        ${r.notes?`<div class="field"><label>Notes</label><div class="note-banner">${esc(r.notes)}</div></div>`:''}
+        ${r.image?`<div class="field"><label>Photo</label><a href="${esc(r.image)}" target="_blank" rel="noopener"><img src="${esc(r.image)}" alt="" style="max-width:100%;border-radius:9px;border:1px solid var(--line)"></a></div>`:'<div class="muted">No photo attached.</div>'}`,
+        foot:`<button class="btn" data-x>Close</button>`,
+        setup(ov,close){ov.querySelector('[data-x]').onclick=close;}});
+    });
+  }
+  render();
+});

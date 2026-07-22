@@ -203,6 +203,12 @@ const DB = (function(){
     d.leads=[];
     d.chains=[];
     d.suitcases=[];
+    d.spareParts=[
+      {id:'sp1',userId:users[0]&&users[0].id,model:'CAMERON',part:'Right temple / arm',
+       notes:'Snapped at the hinge, customer still has the frame.',image:null,status:'open',createdAt:'2026-07-18'},
+      {id:'sp2',userId:users[1]&&users[1].id,model:'VEDETTE-2002',part:'Nose pads',
+       notes:'Both pads missing.',image:null,status:'shipped',createdAt:'2026-07-12'}
+    ];
     d.emailTemplates=[
       {id:'et1',name:'Account refresh (site upgrade)',language:'EN',purpose:'activation',
        subject:'Veyora has been upgraded — set your new password',

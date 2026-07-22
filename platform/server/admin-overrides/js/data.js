@@ -17,7 +17,7 @@ const DB = (function(){
   const SYNCED = ['warehouses','users','products','orders','backorders','returns',
     'purchaseOrders','promotions','campaigns','invoices','payments','creditNotes',
     'collectionFlags','shippingRules','freeShipping','leads','chains','suitcases',
-    'emailTemplates','tasks','audit'];
+    'spareParts','emailTemplates','tasks','audit'];
 
   function emptyDb(){
     const d = { meta:{}, settings:{sellingFastThreshold:20,cartRecovery:{enabled:false,delayHours:24,minValue:50}} };

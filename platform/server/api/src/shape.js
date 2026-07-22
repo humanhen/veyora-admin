@@ -117,6 +117,14 @@ export const SIMPLE_COLLECTIONS = {
               trays: { col: 'trays', json: true },
               createdAt: { col: 'created_at', ro: true } },
   },
+  spareParts: {
+    // Customer-submitted spare-part requests (storefront). Admin reads them and
+    // moves status forward; customers create them, admin never deletes them.
+    table: 'spare_parts',
+    fields: { id: 'id', userId: 'user_id', model: 'model', part: 'part',
+              notes: 'notes', image: 'image', status: 'status',
+              createdAt: { col: 'created_at', ro: true } },
+  },
   emailTemplates: {
     table: 'email_templates',
     fields: {

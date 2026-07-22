@@ -25,6 +25,7 @@ const NAV=[
     {route:'quick-scan',label:'Quick Scan Edit',icon:'scan'},
     {route:'backorders',label:'Backorders',icon:'clock'},
     {route:'returns',label:'Returns',icon:'returns'},
+    {route:'spare-parts',label:'Spare Parts',icon:'returns'},
     {route:'promotions',label:'Promotions',icon:'tag'},
     {route:'reports',label:'Reports',icon:'chart'},
   ]},
