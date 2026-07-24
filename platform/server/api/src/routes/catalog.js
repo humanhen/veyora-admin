@@ -15,6 +15,16 @@ r.use(requireAuth());
 const PUBLIC_BRANDS = ['Charlett', 'Essedue', 'Extreme', 'Kyme', 'Laura Ferre',
   'Liv London', 'Puro', 'Spike'];
 
+// The full-catalog rows (all active products + variations + stock) are the same
+// for every request, but the query + JSON parse of ~1000 products costs ~1s —
+// paid on every filter click, page and search, which made browsing feel slow.
+// Cache the raw rows briefly so repeat loads are instant; per-user shaping below
+// still runs each time (cheap), so prices/visibility stay correct. New Zoho syncs
+// and admin edits appear within the TTL. Not cached for id/sku lookups.
+let _catalogRows = null;      // { at, rows }
+const CATALOG_ROWS_TTL_MS = 60_000;
+export function invalidateCatalogCache() { _catalogRows = null; }
+
 /** Load products with variations + stock qty, shaped for the storefront. */
 export async function loadProducts(user, { ids = null, skus = null, activeOnly = true } = {}) {
   const where = [];
@@ -22,7 +32,13 @@ export async function loadProducts(user, { ids = null, skus = null, activeOnly =
   if (activeOnly) where.push(`p.is_active`);
   if (ids) { params.push(ids); where.push(`p.id = any($${params.length})`); }
   if (skus) { params.push(skus); where.push(`p.sku = any($${params.length})`); }
-  const { rows } = await q(`
+
+  const fullCatalog = !ids && !skus && activeOnly;
+  let rows;
+  if (fullCatalog && _catalogRows && Date.now() - _catalogRows.at < CATALOG_ROWS_TTL_MS) {
+    rows = _catalogRows.rows;
+  } else {
+    ({ rows } = await q(`
     select p.*,
       coalesce((
         select json_agg(json_build_object(
@@ -35,7 +51,9 @@ export async function loadProducts(user, { ids = null, skus = null, activeOnly =
       ), '[]') as vars
     from products p
     ${where.length ? 'where ' + where.join(' and ') : ''}
-  `, params);
+  `, params));
+    if (fullCatalog) _catalogRows = { at: Date.now(), rows };
+  }
 
   const hide = user.hide_prices;
   const guest = user.role === 'guest';

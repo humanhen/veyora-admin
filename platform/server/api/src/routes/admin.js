@@ -11,6 +11,7 @@ import { sendMail } from '../mail.js';
 import { setPasswordLink } from '../authmw.js';
 import { welcomeActivation } from '../emails.js';
 import { syncZohoInventory, zohoStatus, pushOrderToZoho } from '../zoho.js';
+import { invalidateCatalogCache } from './catalog.js';
 
 const r = Router();
 r.use(requireAuth('admin', 'warehouse'));
@@ -379,6 +380,9 @@ r.post('/sync', async (req, res, next) => {
           ))`);
       }
     });
+    // Product edits must show in the storefront immediately, not after the
+    // catalog cache TTL.
+    if (touched.has('products')) invalidateCatalogCache();
     res.json({ ok: true, remaps });
   } catch (e) {
     if (e.status) return res.status(e.status).json({ error: e.message });
