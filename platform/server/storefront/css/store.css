@@ -111,7 +111,11 @@ h1.pagetitle{font-size:20px;font-weight:700;margin-bottom:14px}
 /* customer WhatsApp button in the logged-in shell: the prefilled message
    identifies who is writing (Sam: "talk to the customer with his login name") */
 .shell-wa{width:48px;height:48px}
-@media(max-width:900px){.shell-wa{bottom:82px;right:16px}}
+/* Lift the float clear above the bottom nav on mobile. Uses .hm-wa.shell-wa so
+   it beats the base `.hm-wa{bottom:26px}` rule (which appears later in the file
+   with equal specificity) instead of being overridden by it — and adds the
+   iPhone home-indicator safe area so it clears the taller nav on notched phones. */
+@media(max-width:900px){.hm-wa.shell-wa{bottom:calc(72px + env(safe-area-inset-bottom));right:16px}}
 /* products page: cart summary under the search, like the old app layout */
 .cart-total-row{display:none}
 .cart-total-row .btn{position:relative}
