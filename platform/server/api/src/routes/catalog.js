@@ -132,7 +132,15 @@ async function getProducts(req, res) {
   const total = items.length;
   const pageItems = items.slice((page - 1) * perPage, page * perPage)
     .map(p => ({ ...p, isFavourite: favs.has(p.id) }));
-  res.json({ products: pageItems, total, page, perPage });
+  // Don't expose catalog size to the public — guests get hasMore (to page
+  // through) but not the total count or page count. Customers see the total.
+  const guest = req.user.role === 'guest';
+  res.json({
+    products: pageItems,
+    total: guest ? null : total,
+    hasMore: page * perPage < total,
+    page, perPage,
+  });
 }
 
 r.get('/get-products', getProducts);

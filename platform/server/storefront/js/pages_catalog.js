@@ -117,11 +117,16 @@ Routes['#/products'] = {
         grid.innerHTML = `<div class="empty" style="grid-column:1/-1"><div class="big">🕶️</div>No products match your filters</div>`;
       }
       for (const p of res.products) grid.appendChild(productCard(p));
-      const pages = Math.max(1, Math.ceil(res.total / res.perPage));
-      pager.innerHTML = pages > 1 ? `
-        <button ${F.page <= 1 ? 'disabled' : ''} data-d="-1">‹ Prev</button>
-        <span class="sub">Page ${F.page} of ${pages} · ${res.total} products</span>
-        <button ${F.page >= pages ? 'disabled' : ''} data-d="1">Next ›</button>` : '';
+      // Guests get no catalog-size info (res.total is null): just Page N + Prev/Next.
+      // Customers see the full "Page N of M · K products".
+      const knowTotal = res.total != null;
+      const pages = knowTotal ? Math.max(1, Math.ceil(res.total / res.perPage)) : null;
+      const hasPrev = F.page > 1;
+      const hasNext = knowTotal ? F.page < pages : !!res.hasMore;
+      pager.innerHTML = (hasPrev || hasNext) ? `
+        <button ${hasPrev ? '' : 'disabled'} data-d="-1">‹ Prev</button>
+        <span class="sub">${knowTotal ? `Page ${F.page} of ${pages} · ${res.total} products` : `Page ${F.page}`}</span>
+        <button ${hasNext ? '' : 'disabled'} data-d="1">Next ›</button>` : '';
       pager.querySelectorAll('button').forEach(b => b.onclick = () => {
         F.page += parseInt(b.dataset.d, 10); load();
         window.scrollTo({ top: 0 });
