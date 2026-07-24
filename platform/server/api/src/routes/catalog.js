@@ -15,27 +15,46 @@ r.use(requireAuth());
 const PUBLIC_BRANDS = ['Charlett', 'Essedue', 'Extreme', 'Kyme', 'Laura Ferre',
   'Liv London', 'Puro', 'Spike'];
 
-// The full-catalog rows (all active products + variations + stock) are the same
-// for every request, but the query + JSON parse of ~1000 products costs ~1s —
-// paid on every filter click, page and search, which made browsing feel slow.
-// Cache the raw rows briefly so repeat loads are instant; per-user shaping below
-// still runs each time (cheap), so prices/visibility stay correct. New Zoho syncs
-// and admin edits appear within the TTL. Not cached for id/sku lookups.
-let _catalogRows = null;      // { at, rows }
-const CATALOG_ROWS_TTL_MS = 60_000;
-export function invalidateCatalogCache() { _catalogRows = null; }
+// Building the full catalog response — loading ~1000 products and shaping each
+// (price/visibility per customer) costs ~1s in Node, and it ran on every filter
+// click, page and search: that's why browsing felt slow and filters felt broken.
+// Two short-lived caches fix it:
+//   _catalogRows  — raw DB rows (identical for everyone) so the query+parse runs
+//                   at most once per TTL.
+//   _shapedCache  — the fully shaped list keyed by pricing signature; all guests
+//                   and all standard-pricing customers share one entry, so repeat
+//                   loads skip the shaping too and return in ~1ms.
+// Per-request search/filter/sort still runs on the cached list, so results stay
+// correct. Admin product edits call invalidateCatalogCache(); id/sku lookups are
+// never cached. Callers must not mutate returned product objects (getProducts
+// only filters/sorts copies and spreads before sending).
+let _catalogRows = null;                 // { at, rows }
+const _shapedCache = new Map();          // signature -> { at, data }
+const CATALOG_TTL_MS = 60_000;
+export function invalidateCatalogCache() { _catalogRows = null; _shapedCache.clear(); }
+
+function shapeSignature(user) {
+  return user.role === 'guest'
+    ? 'guest'
+    : (user.hide_prices ? 'h' : 's') + ':' + JSON.stringify(user.pricing || {});
+}
 
 /** Load products with variations + stock qty, shaped for the storefront. */
 export async function loadProducts(user, { ids = null, skus = null, activeOnly = true } = {}) {
+  const fullCatalog = !ids && !skus && activeOnly;
+  if (fullCatalog) {
+    const hit = _shapedCache.get(shapeSignature(user));
+    if (hit && Date.now() - hit.at < CATALOG_TTL_MS) return hit.data;
+  }
+
   const where = [];
   const params = [];
   if (activeOnly) where.push(`p.is_active`);
   if (ids) { params.push(ids); where.push(`p.id = any($${params.length})`); }
   if (skus) { params.push(skus); where.push(`p.sku = any($${params.length})`); }
 
-  const fullCatalog = !ids && !skus && activeOnly;
   let rows;
-  if (fullCatalog && _catalogRows && Date.now() - _catalogRows.at < CATALOG_ROWS_TTL_MS) {
+  if (fullCatalog && _catalogRows && Date.now() - _catalogRows.at < CATALOG_TTL_MS) {
     rows = _catalogRows.rows;
   } else {
     ({ rows } = await q(`
@@ -57,7 +76,7 @@ export async function loadProducts(user, { ids = null, skus = null, activeOnly =
 
   const hide = user.hide_prices;
   const guest = user.role === 'guest';
-  return rows.map(p => {
+  const shaped = rows.map(p => {
     const sellable = (p.sale_price ?? p.price ?? 0) > 0
       || (p.vars || []).some(v => (v.salePrice ?? v.price ?? 0) > 0);
     const active = (p.vars || []).filter(v => v.isActive !== false);
@@ -88,6 +107,8 @@ export async function loadProducts(user, { ids = null, skus = null, activeOnly =
       createdAt: p.created_at,
     };
   });
+  if (fullCatalog) _shapedCache.set(shapeSignature(user), { at: Date.now(), data: shaped });
+  return shaped;
 }
 
 async function favouriteIds(userId) {
