@@ -10,6 +10,11 @@ const r = Router();
 r.use(['/get-products', '/product-filter-data', '/shared-lists'], optionalAuth());
 r.use(requireAuth());
 
+// The brands the public is allowed to see (mirrors the storefront's chip list);
+// internal Zoho-split names and unlisted brands stay hidden from guests.
+const PUBLIC_BRANDS = ['Charlett', 'Essedue', 'Extreme', 'Kyme', 'Laura Ferre',
+  'Liv London', 'Puro', 'Spike'];
+
 /** Load products with variations + stock qty, shaped for the storefront. */
 export async function loadProducts(user, { ids = null, skus = null, activeOnly = true } = {}) {
   const where = [];
@@ -33,24 +38,34 @@ export async function loadProducts(user, { ids = null, skus = null, activeOnly =
   `, params);
 
   const hide = user.hide_prices;
+  const guest = user.role === 'guest';
   return rows.map(p => {
-    const variations = (p.vars || [])
-      .filter(v => v.isActive !== false)
-      .map(v => ({
+    const sellable = (p.sale_price ?? p.price ?? 0) > 0
+      || (p.vars || []).some(v => (v.salePrice ?? v.price ?? 0) > 0);
+    const active = (p.vars || []).filter(v => v.isActive !== false);
+    const realTotal = active.reduce((s, v) => s + (Number(v.qty) || 0), 0);
+    const variations = active.map(v => {
+      const vqty = Number(v.qty) || 0;
+      return {
         sku: v.sku, color: v.color, image: v.image,
-        qty: Number(v.qty) || 0,
-        stockStatus: (Number(v.qty) > 0) ? v.stockStatus : (v.stockStatus === 'in production' ? 'in production' : 'out of stock'),
+        // guests get availability only — never the exact stock depth
+        qty: guest ? (vqty > 0 ? 1 : 0) : vqty,
+        stockStatus: (vqty > 0) ? v.stockStatus : (v.stockStatus === 'in production' ? 'in production' : 'out of stock'),
         price: hide ? null : priceForCustomer(user, p, { sku: v.sku, price: v.price, sale_price: v.salePrice }),
-      }));
+      };
+    });
+    // strip internal-only tags (e.g. label:*) from anything a guest can read
+    const tags = guest ? (p.tags || []).filter(t => !/^label:/i.test(t)) : p.tags;
     return {
       id: p.id, sku: p.sku, name: p.name, brand: p.brand, size: p.size,
-      description: p.description, categories: p.categories, tags: p.tags,
+      description: p.description, categories: p.categories, tags,
       images: p.images, attributes: p.attributes,
       productionStatus: p.production_status, estimatedArrival: p.estimated_arrival,
       price: hide ? null : priceForCustomer(user, p, null),
       basePrice: hide ? null : (p.sale_price ?? p.price),
       onSale: p.sale_price != null,
-      qty: variations.reduce((s, v) => s + v.qty, 0),
+      qty: guest ? (realTotal > 0 ? 1 : 0) : realTotal,
+      sellable,
       variations,
       createdAt: p.created_at,
     };
@@ -87,12 +102,19 @@ async function getProducts(req, res) {
   let items = await loadProducts(req.user);
   const favs = await favouriteIds(req.user.id);
 
+  // Never surface non-sellable internal items (warranties, cases, pens, spare
+  // parts — all priced 0) in the public catalog.
+  items = items.filter(p => p.sellable);
+
   if (search) {
     items = items.filter(p =>
       p.name.toLowerCase().includes(search) ||
       p.sku.toLowerCase().includes(search) ||
       (p.brand || '').toLowerCase().includes(search) ||
-      p.variations.some(v => v.sku.toLowerCase().includes(search)));
+      (p.description || '').toLowerCase().includes(search) ||
+      (p.categories || []).some(c => c.toLowerCase().includes(search)) ||
+      p.variations.some(v => v.sku.toLowerCase().includes(search)
+        || (v.color || '').toLowerCase().includes(search)));
   }
   // Brand chips mirror the old site's brand *category*: Zoho splits some
   // brands (e.g. "Charlett" vs "Charlett Sunglass") but the old site groups
@@ -147,18 +169,21 @@ r.get('/get-products', getProducts);
 r.post('/get-products', getProducts);
 
 r.get('/product-filter-data', async (req, res) => {
+  const guest = req.user.role === 'guest';
   const { rows: brandRows } = await q(
     `select distinct brand from products where is_active and brand <> '' order by brand`);
   const { rows: catRows } = await q(
     `select distinct unnest(categories) as c from products where is_active order by c`);
-  const { rows: priceRows } = await q(
-    `select min(coalesce(sale_price, price)) as min, max(coalesce(sale_price, price)) as max
-       from products where is_active`);
-  res.json({
-    brands: brandRows.map(x => x.brand),
-    categories: catRows.map(x => x.c),
-    priceRange: priceRows[0],
-  });
+  let brands = brandRows.map(x => x.brand);
+  if (guest) brands = brands.filter(b => PUBLIC_BRANDS.includes(b));  // don't leak the full supplier roster
+  const out = { brands, categories: catRows.map(x => x.c) };
+  if (!guest) {   // the wholesale price band is not public
+    const { rows: priceRows } = await q(
+      `select min(coalesce(sale_price, price)) as min, max(coalesce(sale_price, price)) as max
+         from products where is_active`);
+    out.priceRange = priceRows[0];
+  }
+  res.json(out);
 });
 
 r.get('/products/top-sellers', async (req, res) => {
@@ -234,6 +259,7 @@ async function framesForSkus(user, skus) {
                                 where vv.product_id = p.id and upper(vv.sku) = upper(p.sku))))`,
     [upper]);
   const hide = user.hide_prices;
+  const guest = user.role === 'guest';
   const rankOf = (vsku, psku) => {
     for (let i = 0; i < upper.length; i++) if (upper[i] === vsku || upper[i] === psku) return i;
     return upper.length;
@@ -244,13 +270,13 @@ async function framesForSkus(user, skus) {
       sku: row.sku, color: row.color, name: row.name, brand: row.brand, size: row.size,
       image: row.image || (row.images && row.images[0]) || null,
       attributes: row.attributes || {},
-      qty,
+      qty: guest ? (qty > 0 ? 1 : 0) : qty,   // availability only for the public
       stockStatus: qty > 0 ? 'in stock'
         : (row.stock_status === 'in production' ? 'in production' : 'out of stock'),
       price: hide ? null : priceForCustomer(user,
         { brand: row.brand, price: row.p_price, sale_price: row.p_sale_price },
         { sku: row.sku, price: row.price, sale_price: row.sale_price }),
-      productId: row.product_id,
+      productId: guest ? undefined : row.product_id,
       _rank: rankOf(row.sku.toUpperCase(), row.psku),
     };
   }).sort((a, b) => (a._rank - b._rank)

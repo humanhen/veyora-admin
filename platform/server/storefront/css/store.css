@@ -479,6 +479,19 @@ body.hm-dark{background:#0e0d0d;color:#fff}
 @media(max-width:1100px){.pgrid2,.pgrid2.cols3{grid-template-columns:repeat(3,1fr)}}
 @media(max-width:840px){.pgrid2,.pgrid2.cols3{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:480px){.pgrid2,.pgrid2.cols3{grid-template-columns:1fr 1fr}}
+/* mobile fixes: readable/tappable order button; cart line must wrap so the
+   remove + total stay on-screen; bigger qty steppers for touch */
+@media(max-width:480px){
+  .pcard2 .orderbtn{height:auto;min-height:40px;font-size:11px;letter-spacing:.6px;padding:8px}
+  .cart-line{flex-wrap:wrap}
+  .cart-line .info{flex:1 1 100%;order:-1}
+  .cart-line img{width:56px;height:44px}
+  .cart-line .lt{min-width:0}
+}
+@media(max-width:760px){
+  .qtybox button{min-width:40px;height:40px}
+  .vrow .qtybox button{width:40px;height:40px}
+}
 .pcard2{position:relative;background:#fff;border:none;border-radius:2px;cursor:pointer;display:flex;flex-direction:column;transition:box-shadow .15s}
 .pcard2:hover{box-shadow:var(--shadow)}
 .pcard2 .seller{position:absolute;top:10px;left:10px;z-index:2;font-size:8px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;padding:2.8px 6.4px;border-radius:3px}

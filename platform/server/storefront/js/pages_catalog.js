@@ -109,9 +109,12 @@ Routes['#/products'] = {
     const grid = el.querySelector('#grid');
     const pager = el.querySelector('#pager');
 
+    let loadSeq = 0;
     async function load() {
+      const my = ++loadSeq;
       grid.innerHTML = Array(8).fill('<div class="skeleton" style="height:430px"></div>').join('');
       const res = await API.post('/user/get-products', { ...F, perPage: 24 });
+      if (my !== loadSeq) return;   // a newer search/filter/pager click superseded this
       grid.innerHTML = '';
       if (!res.products.length) {
         grid.innerHTML = `<div class="empty" style="grid-column:1/-1"><div class="big">🕶️</div>No products match your filters</div>`;
@@ -191,7 +194,7 @@ function sellerBadge(p) {
 }
 
 function lensChip(p) {
-  const lt = String(p.attributes?.lensType || '').trim();
+  const lt = String(p.attributes?.lens_type || '').trim();
   if (!lt) return '';
   const short = /polycarb/i.test(lt) ? 'P.C' : lt.toUpperCase();
   return `<span class="lens-chip">${esc(short)}</span>`;
@@ -287,7 +290,7 @@ function productModal(p) {
   const a = p.attributes || {};
   const attrs = [
     ['Lens width', a.lens_w], ['Lens height', a.lens_h], ['Bridge', a.bridge],
-    ['Temple', a.temple], ['Lens type', a.lensType], ['Case', a.caseCode],
+    ['Temple', a.temple], ['Lens type', a.lens_type], ['Case', a.case_code],
     ['Size', p.size], ['EAN', p.ean],
   ].filter(x => x[1]);
   // gallery = product images + any per-variation images (deduped)
