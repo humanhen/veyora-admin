@@ -6,6 +6,7 @@ import { cartSummary } from './cart.js';
 import { sendMail } from '../mail.js';
 import { orderConfirmation } from '../emails.js';
 import { pushOrderToZoho } from '../zoho.js';
+import { recordMovement } from '../inventory.js';
 
 const r = Router();
 r.use(requireAuth());
@@ -68,6 +69,7 @@ r.post('/place-order', async (req, res, next) => {
     const result = await tx(async (c) => {
       const orderItems = [];
       const backItems = [];
+      const moves = []; // stock reservations; stamped with the order number once it exists
 
       for (const line of usable) {
         // Lock this variation's stock rows, allocate from largest pile first.
@@ -83,9 +85,11 @@ r.post('/place-order', async (req, res, next) => {
           if (need <= 0) break;
           const take = Math.min(need, Math.max(0, srow.qty));
           if (take > 0) {
-            await c.query(
-              `update stock set qty = qty - $1 where variation_id=$2 and warehouse_id=$3`,
+            const { rows: upd } = await c.query(
+              `update stock set qty = qty - $1 where variation_id=$2 and warehouse_id=$3 returning qty`,
               [take, srow.variation_id, srow.warehouse_id]);
+            moves.push({ variationId: srow.variation_id, sku: line.sku,
+              warehouseId: srow.warehouse_id, delta: -take, balanceAfter: upd[0].qty });
             need -= take;
             allocated += take;
           }
@@ -130,6 +134,12 @@ r.post('/place-order', async (req, res, next) => {
         if (summary.promotion?.id) {
           await c.query(`update promotions set used_count = used_count + 1 where id=$1`,
             [summary.promotion.id]);
+        }
+        // ledger: the stock reserved above, now that the order has a number
+        const mover = { id: user.id, name: user.business || user.email, role: user.role };
+        for (const mv of moves) {
+          await recordMovement(c, { ...mv, reason: 'order_reservation',
+            refType: 'order', refId: order.number, actor: mover });
         }
       }
 
@@ -242,11 +252,18 @@ r.delete('/orders/:orderId/items/:itemId', async (req, res, next) => {
         [req.params.itemId, ord[0].id]);
       if (!item.length) return null;
       // restore stock to main warehouse
-      await c.query(`
+      const { rows: restored } = await c.query(`
         insert into stock (variation_id, warehouse_id, qty)
         select v.id, 'wh_main', $2 from variations v where v.sku = $1
-        on conflict (variation_id, warehouse_id) do update set qty = stock.qty + excluded.qty`,
+        on conflict (variation_id, warehouse_id) do update set qty = stock.qty + excluded.qty
+        returning variation_id, qty`,
         [item[0].sku, item[0].qty]);
+      if (restored.length) {
+        await recordMovement(c, { variationId: restored[0].variation_id, sku: item[0].sku,
+          warehouseId: 'wh_main', delta: item[0].qty, balanceAfter: restored[0].qty,
+          reason: 'order_release', refType: 'order', refId: ord[0].number,
+          actor: { id: req.user.id, name: req.user.business || req.user.email, role: req.user.role } });
+      }
       const { rows: tot } = await c.query(
         `select coalesce(sum(qty*price),0) as subtotal from order_items where order_id=$1`, [ord[0].id]);
       const total = round2(Number(tot[0].subtotal) - Number(ord[0].discount) + Number(ord[0].shipping));
