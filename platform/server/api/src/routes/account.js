@@ -7,11 +7,22 @@ import crypto from 'crypto';
 import { q, audit } from '../db.js';
 import { requireAuth } from '../authmw.js';
 import { loadProducts } from './catalog.js';
+import { getFx, rateFor, symbolFor, normalizeCurrency } from '../currency.js';
 
 const r = Router();
 r.use(requireAuth());
 
 const UPLOADS = process.env.UPLOADS_DIR || '/uploads';
+
+// The account's operating currency + the rate to convert base (USD) prices for
+// display. USD accounts get rate 1 (identical output), so this is dormant until
+// an account is explicitly set to CAD/EUR.
+r.get('/fx', async (req, res) => {
+  const fx = await getFx();
+  const currency = normalizeCurrency(req.user.currency);
+  res.json({ currency, symbol: symbolFor(currency), rate: rateFor(currency, fx),
+    base: fx.base, rates: fx.rates });
+});
 
 r.get('/get-user-detail', async (req, res) => {
   const u = req.user;

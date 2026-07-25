@@ -37,6 +37,7 @@ const API = (function () {
 /* Global client state */
 const Store = {
   session: null,        // {user}
+  fx: { currency: 'USD', rate: 1, symbol: '$' },  // account currency for price display
   cartCount: 0,
   favourites: new Set(),
   // Presentation mode: temporarily hide the customer's own prices so they can

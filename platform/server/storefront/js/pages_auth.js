@@ -67,6 +67,7 @@ Routes['#/login'] = {
         Store.session = { user: res.user };
         Store.realHide = !!res.user.hidePrices;
         applyPricingMode();
+        await loadFx();
         refreshCartBadge();
         const dest = sessionStorage.getItem('veyora_after_login') || '#/dashboard';
         sessionStorage.removeItem('veyora_after_login');

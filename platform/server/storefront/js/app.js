@@ -124,6 +124,14 @@ async function refreshCartBadge() {
   } catch { /* not logged in */ }
 }
 
+/** Load the account's display currency + FX rate. Safe to fail → stays USD. */
+async function loadFx() {
+  try {
+    const f = await API.get('/user/fx', { noRedirect: true });
+    Store.fx = { currency: f.currency || 'USD', rate: Number(f.rate) || 1, symbol: f.symbol || '$' };
+  } catch { /* keep the USD default */ }
+}
+
 async function restoreSession() {
   if (Store.session) return true;
   try {
@@ -131,6 +139,7 @@ async function restoreSession() {
     Store.session = { user: me.user };
     Store.realHide = !!me.user.hidePrices;
     applyPricingMode();
+    await loadFx();
     refreshCartBadge();
     return true;
   } catch { return false; }

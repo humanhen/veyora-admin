@@ -71,4 +71,22 @@ export async function ensureSchema() {
              from stock s join variations v on v.id = s.variation_id
             where s.qty <> 0
               and not exists (select 1 from inventory_movements)`);
+
+  // ---- multi-currency dimension ----
+  // Money amounts are stored in the BASE currency (USD). What varies is the
+  // currency an account trades in and the currency a transaction was struck in.
+  // Accounts carry an operating currency; orders/invoices are stamped with the
+  // currency + the FX rate used, so the transaction is reproducible even if the
+  // rate later changes. Rates live in one place: settings.data.fx.
+  await q(`alter table users    add column if not exists currency text not null default 'USD'`);
+  await q(`alter table orders   add column if not exists currency text not null default 'USD'`);
+  await q(`alter table orders   add column if not exists fx_rate  numeric(12,6) not null default 1`);
+  await q(`alter table invoices add column if not exists currency text not null default 'USD'`);
+
+  // Single source of FX rates (base + rate per currency, relative to base).
+  // Seeded only if absent, so admin edits survive reboots/deploys.
+  await q(`update settings
+             set data = jsonb_set(coalesce(data,'{}'::jsonb), '{fx}',
+                   '{"base":"USD","rates":{"USD":1,"CAD":1.37,"EUR":0.92}}'::jsonb, true)
+           where id = 1 and not (coalesce(data,'{}'::jsonb) ? 'fx')`);
 }

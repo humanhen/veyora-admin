@@ -42,7 +42,8 @@ async function loadUser(id) {
   const { rows } = await q(
     `select id, customer_number, username, first_name, last_name, email, phone, business,
             tax_id, country, address, city, state, zip, role, agent_id, payment_terms,
-            hide_prices, status, pricing, balance, protected, last_login_at, prev_login_at, created_at
+            hide_prices, status, pricing, balance, currency, protected,
+            last_login_at, prev_login_at, created_at
        from users where id=$1`, [id]);
   return rows[0] || null;
 }
