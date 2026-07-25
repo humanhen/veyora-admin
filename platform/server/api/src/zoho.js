@@ -9,6 +9,7 @@
    VEYORA INC org), ZOHO_DC (accounts datacenter TLD, default "com"),
    ZOHO_SYNC_MINUTES (default 30, min 5). Setup steps: docs/RUNBOOK.md. */
 import { q, tx, audit } from './db.js';
+import { recordMovement } from './inventory.js';
 
 const DC = process.env.ZOHO_DC || 'com';
 const ORG = process.env.ZOHO_ORG_ID || '875980504';
@@ -184,7 +185,9 @@ export async function syncZohoInventory({ dryRun = false, force = false } = {}) 
 
     const { rows: vars } = await q(`
       select v.id, v.sku, v.price, v.purchase_price, v.is_active, v.product_id,
-             coalesce((select sum(s.qty) from stock s where s.variation_id=v.id), 0) as qty
+             coalesce((select sum(s.qty) from stock s where s.variation_id=v.id), 0) as qty,
+             coalesce((select s.qty from stock s
+                        where s.variation_id=v.id and s.warehouse_id='wh_main'), 0) as main_qty
         from variations v`);
     const bySku = new Map(vars.map(v => [v.sku, v]));
     const { rows: prods } = await q(`select id, sku, brand from products`);
@@ -218,6 +221,10 @@ export async function syncZohoInventory({ dryRun = false, force = false } = {}) 
             insert into stock (variation_id, warehouse_id, qty) values ($1,'wh_main',$2)
             on conflict (variation_id, warehouse_id) do update set qty=excluded.qty`,
             [v.id, it.qty]);
+          await recordMovement(c, { variationId: v.id, sku: it.sku, warehouseId: 'wh_main',
+            delta: it.qty - Number(v.main_qty), balanceAfter: it.qty, reason: 'zoho_sync',
+            refType: 'zoho', refId: it.itemId,
+            actor: { id: 'system', name: 'Zoho sync', role: 'system' } });
         }
       }
 
@@ -301,6 +308,10 @@ export async function syncZohoInventory({ dryRun = false, force = false } = {}) 
               insert into stock (variation_id, warehouse_id, qty) values ($1,'wh_main',$2)
               on conflict (variation_id, warehouse_id) do update set qty=excluded.qty`,
               [vRows[0].id, it.qty]);
+            await recordMovement(c, { variationId: vRows[0].id, sku: it.sku, warehouseId: 'wh_main',
+              delta: it.qty, balanceAfter: it.qty, reason: 'zoho_new_item',
+              refType: 'zoho', refId: it.itemId,
+              actor: { id: 'system', name: 'Zoho sync', role: 'system' } });
           }
         }
       }

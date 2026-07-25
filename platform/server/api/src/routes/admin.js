@@ -12,6 +12,7 @@ import { setPasswordLink } from '../authmw.js';
 import { welcomeActivation } from '../emails.js';
 import { syncZohoInventory, zohoStatus, pushOrderToZoho } from '../zoho.js';
 import { invalidateCatalogCache } from './catalog.js';
+import { recordMovement } from '../inventory.js';
 
 const r = Router();
 r.use(requireAuth('admin', 'warehouse'));
@@ -165,7 +166,7 @@ async function upsertSimple(c, cfg, obj) {
     vals);
 }
 
-async function upsertProduct(c, p) {
+async function upsertProduct(c, p, actor) {
   if (!p.id) throw new Error('product missing id');
   await c.query(`
     insert into products (id, sku, name, description, brand, size, ean, categories, tags,
@@ -200,12 +201,31 @@ async function upsertProduct(c, p) {
       [p.id, String(v.sku), v.color || '', v.image || null, num(v.price), num(v.salePrice),
        v.stockStatus || 'in stock', v.isActive !== false]);
     const vid = vr[0].id;
+    // Capture prior per-warehouse balances so we can log the exact delta of
+    // this edit (PO receipt, transfer, manual adjustment — all land here).
+    const { rows: priorStock } = await c.query(
+      `select warehouse_id, qty from stock where variation_id=$1`, [vid]);
+    const priorMap = new Map(priorStock.map(s => [s.warehouse_id, Number(s.qty)]));
     await c.query(`delete from stock where variation_id=$1`, [vid]);
+    const seenWh = new Set();
     for (const [wh, sdata] of Object.entries(v.stock || {})) {
-      await c.query(`
+      const newQty = parseInt(sdata?.qty, 10) || 0;
+      const { rowCount } = await c.query(`
         insert into stock (variation_id, warehouse_id, qty, shelf)
         select $1, $2, $3, $4 where exists (select 1 from warehouses where id=$2)`,
-        [vid, wh, parseInt(sdata?.qty, 10) || 0, String(sdata?.shelf || '')]);
+        [vid, wh, newQty, String(sdata?.shelf || '')]);
+      if (!rowCount) continue; // unknown warehouse id — not written, so not logged
+      seenWh.add(wh);
+      await recordMovement(c, { variationId: vid, sku: String(v.sku), warehouseId: wh,
+        delta: newQty - (priorMap.get(wh) || 0), balanceAfter: newQty,
+        reason: 'stock_edit', refType: 'admin_sync', refId: p.sku || p.id || '', actor });
+    }
+    // warehouses that had stock before but are absent from the new payload → zeroed
+    for (const [wh, oldQty] of priorMap) {
+      if (seenWh.has(wh) || !oldQty) continue;
+      await recordMovement(c, { variationId: vid, sku: String(v.sku), warehouseId: wh,
+        delta: -oldQty, balanceAfter: 0,
+        reason: 'stock_edit', refType: 'admin_sync', refId: p.sku || p.id || '', actor });
     }
   }
 }
@@ -326,7 +346,8 @@ r.post('/sync', async (req, res, next) => {
         const deletes = Array.isArray(ch.deletes) ? ch.deletes : [];
 
         if (name === 'products') {
-          for (const p of upserts) await upsertProduct(c, p);
+          const actor = { id: req.user.id, name: req.user.email, role: req.user.role };
+          for (const p of upserts) await upsertProduct(c, p, actor);
           if (deletes.length) await c.query(`delete from products where id = any($1)`, [deletes]);
         } else if (name === 'orders') {
           for (const o of upserts) {
@@ -461,6 +482,65 @@ r.post('/set-user-password/:userId', async (req, res) => {
     [req.params.userId, await bcrypt.hash(String(password), 10)]);
   if (!rows.length) return res.status(404).json({ error: 'User not found' });
   res.json({ ok: true });
+});
+
+/* ==================== inventory movements ledger ==================== */
+
+// Read the immutable stock-movement ledger, newest first.
+// Filters: ?sku= &variationId= &warehouseId= &reason= &refType= &refId= &limit=
+r.get('/inventory-movements', async (req, res, next) => {
+  try {
+    const where = [];
+    const params = [];
+    const add = (col, val) => { params.push(val); where.push(`${col} = $${params.length}`); };
+    if (req.query.sku) add('sku', String(req.query.sku));
+    if (req.query.variationId) add('variation_id', String(req.query.variationId));
+    if (req.query.warehouseId) add('warehouse_id', String(req.query.warehouseId));
+    if (req.query.reason) add('reason', String(req.query.reason));
+    if (req.query.refType) add('ref_type', String(req.query.refType));
+    if (req.query.refId) add('ref_id', String(req.query.refId));
+    const limit = Math.min(1000, parseInt(req.query.limit, 10) || 200);
+    const clause = where.length ? `where ${where.join(' and ')}` : '';
+    const { rows } = await q(
+      `select * from inventory_movements ${clause} order by created_at desc limit ${limit}`, params);
+    res.json({ movements: rows.map(m => ({
+      id: m.id, variationId: m.variation_id, sku: m.sku, warehouseId: m.warehouse_id,
+      qtyDelta: m.qty_delta, balanceAfter: m.balance_after, reason: m.reason,
+      refType: m.ref_type, refId: m.ref_id, actorId: m.actor_id, actorName: m.actor_name,
+      actorRole: m.actor_role, note: m.note, createdAt: m.created_at,
+    })) });
+  } catch (e) { next(e); }
+});
+
+// Reconcile: any (variation, warehouse) where live stock disagrees with the
+// ledger's running sum. Should be empty — a non-empty list means a stock write
+// bypassed the ledger. Great smoke test after deploy.
+r.get('/inventory-movements/reconcile', async (req, res, next) => {
+  try {
+    const { rows } = await q(`
+      with led as (
+        select variation_id, warehouse_id, sum(qty_delta) as qty
+          from inventory_movements group by variation_id, warehouse_id)
+      select coalesce(s.variation_id, l.variation_id) as variation_id,
+             coalesce(s.warehouse_id, l.warehouse_id) as warehouse_id,
+             coalesce(s.qty, 0) as stock_qty,
+             coalesce(l.qty, 0) as ledger_qty
+        from stock s
+        full outer join led l
+          on s.variation_id = l.variation_id and s.warehouse_id = l.warehouse_id
+       where coalesce(s.qty, 0) <> coalesce(l.qty, 0)
+       order by abs(coalesce(s.qty,0) - coalesce(l.qty,0)) desc
+       limit 500`);
+    res.json({
+      ok: rows.length === 0,
+      mismatchCount: rows.length,
+      mismatches: rows.map(m => ({
+        variationId: m.variation_id, warehouseId: m.warehouse_id,
+        stockQty: m.stock_qty, ledgerQty: m.ledger_qty,
+        drift: m.stock_qty - m.ledger_qty,
+      })),
+    });
+  } catch (e) { next(e); }
 });
 
 export default r;
