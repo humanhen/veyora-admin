@@ -12,7 +12,12 @@ function esc(s) {
 }
 function money(n) {
   if (n == null) return '—';
-  return '$' + Number(n).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  // Prices are stored in the base currency (USD). Convert to the account's
+  // operating currency for display. USD accounts get rate 1 / '$' — identical
+  // output — so this is dormant until an account is set to CAD/EUR.
+  const fx = (typeof Store !== 'undefined' && Store.fx) ? Store.fx : { rate: 1, symbol: '$' };
+  const v = Number(n) * (Number(fx.rate) || 1);
+  return (fx.symbol || '$') + v.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
 function fmtDate(d) {
   if (!d) return '—';

@@ -16,7 +16,7 @@ function publicUser(u) {
     firstName: u.first_name, lastName: u.last_name, email: u.email,
     phone: u.phone, business: u.business, country: u.country,
     role: u.role, hidePrices: u.hide_prices, status: u.status,
-    paymentTerms: u.payment_terms, balance: u.balance,
+    paymentTerms: u.payment_terms, balance: u.balance, currency: u.currency,
   };
 }
 

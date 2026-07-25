@@ -13,6 +13,7 @@ import { welcomeActivation } from '../emails.js';
 import { syncZohoInventory, zohoStatus, pushOrderToZoho } from '../zoho.js';
 import { invalidateCatalogCache } from './catalog.js';
 import { recordMovement } from '../inventory.js';
+import { invalidateFxCache } from '../currency.js';
 
 const r = Router();
 r.use(requireAuth('admin', 'warehouse'));
@@ -93,6 +94,7 @@ async function ordersSnapshot() {
     discount: o.discount, discountPct: o.discount_pct, freeShipping: o.free_shipping,
     shipping: o.shipping, total: o.total, tracking: o.tracking, comments: o.comments,
     invoiceId: o.invoice_id, promo: o.promo,
+    currency: o.currency, fxRate: o.fx_rate,
     shippingAddress: o.shipping_address, billingAddress: o.billing_address,
     createdAt: o.created_at, items: o.items,
   }));
@@ -254,20 +256,22 @@ async function upsertOrder(c, o) {
   await c.query(`
     insert into orders (id, number, customer_id, agent_id, source, status, order_date,
                         discount, discount_pct, free_shipping, shipping, total,
-                        tracking, comments, invoice_id)
-    values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+                        tracking, comments, invoice_id, currency, fx_rate)
+    values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
     on conflict (id) do update set
       number=excluded.number, customer_id=excluded.customer_id, agent_id=excluded.agent_id,
       source=excluded.source, status=excluded.status, order_date=excluded.order_date,
       discount=excluded.discount, discount_pct=excluded.discount_pct,
       free_shipping=excluded.free_shipping, shipping=excluded.shipping, total=excluded.total,
-      tracking=excluded.tracking, comments=excluded.comments, invoice_id=excluded.invoice_id`,
+      tracking=excluded.tracking, comments=excluded.comments, invoice_id=excluded.invoice_id,
+      currency=excluded.currency, fx_rate=excluded.fx_rate`,
     [o.id, o.number, o.customerId || null, o.agentId || null, o.source || 'customer',
      o.status || 'pending', o.date || new Date().toISOString().slice(0, 10),
      num(o.discount) ?? 0, num(o.discountPct) ?? 0, !!o.freeShipping,
      num(o.shipping) ?? 0, num(o.total) ?? 0,
      o.tracking ? JSON.stringify(o.tracking) : null,
-     JSON.stringify(o.comments || []), o.invoiceId || null]);
+     JSON.stringify(o.comments || []), o.invoiceId || null,
+     (o.currency || 'USD'), num(o.fxRate) ?? 1]);
   await c.query(`delete from order_items where order_id=$1`, [o.id]);
   for (const i of (o.items || [])) {
     await c.query(`
@@ -370,6 +374,7 @@ r.post('/sync', async (req, res, next) => {
         } else if (name === 'settings') {
           if (upserts[0]) {
             await c.query(`update settings set data=$1 where id=1`, [JSON.stringify(upserts[0])]);
+            invalidateFxCache(); // FX rates may have changed
           }
         } else if (SIMPLE_COLLECTIONS[name]) {
           const cfg = SIMPLE_COLLECTIONS[name];

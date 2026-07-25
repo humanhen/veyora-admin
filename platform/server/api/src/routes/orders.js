@@ -7,6 +7,7 @@ import { sendMail } from '../mail.js';
 import { orderConfirmation } from '../emails.js';
 import { pushOrderToZoho } from '../zoho.js';
 import { recordMovement } from '../inventory.js';
+import { getFx, rateFor, normalizeCurrency } from '../currency.js';
 
 const r = Router();
 r.use(requireAuth());
@@ -19,7 +20,7 @@ function orderShape(o, items) {
     freeShipping: o.free_shipping, shipping: o.shipping, total: o.total,
     tracking: o.tracking, comments: o.comments, invoiceId: o.invoice_id,
     shippingAddress: o.shipping_address, billingAddress: o.billing_address,
-    promo: o.promo, createdAt: o.created_at,
+    promo: o.promo, currency: o.currency, fxRate: o.fx_rate, createdAt: o.created_at,
     items: items?.map(i => ({
       id: i.id, sku: i.sku, name: i.name, color: i.color,
       qty: i.qty, collected: i.collected, price: i.price,
@@ -65,6 +66,13 @@ r.post('/place-order', async (req, res, next) => {
     }
 
     const ship = await shippingCost(customer, summary.total, summary.promotion?.freeShipping);
+
+    // Currency the order is struck in: the account's operating currency + the
+    // rate at this moment. Money is still stored in the base currency (USD);
+    // this stamp makes the transaction reproducible if the rate later changes.
+    const fx = await getFx();
+    const orderCurrency = normalizeCurrency(customer.currency);
+    const orderRate = rateFor(orderCurrency, fx);
 
     const result = await tx(async (c) => {
       const orderItems = [];
@@ -115,14 +123,15 @@ r.post('/place-order', async (req, res, next) => {
         const { rows: ord } = await c.query(`
           insert into orders (number, customer_id, agent_id, source, status, order_date,
                               discount, free_shipping, shipping, total,
-                              shipping_address, billing_address, promo)
-          values ($1,$2,$3,$4,'pending',current_date,$5,$6,$7,$8,$9,$10,$11)
+                              shipping_address, billing_address, promo, currency, fx_rate)
+          values ($1,$2,$3,$4,'pending',current_date,$5,$6,$7,$8,$9,$10,$11,$12,$13)
           returning *`,
           [num[0].n, customer.id, isAgent ? user.id : customer.agent_id,
            isAgent ? 'agent' : 'customer', discount, ship.free, ship.cost, total,
            req.body?.shippingAddress ? JSON.stringify(req.body.shippingAddress) : null,
            req.body?.billingAddress ? JSON.stringify(req.body.billingAddress) : null,
-           summary.promotion ? JSON.stringify(summary.promotion) : null]);
+           summary.promotion ? JSON.stringify(summary.promotion) : null,
+           orderCurrency, orderRate]);
         order = ord[0];
         for (const i of orderItems) {
           await c.query(`

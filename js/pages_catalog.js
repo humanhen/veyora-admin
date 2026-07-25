@@ -342,6 +342,7 @@ App.register('product',function(el,args){
   function render(){
     const total=DB.productQty(p);
     const usd=p.salePrice!=null?p.salePrice:p.price;
+    const cadRate=(DB.d&&DB.d.settings&&DB.d.settings.fx&&DB.d.settings.fx.rates&&DB.d.settings.fx.rates.CAD)||1.37;
     el.innerHTML=`
     <div class="flex" style="margin-bottom:16px">
       <a class="back-btn" href="#/products">&larr;</a>
@@ -382,8 +383,8 @@ App.register('product',function(el,args){
           <div class="price-cards">
             <div class="price-card"><div class="cur">USD</div><div class="val">$${(usd||0).toFixed(2)}</div>
               <div class="sale">Sale: ${p.salePrice!=null?'$'+p.salePrice.toFixed(2):'$—'}</div></div>
-            <div class="price-card"><div class="cur">CAD</div><div class="val">CA$${((usd||0)*1.37).toFixed(2)}</div>
-              <div class="sale">Sale: ${p.salePrice!=null?'CA$'+(p.salePrice*1.37).toFixed(2):'CA$—'}</div></div>
+            <div class="price-card"><div class="cur">CAD</div><div class="val">CA$${((usd||0)*cadRate).toFixed(2)}</div>
+              <div class="sale">Sale: ${p.salePrice!=null?'CA$'+(p.salePrice*cadRate).toFixed(2):'CA$—'}</div></div>
           </div>
         </div>
         <div class="card card-pad">
