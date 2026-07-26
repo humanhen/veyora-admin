@@ -331,10 +331,12 @@ function productModal(p) {
                 : `<button class="btn ghost sm notify" data-sku="${esc(v.sku)}">Notify me</button>`)}
             </div>`).join('')}
         </div>
-        <div style="display:flex;gap:10px;margin-top:16px;align-items:center">
+        <div style="display:flex;gap:10px;margin-top:16px;align-items:center;flex-wrap:wrap">
           ${guest
             ? `<button class="btn" onclick="location.hash='#/login'">Sign in to see prices & order</button>`
-            : `<button class="btn" id="addBtn">Add to cart</button><span class="sub" id="addSummary"></span>`}
+            : `<button class="btn" id="addBtn">Add to cart</button>
+               <button class="btn ghost" id="custViewBtn" type="button" title="Show this frame to a customer, without the price">${eyeIcon(false)} Show to customer</button>
+               <span class="sub" id="addSummary"></span>`}
         </div>
       </div>
     </div>`);
@@ -359,6 +361,12 @@ function productModal(p) {
     const on = m.querySelector('.pdetail').classList.toggle('show-prices');
     revealBtn.innerHTML = on ? `${eyeIcon(true)} Hide price` : `${eyeIcon(false)} Show price`;
   };
+
+  // "Show to customer": open a clean, price-free fullscreen card of THIS frame,
+  // so the rep can turn the screen to the shopper. One frame, on demand — does
+  // not touch the site-wide presentation toggle.
+  const custBtn = m.querySelector('#custViewBtn');
+  if (custBtn) custBtn.onclick = () => customerFrameView(p);
   // clicking a color row jumps the gallery to that variation's image
   m.querySelectorAll('.vrow').forEach(row => {
     const sku = row.dataset.sku;
@@ -406,6 +414,53 @@ function productModal(p) {
     toast('Added to cart');
     m.remove();
   };
+}
+
+/* Customer view — a clean, fullscreen card of ONE frame with NO price and none
+   of the rep's controls, so the rep can turn the screen to the shopper. It shows
+   only the photo, brand + model name, and the available colours. Transient and
+   per-frame: it never changes the site-wide presentation/hide-prices state. */
+function customerFrameView(p) {
+  const { gallery } = productGallery(p);
+  const colors = (p.variations || []).filter(v => v.color);
+  const back = h(`<div class="custview">
+    <button class="cv-close" aria-label="Close">×</button>
+    <div class="cv-card">
+      <div class="cv-stage" title="">${imgOr(gallery[0])}</div>
+      <div class="cv-meta">
+        ${p.brand ? `<div class="cv-brand">${esc(p.brand)}</div>` : ''}
+        <h2 class="cv-name">${esc(p.name || p.sku || '')}</h2>
+        ${colors.length > 1 ? `<div class="cv-colors">${colors.map((v, i) => `
+          <button class="cv-swatch${i === 0 ? ' sel' : ''}" data-i="${i}">
+            ${imgOr(v.image || p.images?.[0])}
+            <span>${esc(v.color)}</span>
+          </button>`).join('')}</div>` : ''}
+      </div>
+    </div>
+  </div>`);
+
+  const stage = back.querySelector('.cv-stage');
+  let gi = 0;
+  const setImg = src => { stage.innerHTML = imgOr(src); };
+  // tapping a colour shows that colourway's photo (never a price)
+  back.querySelectorAll('.cv-swatch').forEach(btn => btn.onclick = () => {
+    const v = colors[+btn.dataset.i];
+    setImg(v.image || p.images?.[0] || gallery[0]);
+    back.querySelectorAll('.cv-swatch').forEach(b => b.classList.toggle('sel', b === btn));
+  });
+  // swipe/drag through all photos on the main image
+  if (gallery.length > 1) bindSwipe(stage, d => {
+    gi = (gi + d + gallery.length) % gallery.length;
+    setImg(gallery[gi]);
+  });
+
+  const close = () => { back.remove(); document.removeEventListener('keydown', onKey); };
+  function onKey(e) { if (e.key === 'Escape') close(); }
+  back.querySelector('.cv-close').onclick = close;
+  back.addEventListener('click', e => { if (e.target === back) close(); });
+  document.addEventListener('keydown', onKey);
+  document.body.appendChild(back);
+  return back;
 }
 
 /* "Scan your list" — photo of a handwritten SKU list fills the cart
