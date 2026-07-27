@@ -3,11 +3,21 @@
    thumbnails and seller badges. Works for guests (no prices) and customers. */
 'use strict';
 
+const CATALOG_FILTER_DEFAULTS = { search: '', brands: [], types: [], genders: [], sizes: [],
+  materials: [], sale: false, isNew: false, inStockOnly: false, sort: 'popular', page: 1 };
 const Catalog = {
-  filters: { search: '', brands: [], types: [], genders: [], sizes: [], materials: [],
-             sale: false, isNew: false, inStockOnly: false, sort: 'popular', page: 1 },
+  // Filters survive navigation (module singleton) AND a full page reload
+  // (sessionStorage) — they stay in place until the user clears them.
+  filters: (() => {
+    try { const s = sessionStorage.getItem('veyora_filters');
+      if (s) return { ...CATALOG_FILTER_DEFAULTS, ...JSON.parse(s) }; } catch (e) {}
+    return { ...CATALOG_FILTER_DEFAULTS };
+  })(),
   density: 4,
 };
+function saveCatalogFilters() {
+  try { sessionStorage.setItem('veyora_filters', JSON.stringify(Catalog.filters)); } catch (e) {}
+}
 
 function catalogUser() {
   return Store.session?.user || { hidePrices: true, role: 'guest', guest: true };
@@ -112,6 +122,7 @@ Routes['#/products'] = {
     let loadSeq = 0;
     async function load() {
       const my = ++loadSeq;
+      saveCatalogFilters();   // remember the current filters across reloads
       grid.innerHTML = Array(8).fill('<div class="skeleton" style="height:430px"></div>').join('');
       const res = await API.post('/user/get-products', { ...F, perPage: 24 });
       if (my !== loadSeq) return;   // a newer search/filter/pager click superseded this
@@ -212,12 +223,18 @@ function productCard(p) {
   const hide = u.hidePrices;
   const mainImg = p.images?.[0] || p.variations.find(v => v.image)?.image || null;
   const thumbs = p.variations.filter(v => v.image).slice(0, 7);
+  // Second angle (usually the exterior/side shot) revealed on hover — the
+  // product's 2nd photo, else the first variation image that differs from main.
+  const hoverImg = p.images?.[1]
+    || p.variations.map(v => v.image).filter(Boolean).find(img => img && img !== mainImg)
+    || null;
 
   const card = h(`<div class="pcard2">
     ${sellerBadge(p)}
     ${u.guest ? '' : `<button class="fav ${p.isFavourite ? 'on' : ''}" title="Favorite">${p.isFavourite ? '♥' : '♡'}</button>`}
     <div class="photo-wrap">
       <div class="imgbox2">${imgOr(mainImg)}</div>
+      ${hoverImg ? `<img class="hover-img" src="${esc(hoverImg)}" alt="" loading="lazy"/>` : ''}
       <div class="attrline">${attrLine(p) || '&nbsp;'} ${lensChip(p)}</div>
     </div>
     <div class="rowname">
