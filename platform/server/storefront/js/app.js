@@ -42,6 +42,17 @@ function setPresenting(on) {
 function canOrderForOthers() {
   return ['agent', 'super-agent', 'admin'].includes(Store.session?.user?.role);
 }
+
+/* "Show to customer" opens a price-free fullscreen card so a REP can turn the
+   screen to a shopper. It is a salesperson demonstration action and makes no
+   sense on a customer's own account — an optician looking at their own
+   wholesale prices has no "customer" to show them to. Staff only.
+   This is presentation only: it changes no permission and the server is
+   unaffected either way. */
+const PRESENT_TO_CUSTOMER_ROLES = ['agent', 'super-agent', 'admin'];
+function canPresentToCustomer() {
+  return PRESENT_TO_CUSTOMER_ROLES.includes(Store.session?.user?.role);
+}
 function actingFor() {
   return canOrderForOthers() ? Store.actingFor : null;   // never for a plain customer
 }

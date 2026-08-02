@@ -71,7 +71,7 @@ function stockPill(v) {
   if (v.stockStatus === 'in production') return `<span class="stockpill prod">in production</span>`;
   // Nothing on the shelf, but it can still be ordered — say so plainly rather
   // than showing a dead end.
-  if (backordersAllowed()) return `<span class="stockpill back">available to backorder</span>`;
+  if (backordersAllowed()) return `<span class="stockpill back">Available to backorder</span>`;
   return `<span class="stockpill out">out of stock</span>`;
 }
 /** "Charlett · Model 2057 · SKU 2057.81" — the full product identity of a line.
@@ -84,6 +84,25 @@ function identityLine(i) {
   if (i.sku) bits.push('SKU ' + esc(i.sku));
   return bits.join(' · ');
 }
+/* Order-confirmation sentences. Kept here so the pluralisation is written once
+   and can be asserted directly. Deliberately never claims a shipment: an
+   allocated item has been taken from stock, and a backordered one is recorded
+   for staff to process — neither has left the warehouse. */
+function allocatedSentence(n) {
+  const count = Math.max(0, Math.trunc(Number(n) || 0));
+  if (!count) return '';
+  return count === 1
+    ? 'One item has been allocated from current stock.'
+    : `${count} items have been allocated from current stock.`;
+}
+function backorderedSentence(n) {
+  const count = Math.max(0, Math.trunc(Number(n) || 0));
+  if (!count) return '';
+  return count === 1
+    ? 'One item has been placed on backorder.'
+    : `${count} items have been placed on backorder.`;
+}
+
 /** "3 available now · 2 recorded for staff processing".
     Deliberately avoids "shipping" — an allocated quantity has been taken from
     stock, not dispatched, and a backordered one is recorded, not promised. */

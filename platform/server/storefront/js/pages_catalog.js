@@ -349,9 +349,20 @@ function productGallery(p) {
                          is available; the rest offer "Notify me" as before. */
 function variationOrderControls(v) {
   const bo = backordersAllowed();
-  const notify = `<button class="btn ghost sm notify" data-sku="${esc(v.sku)}">Notify me</button>`;
-  if (v.qty > 0) return qtyBox(0, 0, bo ? null : v.qty);
-  return bo ? `${qtyBox(0, 0, null)}${notify}` : notify;
+  const notify = `<button class="btn ghost sm notify" data-sku="${esc(v.sku)}"
+    title="Email me when this colour is back in stock">Notify me</button>`;
+
+  // Backorders off: a zero-stock colourway is genuinely not orderable.
+  if (v.qty === 0 && !bo) return `<span class="vactions">${notify}</span>`;
+
+  // Uncapped when backorders are on, so the customer may deliberately order
+  // beyond the shelf; capped at what exists when they are off.
+  const max = bo ? null : v.qty;
+  // The .vactions wrapper keeps the quantity box and "Notify me" together as
+  // one unit that WRAPS. Without it the row overflowed and, because .qtybox
+  // has overflow:hidden, the quantity and + button were clipped away — which
+  // is why an out-of-stock frame looked like it offered only "Notify me".
+  return `<span class="vactions">${qtyBox(0, 0, max)}${v.qty === 0 ? notify : ''}</span>`;
 }
 
 function productModal(p) {
@@ -406,7 +417,11 @@ function productModal(p) {
           ${guest
             ? `<button class="btn" onclick="location.hash='#/login'">Sign in to see prices & order</button>`
             : `<button class="btn" id="addBtn">Add to cart</button>
-               <button class="btn ghost" id="custViewBtn" type="button" title="Show this frame to a customer, without the price">${eyeIcon(false)} Show to customer</button>
+               ${/* Salesperson demonstration action — staff only. A customer
+                     viewing their own account has no "customer" to show it to. */
+                 canPresentToCustomer()
+                 ? `<button class="btn ghost" id="custViewBtn" type="button" title="Show this frame to a customer, without the price">${eyeIcon(false)} Show to customer</button>`
+                 : ''}
                <span class="sub" id="addSummary"></span>`}
         </div>
       </div>

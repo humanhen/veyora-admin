@@ -19,7 +19,8 @@ Routes['#/cart'] = {
       const hide = Store.session.user.hidePrices;
       box.innerHTML = `
         ${cart.promotion ? `<div class="promo-banner">🎁 ${esc(cart.promotion.name)} applied — you save ${money(cart.promotion.discount)}</div>` : ''}
-        ${cart.backorderQty ? `<div class="bo-banner">📦 <b>${cart.backorderQty} ${cart.backorderQty === 1 ? 'piece is' : 'pieces are'} not in stock.</b>
+        ${cart.backorderQty ? `<div class="bo-banner">📦 <b>${cart.backorderQty === 1
+            ? 'One item is not in stock.' : `${cart.backorderQty} items are not in stock.`}</b>
           ${cart.allowBackorders === false
             ? `Stock changed since you added them. Please reduce those lines to the quantity shown before checking out.`
             : `The available quantity becomes your order; the rest is recorded as a backorder for our team to process when stock arrives. Nothing is lost, and you'll be told which is which.`}</div>` : ''}
@@ -304,23 +305,26 @@ Routes['#/thank-you'] = {
       <div class="big">${order ? '✅' : '📦'}</div>
       <h2 style="margin-bottom:8px">Thank you!</h2>
       ${res?.placedForCustomer ? `<p class="sub">Placed for <b>${esc(res.placedForCustomer.business || '')}</b>.</p>` : ''}
-      ${order ? `<p>Your order <b>${esc(order.number)}</b> was received${
-        (!hide && order.total != null) ? ` — order total <b>${money(order.total, order)}</b>` : ''}.
-        ${res.allocatedQty ? `<b>${res.allocatedQty} ${
-          res.allocatedQty === 1 ? 'piece is' : 'pieces are'} available now</b> and
-          allocated from current stock.` : ''}</p>` : ''}
-      ${!order && bo ? `<p>None of these pieces are available right now, so
-        <b>nothing is shipping yet</b> — your full request is recorded as
-        backorder <b>${esc(bo.number)}</b> for our team to process when stock
-        becomes available.</p>` : ''}
-      ${order && bo ? `<p style="margin-top:6px">${res.backorderedQty} ${
-        res.backorderedQty === 1 ? 'piece was' : 'pieces were'} not available and
-        <b>is not part of the allocated quantities above</b>. It is recorded on
-        backorder <b>${esc(bo.number)}</b> for our team to process when stock
-        becomes available.</p>` : ''}
+      ${order ? `<p>Your order <b>${esc(order.number)}</b> has been received.${
+        (!hide && order.total != null) ? ` Total: <b>${money(order.total, order)}</b>.` : ''}
+        ${allocatedSentence(res.allocatedQty)}</p>` : ''}
+      ${!order && bo ? `<p>None of these items are available right now, so
+        <b>nothing is shipping yet</b>. ${backorderedSentence(res.backorderedQty)}
+        Your request is recorded as backorder <b>${esc(bo.number)}</b> for our
+        team to process when stock becomes available.</p>` : ''}
+      ${order && bo ? `<p style="margin-top:6px">${backorderedSentence(res.backorderedQty)}
+        ${res.backorderedQty === 1 ? 'It is' : 'They are'} <b>not part of the
+        allocated quantities above</b>, and ${res.backorderedQty === 1 ? 'is' : 'are'}
+        recorded on backorder <b>${esc(bo.number)}</b> for our team to process
+        when stock becomes available.</p>` : ''}
       ${boLines ? `<div class="ty-bo">${boLines}</div>` : ''}
       ${valueRows}
-      <p class="sub" style="margin-top:10px">A confirmation email is on its way.</p>
+      ${/* No unconditional email promise. Delivery happens post-commit and may
+            fail safely (in the RC, SMTP was off and the message was only
+            logged), so the customer is never told an email was sent unless the
+            server says so. Until the API reports delivery state, the page
+            simply points at the order it just created. */''}
+      <p class="sub" style="margin-top:10px">You can view the order details below.</p>
       <div style="margin-top:18px;display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
         ${order ? `<button class="btn ghost" onclick="location.hash='#/order/${esc(order.id)}'">View order</button>` : ''}
         ${bo ? `<button class="btn ghost" onclick="location.hash='#/backorders'">View backorder</button>` : ''}

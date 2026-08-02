@@ -191,12 +191,23 @@ table.list tr.click:hover td{background:var(--soft-blue)}
 .modal-back{position:fixed;inset:0;background:rgba(19,30,66,.5);z-index:60;display:flex;align-items:center;justify-content:center;padding:16px}
 .modal{background:#fff;border-radius:14px;max-width:860px;width:100%;max-height:92vh;overflow:auto;padding:22px}
 .modal .close{float:right;background:none;border:none;font-size:24px;color:var(--muted)}
-.vrow{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid #f1f5f9}
-.vrow img{width:56px;height:42px;object-fit:contain;border:1px solid var(--line);border-radius:6px;background:#fff}
-.vrow .vsku{font-weight:600;font-size:13px;min-width:84px}
-.vrow .vcol{color:var(--muted);font-size:12.5px;flex:1}
-.vrow .vprice{min-width:56px;text-align:right}
-.vrow .stockpill{font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;white-space:nowrap}
+/* Variation rows in the product modal.
+   The row must WRAP rather than squeeze: an out-of-stock row carries a long
+   "Available to backorder" pill plus a quantity box plus "Notify me", which on
+   a 432px-wide modal column overflows by ~190px. Everything except the colour
+   name is therefore flex:0 0 auto, and the row wraps to a second line when it
+   genuinely does not fit. Previously the qty box absorbed the overflow — and
+   because .qtybox has overflow:hidden, it CLIPPED its own number and + button,
+   so the control looked absent and out-of-stock items appeared unorderable. */
+.vrow{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid #f1f5f9;flex-wrap:wrap}
+.vrow img{flex:0 0 auto;width:56px;height:42px;object-fit:contain;border:1px solid var(--line);border-radius:6px;background:#fff}
+.vrow .vsku{flex:0 0 auto;font-weight:600;font-size:13px;min-width:84px}
+/* the only element that yields space */
+.vrow .vcol{flex:1 1 80px;min-width:0;color:var(--muted);font-size:12.5px;overflow-wrap:anywhere}
+.vrow .vprice{flex:0 0 auto;min-width:56px;text-align:right}
+.vrow .stockpill{flex:0 0 auto;font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;white-space:nowrap}
+/* qty box + "Notify me" travel together and wrap as one unit */
+.vrow .vactions{flex:0 0 auto;display:flex;align-items:center;gap:8px;margin-left:auto}
 /* per-item price reveal (presentation / hidden-price mode) */
 .pdetail .pr-hidden{display:none}
 .pdetail.show-prices .pr-hidden{display:initial}
@@ -215,9 +226,14 @@ table.list tr.click:hover td{background:var(--soft-blue)}
    quantity passes what is in stock */
 .vrow .vbo{flex-basis:100%;font-size:11.5px;font-weight:600;color:transparent;min-height:0}
 .vrow .vbo.on{color:#b45309}
-.qtybox{display:flex;align-items:center;gap:0;border:1px solid var(--line);border-radius:8px;overflow:hidden}
-.qtybox button{width:34px;height:36px;background:#f8fafc;border:none;font-size:17px;color:var(--ink-2)}
-.qtybox input{width:46px;height:36px;border:none;text-align:center;font-weight:600;outline:none}
+/* flex:0 0 auto is load-bearing: this box has overflow:hidden, so if flex is
+   allowed to shrink it the quantity and the + button are silently clipped
+   instead of the row wrapping. */
+.qtybox{flex:0 0 auto;display:flex;align-items:center;gap:0;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.qtybox button{flex:0 0 auto;width:34px;height:36px;background:#f8fafc;border:none;font-size:17px;color:var(--ink-2);cursor:pointer}
+.qtybox input{flex:0 0 auto;width:46px;height:36px;border:none;text-align:center;font-weight:600;outline:none}
+/* "Notify me" is secondary — it must never crowd out the quantity control */
+.vrow .notify{flex:0 0 auto;white-space:nowrap}
 .attr-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px;margin:14px 0}
 .attr-grid .a{background:var(--soft-blue);border-radius:8px;padding:8px 10px;font-size:12px}
 .attr-grid .a b{display:block;font-size:13px}
@@ -248,6 +264,9 @@ table.list tr.click:hover td{background:var(--soft-blue)}
   .vrow .stockpill{margin-left:auto}
   .vrow .qtybox button{width:30px;height:34px}
   .vrow .qtybox input{width:40px;height:34px}
+  /* the actions take their own full-width line on a phone, so the quantity
+     control is never squeezed against the price */
+  .vrow .vactions{flex:1 0 100%;margin-left:0;justify-content:flex-end}
 }
 
 /* sign-in page — replica of old veyora.com /my-account (measured values) */
