@@ -34,6 +34,90 @@ function setPresenting(on) {
   route();   // re-render current page with prices shown/hidden
 }
 
+/* ---------- salesperson "ordering for" context ----------
+   Set from My Customers, shown as a banner, sent to the server as customerId
+   at checkout and as ?forCustomer= on cart previews. The server is the
+   authority: it re-checks role, ownership and active status every time. */
+
+function canOrderForOthers() {
+  return ['agent', 'super-agent', 'admin'].includes(Store.session?.user?.role);
+}
+function actingFor() {
+  return canOrderForOthers() ? Store.actingFor : null;   // never for a plain customer
+}
+function setActingFor(customer) {
+  Store.actingFor = customer || null;
+  // Switching or clearing the target must also drop their currency, otherwise
+  // the next screen renders the actor's money with the previous customer's rate.
+  Store.orderingFx = null;
+  try {
+    if (customer) sessionStorage.setItem('veyora_acting_for', JSON.stringify(customer));
+    else sessionStorage.removeItem('veyora_acting_for');
+  } catch { /* private mode */ }
+}
+/** Record the target customer's display currency from a priced server response. */
+function noteOrderingFx(res) {
+  if (Store.actingFor && res && res.fx) Store.orderingFx = res.fx;
+  return res;
+}
+
+/* Hydrate the assisted-order currency BEFORE anything priced is rendered.
+
+   setActingFor() clears Store.orderingFx (so a switch never keeps the previous
+   customer's rate), and the catalogue response does not carry fx. Without this
+   the first priced screen after selecting or restoring a customer formatted
+   THEIR prices with the SALESPERSON's currency until something happened to
+   fetch the cart. The router awaits this, so it cannot be skipped by going
+   straight to the catalogue instead of the checkout.
+
+   The endpoint is the authorised one — the server re-checks the actor's right
+   to this customer, so a tampered sessionStorage value gets a 403 and the
+   context is dropped rather than trusted. */
+async function ensureOrderingContext() {
+  const target = actingFor();
+  if (!target) { Store.orderingFx = null; return null; }   // own currency
+  if (Store.orderingFx) return Store.orderingFx;           // already hydrated
+  try {
+    const ctx = await API.get(
+      '/user/checkout-context?forCustomer=' + encodeURIComponent(target.id),
+      { noRedirect: true });
+    if (ctx?.fx) Store.orderingFx = ctx.fx;
+    // Refresh the label from the server's own view of the customer.
+    if (ctx?.orderingFor) {
+      Store.actingFor = { ...target, ...ctx.orderingFor };
+      try { sessionStorage.setItem('veyora_acting_for', JSON.stringify(Store.actingFor)); }
+      catch { /* private mode */ }
+    }
+    return Store.orderingFx;
+  } catch (e) {
+    /* A 400/403 is a DECISION: the actor may no longer use this customer
+       (reassigned, deactivated, or a tampered sessionStorage value). Drop the
+       context and carry on as the salesperson. */
+    if (e.status === 403 || e.status === 400) {
+      setActingFor(null);
+      toast('You can no longer order for that customer — back to your own account', true);
+      return null;
+    }
+    /* Anything else — a 5xx, a timeout, a dropped connection — says nothing
+       about authorisation. Clearing the context here would silently switch the
+       rep to their OWN prices mid-order, which is exactly the mistake this
+       whole feature exists to prevent. Keep the customer selected and fail the
+       render instead, so the user sees an error and can retry.
+       (401 is not caught here: API.call handles the session redirect itself.) */
+    console.error('[ordering] could not hydrate customer context:', e);
+    throw Object.assign(
+      new Error(`Couldn't load prices for ${target.business || 'this customer'}. `
+        + 'Nothing was changed — please retry.'),
+      { orderingContextUnavailable: true, cause: e });
+  }
+}
+/** Append ?forCustomer=<id> when a customer context is active. */
+function withOrderingContext(path) {
+  const a = actingFor();
+  if (!a) return path;
+  return path + (path.includes('?') ? '&' : '?') + 'forCustomer=' + encodeURIComponent(a.id);
+}
+
 function eyeIcon(off) {
   return off
     ? `<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M3 3l18 18"/><path d="M10.6 10.7a2 2 0 002.7 2.8"/><path d="M9.4 5.2A9.5 9.5 0 0112 5c5 0 9 4.5 10 7-.5 1.2-1.6 2.8-3.2 4.1M6.1 6.2C4 7.5 2.6 9.5 2 12c1 2.5 5 7 10 7 1.2 0 2.4-.3 3.4-.7"/></svg>`
@@ -89,6 +173,14 @@ function shell(contentEl, activeHash) {
     ${Store.presenting ? `<div class="present-bar">
       <span>${eyeIcon(true)} <b>Presentation mode</b> — your prices are hidden, so you can show frames to customers.</span>
       <button data-present-exit>Show my prices</button></div>` : ''}
+    ${actingFor() ? `<div class="acting-bar">
+      <span>🧾 Ordering for: <b>${esc(actingFor().business || actingFor().id)}</b>${
+        actingFor().customerNumber ? ` <span class="sub">(customer #${esc(actingFor().customerNumber)})</span>` : ''}
+        — prices and promotions are theirs, and the order will be placed in their name.</span>
+      <span class="acting-actions">
+        <button data-acting-switch>Switch customer</button>
+        <button data-acting-clear>Clear</button>
+      </span></div>` : ''}
     <main class="page"></main>
     <a class="hm-wa shell-wa" target="_blank" rel="noopener" title="Chat with us on WhatsApp"
        href="${WHATSAPP}?text=${encodeURIComponent(`Hi, it's ${u.business || u.email}${u.customerNumber ? ` (customer #${u.customerNumber})` : ''}`)}">${waIcon()}</a>
@@ -105,6 +197,14 @@ function shell(contentEl, activeHash) {
   el.querySelector('.burger').onclick = () => back.classList.add('open');
   back.addEventListener('click', e => { if (e.target === back) back.classList.remove('open'); });
   el.querySelector('[data-present-drawer]').onclick = () => setPresenting(!Store.presenting);
+  const actClear = el.querySelector('[data-acting-clear]');
+  if (actClear) actClear.onclick = () => {
+    setActingFor(null);
+    toast('Back to your own account');
+    route();                       // re-price the current page as the actor
+  };
+  const actSwitch = el.querySelector('[data-acting-switch]');
+  if (actSwitch) actSwitch.onclick = () => { location.hash = '#/customers'; };
   el.querySelector('main').appendChild(contentEl);
   return el;
 }
@@ -119,7 +219,7 @@ function setCartBadge(count) {
 
 async function refreshCartBadge() {
   try {
-    const cart = await API.get('/user/get-cart');
+    const cart = noteOrderingFx(await API.get(withOrderingContext('/user/get-cart')));
     setCartBadge(cart.totalQty || 0);
   } catch { /* not logged in */ }
 }
@@ -137,8 +237,13 @@ async function restoreSession() {
   try {
     const me = await API.get('/user/get-user-detail', { noRedirect: true });
     Store.session = { user: me.user };
+    if (me.features) Store.features = { ...Store.features, ...me.features };
     Store.realHide = !!me.user.hidePrices;
     applyPricingMode();
+    // A stored ordering context only means anything for staff roles. If the
+    // session is an ordinary customer, drop it rather than sending a
+    // customerId the server will reject anyway.
+    if (Store.actingFor && !canOrderForOthers()) setActingFor(null);
     await loadFx();
     refreshCartBadge();
     return true;
@@ -162,6 +267,19 @@ async function route() {
     return;
   }
 
+  /* Hydrate the assisted-order currency BEFORE the page renders anything
+     priced. Every route goes through here, so no screen can be reached with
+     the target's prices and the salesperson's currency. */
+  let orderingContextError = null;
+  if (Store.session) {
+    try { await ensureOrderingContext(); }
+    catch (e) {
+      // Transient failure: the customer is still selected but we could not get
+      // their prices. Render a failure state rather than the actor's prices.
+      orderingContextError = e;
+    }
+  }
+
   document.body.classList.toggle('hm-dark', key === '#/' || key === '#/home');
   app.innerHTML = '';
   const content = document.createElement('div');
@@ -174,6 +292,16 @@ async function route() {
     if (nav && act) nav.scrollLeft = act.offsetLeft - (nav.clientWidth - act.offsetWidth) / 2;
   }
   document.title = (page.title ? page.title + ' — ' : '') + 'Veyora';
+  if (orderingContextError) {
+    /* FAIL CLOSED. The customer is still selected — we simply could not reach
+       their prices. Rendering the page now would quietly show the salesperson's
+       own prices under a banner naming the customer. */
+    content.innerHTML = `<div class="empty"><div class="big">⚠️</div>
+      ${esc(orderingContextError.message)}
+      <div style="margin-top:16px"><button class="btn" onclick="route()">Retry</button></div></div>`;
+    window.scrollTo(0, 0);
+    return;
+  }
   try {
     await page.render(content, args);
   } catch (e) {

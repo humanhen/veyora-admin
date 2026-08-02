@@ -31,9 +31,10 @@ function frameCard(fr) {
     </div>
     ${u.guest
       ? `<button class="orderbtn" onclick="location.hash='#/login'">Log in to order</button>`
-      : (fr.qty > 0
+      : (fr.qty > 0 || backordersAllowed()
         ? `<div class="frame-order" style="display:flex;gap:8px;padding:0 14px 12px;align-items:center;margin-top:auto">
-             ${qtyBox(0, 0, fr.qty)}<button class="btn sm add" style="flex:1">Add</button></div>`
+             ${qtyBox(0, 0, backordersAllowed() ? null : fr.qty)}<button class="btn sm add" style="flex:1">${
+               fr.qty > 0 ? 'Add' : 'Backorder'}</button></div>`
         : `<button class="orderbtn" disabled>Out of stock</button>`)}
   </div>`);
   const box = card.querySelector('.imgbox2');
@@ -45,9 +46,12 @@ function frameCard(fr) {
     bindQtyBox(card.querySelector('.qtybox'), v => { qv = v; });
     add.onclick = async () => {
       if (qv <= 0) { toast('Choose a quantity', true); return; }
-      const cart = await API.post('/user/add-to-cart', { sku: fr.sku, qty: qv });
-      setCartBadge(cart.totalQty);
-      toast('Added to cart');
+      try {
+        const cart = await API.post('/user/add-to-cart', { sku: fr.sku, qty: qv });
+        setCartBadge(cart.totalQty);
+        const bo = Math.max(0, qv - (fr.qty || 0));
+        toast(bo ? `Added to cart · ${bo} on backorder` : 'Added to cart');
+      } catch (ex) { toast(ex.message, true); }   // backorders off + over-order
     };
   }
   return card;
@@ -82,7 +86,7 @@ Routes['#/list'] = {
     }
     let res;
     try {
-      res = await API.get('/user/shared-lists/' + encodeURIComponent(slug));
+      res = await API.get(withOrderingContext('/user/shared-lists/' + encodeURIComponent(slug)));
     } catch (e) {
       grid.innerHTML = `<div class="empty" style="grid-column:1/-1"><div class="big">🔍</div>
         ${e.status === 404 ? 'This list link isn’t available — it may have been removed.'

@@ -5,6 +5,155 @@
    triggers are created in migrate.js. */
 
 /**
+ * Decide how much of `need` each stock pile covers, in the order given.
+ *
+ * Pure: takes no client and writes nothing, so the order-splitting rule that
+ * decides what ships and what backorders can be reasoned about (and tested)
+ * on its own. The caller applies `takes` to the locked stock rows.
+ *
+ * @param need  units requested for one variation
+ * @param piles [{ variation_id, warehouse_id, qty }] already ordered by
+ *              preference (main warehouse first, then largest pile)
+ * @returns { takes: [{...pile, take}], allocated, backordered }
+ *          allocated + backordered always equals `need`.
+ */
+export function planAllocation(need, piles) {
+  const takes = [];
+  let remaining = Math.max(0, Math.trunc(Number(need) || 0));
+  const requested = remaining;
+  for (const pile of piles || []) {
+    if (remaining <= 0) break;
+    const take = Math.min(remaining, Math.max(0, Math.trunc(Number(pile.qty) || 0)));
+    if (take > 0) {
+      takes.push({ ...pile, take });
+      remaining -= take;
+    }
+  }
+  return { takes, allocated: requested - remaining, backordered: remaining };
+}
+
+/**
+ * Can every line be covered in full from the stock currently on hand?
+ *
+ * Pure. Used by backorder conversion, which for this release is all-or-nothing:
+ * partial conversion is out of scope, so an under-covered request must be
+ * rejected cleanly rather than quietly creating an under-reserved order.
+ *
+ * @param lines     [{ sku, qty, ... }] what the backorder asks for
+ * @param availableBySku Map|object of sku -> units available right now
+ * @returns { covered, shortages: [{ sku, requested, available, short }] }
+ */
+export function planConversion(lines, availableBySku) {
+  const get = sku => {
+    const v = availableBySku instanceof Map
+      ? availableBySku.get(sku) : availableBySku?.[sku];
+    return Math.max(0, Math.trunc(Number(v) || 0));
+  };
+  const shortages = [];
+  // AGGREGATE per SKU. A backorder may list the same SKU on more than one line
+  // (merged requests, separate notes); comparing each line against the full
+  // availability would pass two 6-unit lines against 10 units in stock.
+  for (const [sku, demand] of aggregateBySku(lines)) {
+    const available = get(sku);
+    if (available < demand.qty) {
+      const first = demand.lines[0] || {};
+      shortages.push({
+        sku, name: first.name ?? null, color: first.color ?? null,
+        requested: demand.qty, available, short: demand.qty - available,
+        lineCount: demand.lines.length,
+      });
+    }
+  }
+  return { covered: shortages.length === 0, shortages };
+}
+
+/**
+ * Total demand per SKU across all lines.
+ * @returns Map sku -> { sku, qty, lines: [...] }
+ */
+export function aggregateBySku(lines) {
+  const bySku = new Map();
+  for (const line of lines || []) {
+    const qty = Math.max(0, Math.trunc(Number(line.qty) || 0));
+    const cur = bySku.get(line.sku);
+    if (cur) { cur.qty += qty; cur.lines.push(line); }
+    else bySku.set(line.sku, { sku: line.sku, qty, lines: [line] });
+  }
+  return bySku;
+}
+
+/**
+ * Reservation plan for a whole backorder: ONE pass per SKU over its piles, so
+ * the same pile can never be handed to two lines.
+ *
+ * @param lines      backorder items (a SKU may repeat)
+ * @param pilesBySku Map sku -> [{variation_id, warehouse_id, qty}] in draw order
+ * @returns { covered, shortages, takes: [{sku, variation_id, warehouse_id, take}] }
+ */
+export function planSkuReservations(lines, pilesBySku) {
+  const piles = pilesBySku instanceof Map ? pilesBySku : new Map();
+  const availableBySku = new Map();
+  for (const [sku, list] of piles) {
+    availableBySku.set(sku, (list || []).reduce(
+      (s, p) => s + Math.max(0, Math.trunc(Number(p.qty) || 0)), 0));
+  }
+  const { covered, shortages } = planConversion(lines, availableBySku);
+  if (!covered) return { covered, shortages, takes: [] };
+
+  const takes = [];
+  for (const [sku, demand] of aggregateBySku(lines)) {
+    // One walk for the SKU's TOTAL requirement, not one walk per line.
+    const plan = planAllocation(demand.qty, piles.get(sku) || []);
+    if (plan.backordered > 0) {
+      // Unreachable after the coverage check; never reserve a partial set.
+      return { covered: false, takes: [], shortages: [{
+        sku, requested: demand.qty,
+        available: demand.qty - plan.backordered, short: plan.backordered }] };
+    }
+    for (const t of plan.takes) takes.push({ sku, ...t });
+  }
+  return { covered: true, shortages: [], takes };
+}
+
+/** The guarded stock decrement. `qty >= $1` is the last line of defence: even
+    if the plan were wrong, the row simply does not update and stock can never
+    go negative. Exported so the guard itself can be asserted in tests. */
+export const RESERVE_STOCK_SQL =
+  `update stock set qty = qty - $1
+     where variation_id = $2 and warehouse_id = $3 and qty >= $1
+     returning qty`;
+
+/**
+ * Apply a reservation plan inside a transaction, guarded.
+ *
+ * Every decrement carries `qty >= $1`. An update that touches NO row means the
+ * pile moved under us despite the row lock, so we throw a tagged 409 and the
+ * caller's transaction rolls back — nothing is half-reserved.
+ *
+ * @param c     pg client inside a transaction
+ * @param takes output of planSkuReservations().takes
+ * @returns moves ready for recordMovement()
+ * @throws  {status:409, expose:true, shortages:[...]} on a guard failure
+ */
+export async function reserveTakes(c, takes) {
+  const moves = [];
+  for (const t of takes || []) {
+    const { rows } = await c.query(RESERVE_STOCK_SQL,
+      [t.take, t.variation_id, t.warehouse_id]);
+    if (!rows.length) {
+      throw Object.assign(
+        new Error('Stock changed while reserving; nothing was changed.'),
+        { status: 409, expose: true, shortages: [{
+          sku: t.sku, requested: t.take, available: null, short: t.take,
+          warehouseId: t.warehouse_id }] });
+    }
+    moves.push({ variationId: t.variation_id, sku: t.sku,
+      warehouseId: t.warehouse_id, delta: -t.take, balanceAfter: rows[0].qty });
+  }
+  return moves;
+}
+
+/**
  * Append one movement row. Call with the transaction client `c` that performs
  * the stock write, so the movement commits atomically with it.
  *

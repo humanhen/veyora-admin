@@ -281,7 +281,8 @@ App.register('invoices',function(el){
     el.querySelector('#iv-provider').onchange=e=>{state.provider=e.target.value;render();};
     el.querySelector('#iv-refresh').onclick=()=>{render();toast('Refreshed');};
     bindPager(el,pg=>{state.page=pg;render();});
-    el.querySelectorAll('[data-dl]').forEach(b=>b.onclick=()=>toast('Invoice PDF downloaded'));
+    /* Truthful: invoices are records in this system; no file is produced. */
+    el.querySelectorAll('[data-dl]').forEach(b=>b.onclick=()=>toast('No invoice document is generated yet — open the order and use Print order.'));
     el.querySelectorAll('[data-ext]').forEach(b=>b.onclick=()=>toast('Opening invoice at the provider…'));
   }
   render();
@@ -325,7 +326,7 @@ App.register('statements',function(el){
         <div class="fieldset-outline"><label>From</label><input type="date" id="st-from" value="${state.from}"></div>
         <div class="fieldset-outline"><label>To</label><input type="date" id="st-to" value="${state.to}"></div>
         <button class="btn btn-dark" id="st-gen" ${!state.cust?'disabled':''}>Generate</button>
-        ${r?`<button class="btn" id="st-pdf">${I.download} Download PDF</button>
+        ${r?`<button class="btn" id="st-pdf" title="Opens the browser print view">${I.printer} Print statement</button>
         <button class="btn" id="st-send">${I.send} Send to Customer</button>`:''}
       </div>
       ${!state.cust?`<div class="task-empty" style="padding:70px 20px"><b>Select a customer to generate their account statement</b></div>`:''}

@@ -3,6 +3,17 @@
 
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function money(n){if(n==null||isNaN(n))return '$—';return '$'+Number(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});}
+/* Money belonging to a specific DOCUMENT (order / backorder). Amounts are
+   stored in base USD; each document carries the currency it was struck in and
+   the rate stamped on it, so an admin looking at several customers sees each
+   one in its own money rather than everything as dollars. */
+const CURRENCY_SYMBOLS={USD:'$',CAD:'CA$',EUR:'€'};
+function moneyIn(n,doc){
+  if(n==null||isNaN(n))return (CURRENCY_SYMBOLS[((doc&&doc.currency)||'USD').toUpperCase()]||'$')+'—';
+  const cur=((doc&&doc.currency)||'USD').toUpperCase();
+  const rate=Number(doc&&doc.fxRate)||1;
+  return (CURRENCY_SYMBOLS[cur]||'$')+(Number(n)*rate).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+}
 function money0(n){return '$'+Number(n||0).toLocaleString('en-US',{maximumFractionDigits:0});}
 function fmtDate(d){if(!d)return '—';const dt=(d instanceof Date)?d:new Date(d);if(isNaN(dt))return '—';return dt.toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'});}
 function fmtDateShort(d){if(!d)return '—';const dt=new Date(d);return dt.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});}

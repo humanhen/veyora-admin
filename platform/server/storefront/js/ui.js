@@ -10,14 +10,42 @@ function esc(s) {
   return String(s ?? '').replace(/[&<>"']/g,
     c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
-function money(n) {
+const CURRENCY_SYMBOLS = { USD: '$', CAD: 'CA$', EUR: '€' };
+
+/** Normalise any {currency,rate,symbol} shape into one usable for display. */
+function fxContext(src) {
+  if (!src) return { currency: 'USD', rate: 1, symbol: '$' };
+  const currency = String(src.currency || 'USD').toUpperCase();
+  return {
+    currency,
+    rate: Number(src.rate ?? src.fxRate) || 1,
+    symbol: src.symbol || CURRENCY_SYMBOLS[currency] || '$',
+  };
+}
+
+/** The currency the CURRENT screen should be denominated in.
+    While a salesperson is building an order for a customer, that is the
+    customer's currency — not the salesperson's. Clearing the context restores
+    the actor's own. Store.orderingFx is set from the server's cart/checkout
+    response, so the client never guesses a rate. */
+function effectiveFx() {
+  if (typeof Store === 'undefined') return { currency: 'USD', rate: 1, symbol: '$' };
+  if (Store.actingFor && Store.orderingFx) return fxContext(Store.orderingFx);
+  return fxContext(Store.fx);
+}
+
+/**
+ * Format a base-currency (USD) amount for display.
+ * @param n   amount in the BASE currency, as stored
+ * @param fx  optional explicit context — pass an order's own {currency, fxRate}
+ *            so historical orders render in the money they were struck in
+ *            rather than in whatever the current viewer happens to be set to.
+ */
+function money(n, fx) {
   if (n == null) return '—';
-  // Prices are stored in the base currency (USD). Convert to the account's
-  // operating currency for display. USD accounts get rate 1 / '$' — identical
-  // output — so this is dormant until an account is set to CAD/EUR.
-  const fx = (typeof Store !== 'undefined' && Store.fx) ? Store.fx : { rate: 1, symbol: '$' };
-  const v = Number(n) * (Number(fx.rate) || 1);
-  return (fx.symbol || '$') + v.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  const c = fx ? fxContext(fx) : effectiveFx();
+  const v = Number(n) * c.rate;
+  return c.symbol + v.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
 function fmtDate(d) {
   if (!d) return '—';
@@ -33,11 +61,37 @@ function toast(msg, isErr) {
 function pill(status) {
   return `<span class="pill ${esc(String(status).replace(/\s+/g, ''))}">${esc(status)}</span>`;
 }
+/** Whether customers may order beyond available stock (server-controlled). */
+function backordersAllowed() {
+  return typeof Store !== 'undefined' ? Store.features?.allowBackorders !== false : true;
+}
 function stockPill(v) {
   // Old-site behavior: availability only, never the quantity number.
   if (v.qty > 0) return `<span class="stockpill in">in stock</span>`;
   if (v.stockStatus === 'in production') return `<span class="stockpill prod">in production</span>`;
+  // Nothing on the shelf, but it can still be ordered — say so plainly rather
+  // than showing a dead end.
+  if (backordersAllowed()) return `<span class="stockpill back">available to backorder</span>`;
   return `<span class="stockpill out">out of stock</span>`;
+}
+/** "Charlett · Model 2057 · SKU 2057.81" — the full product identity of a line.
+    modelSku is the PRODUCT sku supplied by the API; never split the variation
+    sku to guess it (dash colorways like VEDETTE-2002 would come out wrong). */
+function identityLine(i) {
+  const bits = [];
+  if (i.brand) bits.push(esc(i.brand));
+  if (i.modelSku) bits.push('Model ' + esc(i.modelSku));
+  if (i.sku) bits.push('SKU ' + esc(i.sku));
+  return bits.join(' · ');
+}
+/** "3 available now · 2 recorded for staff processing".
+    Deliberately avoids "shipping" — an allocated quantity has been taken from
+    stock, not dispatched, and a backordered one is recorded, not promised. */
+function stockSplitLabel(inStockQty, backorderQty) {
+  if (!backorderQty) return '';
+  return inStockQty
+    ? `${inStockQty} available now · ${backorderQty} recorded for staff processing`
+    : `${backorderQty} recorded for staff processing`;
 }
 function imgOr(src, cls) {
   return src

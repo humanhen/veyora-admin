@@ -1,13 +1,19 @@
 import { Router } from 'express';
 import { q, tx, audit } from '../db.js';
 import { requireAuth } from '../authmw.js';
-import { round2 } from '../pricing.js';
+import { round2, allocateCommercials } from '../pricing.js';
 import { cartSummary } from './cart.js';
 import { sendMail } from '../mail.js';
-import { orderConfirmation } from '../emails.js';
+import { orderConfirmation, backorderConfirmation, staffOrderAlert } from '../emails.js';
 import { pushOrderToZoho } from '../zoho.js';
-import { recordMovement } from '../inventory.js';
+import { recordMovement, planAllocation, reserveTakes } from '../inventory.js';
 import { getFx, rateFor, normalizeCurrency } from '../currency.js';
+import { allowCustomerBackorders, orderAlertRecipients } from '../config.js';
+import { invalidateCatalogCache } from './catalog.js';
+import { resolveOrderingCustomer, orderingContextShape, sanitizeOrderNote,
+         CUSTOMER_BACKORDER, lockCartForSubmission, compareCartSnapshots,
+         orderLinesForLocking } from '../ordering.js';
+import { afterCommit, afterCommitDetached } from '../postcommit.js';
 
 const r = Router();
 r.use(requireAuth());
@@ -23,10 +29,38 @@ function orderShape(o, items) {
     promo: o.promo, currency: o.currency, fxRate: o.fx_rate, createdAt: o.created_at,
     items: items?.map(i => ({
       id: i.id, sku: i.sku, name: i.name, color: i.color,
-      qty: i.qty, collected: i.collected, price: i.price,
+      // Model number is the PRODUCT sku, never a slice of the variation sku —
+      // dash colorways (VEDETTE-2002) make prefix-parsing wrong.
+      modelSku: i.model_sku ?? i.modelSku ?? null, brand: i.brand ?? null,
+      qty: i.qty, collected: i.collected ?? 0, price: i.price,
       note: i.note, labels: i.labels,
     })),
   };
+}
+
+/* Order/backorder line items joined back to their product so brand + model
+   number travel with every staff and customer surface. Reconstructed by join
+   rather than duplicated into new columns — the identity is always derivable
+   and this keeps the admin snapshot/sync round-trip unchanged. */
+const ITEM_IDENTITY_JOIN = `
+  left join variations v on v.sku = i.sku
+  left join products  p on p.id = v.product_id`;
+
+/** Send mail without ever letting a mail problem affect the caller. */
+async function sendMailSafely(message, context) {
+  try {
+    const info = await sendMail(message);
+    if (info?.logged) {
+      console.warn(`[mail] SMTP is not configured — ${context} for ${message.to} was only logged, not sent`);
+    }
+    return true;
+  } catch (e) {
+    // A placed order is a committed business fact; a failed email never undoes it.
+    console.error(`[mail] ${context} to ${message.to} FAILED:`, e.message);
+    await audit({ id: 'system', name: 'Mailer', role: 'system' },
+      'email failed', context, e.message, 'system').catch(() => {});
+    return false;
+  }
 }
 
 async function shippingCost(user, subtotal, promoFreeShipping) {
@@ -51,19 +85,31 @@ async function shippingCost(user, subtotal, promoFreeShipping) {
 r.post('/place-order', async (req, res, next) => {
   try {
     const user = req.user;
-    const summary = await cartSummary({ ...user, hide_prices: false });
+    const allowBackorders = allowCustomerBackorders();
+
+    /* ---- 1. Resolve WHO the order is for, BEFORE anything is priced ----
+       A salesperson may order on behalf of one of their customers. Every
+       commercial decision that follows — prices, promotions, currency,
+       shipping, ownership — must use that customer's context. The signed-in
+       salesperson stays recorded separately as the agent/actor.
+
+       The same resolver backs the cart preview, so preview and placement can
+       never disagree about who is being priced or who is allowed. */
+    const { customer, onBehalf } = await resolveOrderingCustomer(user, req.body?.customerId, q);
+    // An agent ordering for anyone (including their own account) is an agent order.
+    const placedByStaff = onBehalf || ['agent', 'super-agent'].includes(user.role);
+
+    // Overall order note from checkout: trimmed, bounded, stored as text and
+    // escaped wherever it is rendered. Never treated as markup.
+    const note = sanitizeOrderNote(req.body?.notes);
+
+    /* ---- 2. Price the cart with the CUSTOMER's identity ----
+       The lines still come from the signed-in actor's cart; the money comes
+       from the customer's pricing profile. hide_prices is forced off so the
+       order is always costed, even for a hide-prices account. */
+    const summary = await cartSummary(user, { ...customer, hide_prices: false });
     const usable = summary.items.filter(i => !i.missing && i.qty > 0);
     if (!usable.length) return res.status(400).json({ error: 'Cart is empty' });
-
-    const isAgent = ['agent', 'super-agent'].includes(user.role);
-    // Agents can place an order on behalf of one of their customers.
-    let customer = user;
-    if (isAgent && req.body?.customerId) {
-      const { rows } = await q(`select * from users where id=$1 and agent_id=$2`,
-        [req.body.customerId, user.id]);
-      if (!rows.length) return res.status(403).json({ error: 'Not your customer' });
-      customer = rows[0];
-    }
 
     const ship = await shippingCost(customer, summary.total, summary.promotion?.freeShipping);
 
@@ -75,11 +121,57 @@ r.post('/place-order', async (req, res, next) => {
     const orderRate = rateFor(orderCurrency, fx);
 
     const result = await tx(async (c) => {
+      /* ---- SUBMISSION LOCK ----
+         The cart was priced above, outside this transaction. Two near-
+         simultaneous checkouts could otherwise both capture it and both create
+         an order. Locking the actor's cart rows serialises checkout per cart
+         owner: the second request waits here, then finds the cart empty because
+         the first deleted it inside its own transaction.
+
+         The lock is on the ACTOR's cart even for an assisted order — the cart
+         belongs to the salesperson; only the pricing belongs to the customer. */
+      const lockedCart = await lockCartForSubmission(c, user.id);
+      if (!lockedCart.length) {
+        throw Object.assign(
+          new Error('This cart has already been submitted or is now empty.'),
+          { status: 409, expose: true, alreadySubmitted: true });
+      }
+
+      /* ---- SUBMIT EXACTLY THE CART THAT WAS PRICED ----
+         The cart was priced outside this transaction, so it may have changed
+         since. Checking only that the priced SKUs still exist was not enough:
+         a stale quantity could be submitted, a newly added line silently
+         dropped and then deleted with the rest of the cart, and a changed note
+         or label set lost. Compare the WHOLE snapshot and fail closed on any
+         difference — nothing is created, no stock moves, no promotion is
+         consumed and the cart is left exactly as the customer left it.
+         `summary.items` is the complete priced cart (not the filtered
+         `usable`), so an added or removed row is detected. */
+      const cartDiff = compareCartSnapshots(summary.items, lockedCart);
+      if (!cartDiff.match) {
+        throw Object.assign(
+          new Error('Your cart changed while checkout was being prepared. '
+            + 'Review it and submit again.'),
+          { status: 409, expose: true, cartChanged: true, changes: cartDiff.changes });
+      }
+
+      /* The locked cart now equals the priced cart, so the priced lines are
+         authoritative. `usable` drops rows whose variation no longer exists —
+         they are unorderable, and were already excluded before the lock.
+
+         Locks are then taken in one deterministic SKU order for every
+         checkout, so two concurrent carts holding the same SKUs cannot each
+         hold the row the other wants. */
+      const lines = orderLinesForLocking(usable);
+
       const orderItems = [];
       const backItems = [];
       const moves = []; // stock reservations; stamped with the order number once it exists
+      // Per-line record of requested vs allocated vs backordered. Drives the API
+      // response, both customer emails and the staff alert, so all four agree.
+      const breakdown = [];
 
-      for (const line of usable) {
+      for (const line of lines) {
         // Lock this variation's stock rows, allocate from largest pile first.
         const { rows: stockRows } = await c.query(`
           select s.variation_id, s.warehouse_id, s.qty
@@ -87,21 +179,14 @@ r.post('/place-order', async (req, res, next) => {
            where v.sku = $1
            order by (s.warehouse_id = 'wh_main') desc, s.qty desc
            for update of s`, [line.sku]);
-        let need = line.qty;
-        let allocated = 0;
-        for (const srow of stockRows) {
-          if (need <= 0) break;
-          const take = Math.min(need, Math.max(0, srow.qty));
-          if (take > 0) {
-            const { rows: upd } = await c.query(
-              `update stock set qty = qty - $1 where variation_id=$2 and warehouse_id=$3 returning qty`,
-              [take, srow.variation_id, srow.warehouse_id]);
-            moves.push({ variationId: srow.variation_id, sku: line.sku,
-              warehouseId: srow.warehouse_id, delta: -take, balanceAfter: upd[0].qty });
-            need -= take;
-            allocated += take;
-          }
-        }
+        // Decide the split first (pure), then apply it to the locked rows.
+        // reserveTakes issues the guarded `qty >= $1` decrement: if a pile has
+        // moved despite the lock the update matches no row and the whole
+        // transaction aborts, so stock can never go negative.
+        // (A cart cannot repeat a SKU — cart_items is unique(user_id, sku) —
+        //  so no aggregation is needed on this path, only the guard.)
+        const { takes, allocated, backordered: need } = planAllocation(line.qty, stockRows);
+        moves.push(...await reserveTakes(c, takes.map(t => ({ ...t, sku: line.sku }))));
         if (allocated > 0) {
           orderItems.push({ ...line, qty: allocated });
         }
@@ -111,27 +196,68 @@ r.post('/place-order', async (req, res, next) => {
             `update variations set stock_status='out of stock' where sku=$1 and stock_status='in stock'`,
             [line.sku]);
         }
+        breakdown.push({
+          sku: line.sku, modelSku: line.modelSku, brand: line.brand,
+          name: line.name, color: line.color, price: line.price,
+          requested: line.qty, allocated, backordered: need,
+        });
       }
+
+      /* Backorders switched off: nothing may be promised that is not on the
+         shelf. Throwing here rolls the whole transaction back, so the stock we
+         just decremented is restored and the cart is left untouched for the
+         customer to adjust. */
+      if (!allowBackorders && backItems.length) {
+        throw Object.assign(
+          new Error('Some items are no longer available in the quantity you requested.'),
+          {
+            status: 409,
+            shortages: breakdown.filter(b => b.backordered > 0).map(b => ({
+              sku: b.sku, modelSku: b.modelSku, name: b.name, color: b.color,
+              requested: b.requested, available: b.allocated, short: b.backordered,
+            })),
+          });
+      }
+
+      /* ---- split the ONE set of commercial terms the customer authorised ----
+         Whether stock happened to be available must not change what they pay:
+         the discount applies to the immediate order first and the remainder
+         carries to the backorder (a fully backordered promoted checkout used
+         to lose its discount outright), and shipping is charged exactly once. */
+      const commercials = allocateCommercials({
+        allocatedSubtotal: round2(orderItems.reduce((s, i) => s + i.qty * i.price, 0)),
+        backorderedSubtotal: round2(backItems.reduce((s, i) => s + i.qty * i.price, 0)),
+        promoDiscount: summary.promotion?.discount || 0,
+        shippingCost: ship.cost,
+        shippingFree: ship.free,
+      });
 
       let order = null;
       if (orderItems.length) {
-        const subtotal = round2(orderItems.reduce((s, i) => s + i.qty * i.price, 0));
-        const discount = summary.promotion?.discount
-          ? Math.min(summary.promotion.discount, subtotal) : 0;
-        const total = round2(subtotal - discount + ship.cost);
+        const discount = commercials.order.discount;
+        const total = commercials.order.total;
         const { rows: num } = await c.query(`select 'SO' || nextval('order_number_seq') as n`);
         const { rows: ord } = await c.query(`
           insert into orders (number, customer_id, agent_id, source, status, order_date,
                               discount, free_shipping, shipping, total,
-                              shipping_address, billing_address, promo, currency, fx_rate)
-          values ($1,$2,$3,$4,'pending',current_date,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+                              shipping_address, billing_address, promo, currency, fx_rate,
+                              comments)
+          values ($1,$2,$3,$4,'pending',current_date,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
           returning *`,
-          [num[0].n, customer.id, isAgent ? user.id : customer.agent_id,
-           isAgent ? 'agent' : 'customer', discount, ship.free, ship.cost, total,
+          [num[0].n, customer.id, placedByStaff ? user.id : customer.agent_id,
+           placedByStaff ? 'agent' : 'customer', discount,
+           commercials.order.freeShipping, commercials.order.shipping, total,
            req.body?.shippingAddress ? JSON.stringify(req.body.shippingAddress) : null,
            req.body?.billingAddress ? JSON.stringify(req.body.billingAddress) : null,
            summary.promotion ? JSON.stringify(summary.promotion) : null,
-           orderCurrency, orderRate]);
+           orderCurrency, orderRate,
+           // The checkout note lands in the existing comments thread (shape
+           // {by,text,at} — what the admin order screen already renders, with
+           // escaping). No schema change, visible to staff immediately.
+           JSON.stringify(note
+             ? [{ by: `${customer.business || customer.email} (order note)`,
+                  text: note, at: new Date().toISOString() }]
+             : [])]);
         order = ord[0];
         for (const i of orderItems) {
           await c.query(`
@@ -139,10 +265,6 @@ r.post('/place-order', async (req, res, next) => {
             values ($1,$2,$3,$4,$5,0,$6,$7,$8)`,
             [order.id, i.sku, i.name || '', i.color || '', i.qty, i.price,
              i.note || '', JSON.stringify(i.labels || [])]);
-        }
-        if (summary.promotion?.id) {
-          await c.query(`update promotions set used_count = used_count + 1 where id=$1`,
-            [summary.promotion.id]);
         }
         // ledger: the stock reserved above, now that the order has a number
         const mover = { id: user.id, name: user.business || user.email, role: user.role };
@@ -155,10 +277,42 @@ r.post('/place-order', async (req, res, next) => {
       let backorder = null;
       if (backItems.length) {
         const { rows: bnum } = await c.query(`select 'BO' || nextval('backorder_number_seq') as n`);
+        /* The customer chose to order this knowing it was unavailable, so their
+           authorisation is recorded (customer_authorised) — but eligibility for
+           conversion stays with staff/stock, which the server checks under a
+           lock at conversion time.
+
+           A fully backordered request has NO orders row, so the backorder must
+           carry its own durable context: who placed it, the currency and rate
+           it was struck at, the addresses, the promotion, the shipping decision
+           and the note. Without this, conversion could not rebuild the order. */
         const { rows: bo } = await c.query(`
-          insert into backorders (number, order_id, order_number, customer_id, status, reason)
-          values ($1,$2,$3,$4,'open','out of stock') returning *`,
-          [bnum[0].n, order?.id ?? null, order?.number ?? null, customer.id]);
+          insert into backorders (number, order_id, order_number, customer_id,
+                                  status, reason, eligible, customer_authorised,
+                                  agent_id, source, currency, fx_rate,
+                                  shipping_address, billing_address, promo,
+                                  discount, free_shipping, shipping, comments)
+          values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+          returning *`,
+          [bnum[0].n, order?.id ?? null, order?.number ?? null, customer.id,
+           CUSTOMER_BACKORDER.status, CUSTOMER_BACKORDER.reason,
+           CUSTOMER_BACKORDER.eligible, CUSTOMER_BACKORDER.customerAuthorised,
+           placedByStaff ? user.id : customer.agent_id,
+           placedByStaff ? 'agent' : 'customer',
+           orderCurrency, orderRate,
+           req.body?.shippingAddress ? JSON.stringify(req.body.shippingAddress) : null,
+           req.body?.billingAddress ? JSON.stringify(req.body.billingAddress) : null,
+           summary.promotion ? JSON.stringify(summary.promotion) : null,
+           /* Whatever discount the immediate order could not absorb carries
+              here, so a fully backordered promoted checkout keeps its discount.
+              Shipping lands here only when nothing shipped now — never twice. */
+           commercials.backorder.discount,
+           commercials.backorder.freeShipping,
+           commercials.backorder.shipping,
+           JSON.stringify(note
+             ? [{ by: `${customer.business || customer.email} (order note)`,
+                  text: note, at: new Date().toISOString() }]
+             : [])]);
         backorder = bo[0];
         for (const i of backItems) {
           await c.query(`
@@ -168,37 +322,159 @@ r.post('/place-order', async (req, res, next) => {
         }
       }
 
+      /* One accepted checkout consumes the promotion ONCE — whether it became
+         an order, an order plus a backorder, or a backorder alone. It used to
+         be counted only when an immediate order existed, so a fully
+         backordered checkout consumed nothing. Conversion never counts again:
+         the backorder already carries this checkout's snapshot. */
+      if (summary.promotion?.id && (order || backorder)) {
+        await c.query(`update promotions set used_count = used_count + 1 where id=$1`,
+          [summary.promotion.id]);
+      }
+
+      // The cart always belongs to the signed-in actor, even on-behalf orders.
       await c.query(`delete from cart_items where user_id=$1`, [user.id]);
-      return { order, backorder };
+      return { order, backorder, breakdown, commercials };
     });
 
+    /* ============================================================
+       COMMITTED. From here on the order/backorder is a business fact.
+       Every remaining step is best-effort bookkeeping and runs through
+       afterCommit(), which logs failures and never lets one turn a committed
+       order into an apparent failure — a 500 here would make the customer
+       retry and order twice.
+       ============================================================ */
+    const { order, backorder, breakdown } = result;
+    const allocatedLines = breakdown.filter(b => b.allocated > 0)
+      .map(b => ({ ...b, qty: b.allocated }));
+    const backorderedLines = breakdown.filter(b => b.backordered > 0)
+      .map(b => ({ ...b, qty: b.backordered }));
+
+    // Requested / allocated / backordered value, all in the base currency;
+    // the display currency + stamped rate travel with them.
+    const sumValue = (rows, qtyKey) =>
+      round2(rows.reduce((s, b) => s + b[qtyKey] * (Number(b.price) || 0), 0));
+    const totals = {
+      allocatedValue: sumValue(breakdown, 'allocated'),
+      backorderedValue: sumValue(breakdown, 'backordered'),
+      requestedValue: sumValue(breakdown, 'requested'),
+    };
+
+    // Stock moved, so the shaped-catalog cache is stale: a frame that just sold
+    // out must stop showing as orderable immediately, not up to a TTL later.
+    await afterCommit('catalog cache invalidation', () => invalidateCatalogCache());
+
     const actor = { id: user.id, name: user.business || user.email, role: user.role };
-    if (result.order) {
-      await audit(actor, 'order placed', result.order.number, `total $${result.order.total}`);
-      q(`select sku, name, color, qty, price from order_items where order_id=$1`, [result.order.id])
-        .then(({ rows }) => {
-          const m = orderConfirmation({ name: customer.first_name || customer.business,
-            email: customer.email, order: { ...result.order, items: rows }, hidePrices: customer.hide_prices });
-          return sendMail({ to: customer.email, subject: m.subject, html: m.html,
-            text: `We received your order ${result.order.number} (total $${result.order.total}).` });
-        }).catch(() => {});
+    const onBehalfNote = onBehalf ? ` for ${customer.business || customer.email}` : '';
+    if (order) {
+      await afterCommit(`audit 'order placed' ${order.number}`, () =>
+        audit(actor, 'order placed', order.number,
+          `total ${orderCurrency} ${order.total}${onBehalfNote}`
+          + (note ? ` · note: ${note.slice(0, 120)}` : '')));
     }
-    if (result.backorder) {
-      await audit(actor, 'backorder created', result.backorder.number, 'out of stock at order time');
+    if (backorder) {
+      await afterCommit(`audit 'backorder created' ${backorder.number}`, () =>
+        audit(actor, 'backorder created', backorder.number,
+          `${backorderedLines.reduce((s, b) => s + b.qty, 0)} pcs unavailable at order time`
+          + ` · authorised by customer; stock eligibility remains with staff${onBehalfNote}`
+          // With no order row there is no comments thread to hold the note, so
+          // the audit payload carries it (see IMPLEMENTATION_REPORT §Task 5).
+          + (!order && note ? ` · note: ${note.slice(0, 120)}` : ''),
+          'web',
+          !order && note ? { orderNote: note } : null));
+    }
+
+    /* ---- Customer confirmation ----
+       Three shapes, all of them confirmed: fully allocated, partly allocated
+       (order + linked backorder) and fully backordered (no order at all).
+       HTML and plaintext are produced together by the template so the two can
+       never disagree about what a hide-prices customer may see. */
+    const mailIdentity = { name: customer.first_name || customer.business,
+      email: customer.email, hidePrices: customer.hide_prices,
+      currency: orderCurrency, rate: orderRate, totals };
+    if (order) {
+      const m = orderConfirmation({ ...mailIdentity,
+        order: { ...order, items: allocatedLines },
+        backorder: backorder ? { number: backorder.number, items: backorderedLines } : null });
+      sendMailSafely({ to: customer.email, subject: m.subject, html: m.html, text: m.text },
+        `order confirmation ${order.number}`);
+    } else if (backorder) {
+      const m = backorderConfirmation({ ...mailIdentity,
+        backorder: { ...backorder, items: backorderedLines } });
+      sendMailSafely({ to: customer.email, subject: m.subject, html: m.html, text: m.text },
+        `backorder confirmation ${backorder.number}`);
+    }
+
+    /* ---- Staff alert (opt-in via ORDER_ALERT_EMAILS) ---- */
+    const alertTo = await afterCommit('read ORDER_ALERT_EMAILS', () => orderAlertRecipients(), []);
+    if (alertTo.length && (order || backorder)) {
+      await afterCommit('build staff order alert', () => {
+        const a = staffOrderAlert({
+          order, backorder, lines: breakdown, totals, note: note || null,
+          customer: { business: customer.business, email: customer.email,
+            customerNumber: customer.customer_number },
+          agent: onBehalf ? { name: user.business || `${user.first_name} ${user.last_name}`.trim(),
+            email: user.email } : null,
+          currency: orderCurrency, rate: orderRate,
+        });
+        sendMailSafely({ to: alertTo.join(', '), subject: a.subject, html: a.html, text: a.text },
+          'staff order alert');
+      });
     }
 
     // keep Zoho's books in step while it is the system of record
-    if (result.order) {
-      pushOrderToZoho(result.order.id)
-        .catch(e => console.error('[zoho] order push failed:', e.message));
+    if (order) {
+      afterCommitDetached(`zoho order push ${order.number}`, () => pushOrderToZoho(order.id));
     }
 
     res.json({
       ok: true,
-      order: result.order ? orderShape(result.order) : null,
-      backorder: result.backorder ? { id: result.backorder.id, number: result.backorder.number } : null,
+      order: order ? orderShape(order, allocatedLines) : null,
+      orderNumber: order?.number ?? null,
+      backorder: backorder
+        ? { id: backorder.id, number: backorder.number, status: backorder.status,
+            eligible: backorder.eligible, reason: backorder.reason, items: backorderedLines }
+        : null,
+      backorderNumber: backorder?.number ?? null,
+      fullyBackordered: !order && Boolean(backorder),
+      partiallyBackordered: Boolean(order && backorder),
+      currency: orderCurrency,
+      fxRate: orderRate,
+      totalQty: breakdown.reduce((s, b) => s + b.requested, 0),
+      allocatedQty: breakdown.reduce((s, b) => s + b.allocated, 0),
+      backorderedQty: breakdown.reduce((s, b) => s + b.backordered, 0),
+      /* Requested / allocated / backordered value, base currency + the stamped
+         rate. Returned regardless of hide_prices, exactly like get-order-detail
+         already does: this is the customer's own order and hide_prices is a
+         DISPLAY preference. The storefront honours it on screen and the email
+         templates honour it strictly in both HTML and plaintext. */
+      values: { ...totals, currency: orderCurrency, fxRate: orderRate },
+      note: note || null,
+      placedForCustomer: onBehalf ? orderingContextShape(customer) : null,
     });
-  } catch (e) { next(e); }
+  } catch (e) {
+    // Stock conflict with backorders disabled: nothing was created, nothing was
+    // emailed, and the cart is intact — tell the customer exactly what is short.
+    if (e.status === 409 && e.shortages) {
+      return res.status(409).json({ error: e.message, shortages: e.shortages });
+    }
+    /* Double submission: the second request waited on the cart lock and found
+       it empty. Nothing was created, no stock moved — the transaction rolled
+       back — so the customer must not be told to retry. */
+    if (e.alreadySubmitted) {
+      return res.status(409).json({ error: e.message, alreadySubmitted: true });
+    }
+    /* The cart changed between pricing and submission. The transaction rolled
+       back, so the cart is intact and untouched — the customer reviews it and
+       submits again. */
+    if (e.cartChanged) {
+      return res.status(409).json({ error: e.message, cartChanged: true,
+        changes: e.changes || [] });
+    }
+    // Not-your-customer / inactive-customer from resolveOrderingCustomer.
+    if (e.expose) return res.status(e.status).json({ error: e.message });
+    next(e);
+  }
 });
 
 /* ---------- order list / detail ---------- */
@@ -226,7 +502,9 @@ r.get('/get-order-detail/:id', async (req, res) => {
     [req.params.id, req.user.id]);
   if (!rows.length) return res.status(404).json({ error: 'Order not found' });
   const { rows: items } = await q(
-    `select * from order_items where order_id=$1 order by created_at`, [rows[0].id]);
+    `select i.*, p.sku as model_sku, p.brand
+       from order_items i ${ITEM_IDENTITY_JOIN}
+      where i.order_id=$1 order by i.created_at`, [rows[0].id]);
   res.json({ order: orderShape(rows[0], items) });
 });
 
@@ -280,8 +558,12 @@ r.delete('/orders/:orderId/items/:itemId', async (req, res, next) => {
       return { number: ord[0].number, sku: item[0].sku };
     });
     if (!result) return res.status(404).json({ error: 'Not found or order already processed' });
-    await audit({ id: req.user.id, name: req.user.business || req.user.email, role: req.user.role },
-      'order item removed', result.number, result.sku);
+    // Committed: the item is gone and the stock is back. Bookkeeping from here
+    // must not report a failure for work that actually succeeded.
+    await afterCommit('catalog cache invalidation', () => invalidateCatalogCache());
+    await afterCommit(`audit 'order item removed' ${result.number}`, () =>
+      audit({ id: req.user.id, name: req.user.business || req.user.email, role: req.user.role },
+        'order item removed', result.number, result.sku));
     res.json({ ok: true });
   } catch (e) { next(e); }
 });
@@ -291,27 +573,47 @@ r.delete('/orders/:orderId/items/:itemId', async (req, res, next) => {
 r.get('/backorders', async (req, res) => {
   const { rows } = await q(`
     select b.*, coalesce((
-      select json_agg(json_build_object('sku', bi.sku, 'name', bi.name, 'color', bi.color,
-                                        'qty', bi.qty, 'price', bi.price))
-        from backorder_items bi where bi.backorder_id = b.id), '[]') as items
+      select json_agg(json_build_object('sku', i.sku, 'name', i.name, 'color', i.color,
+                                        'modelSku', p.sku, 'brand', p.brand,
+                                        'qty', i.qty, 'price', i.price))
+        from backorder_items i ${ITEM_IDENTITY_JOIN}
+       where i.backorder_id = b.id), '[]') as items
       from backorders b where b.customer_id=$1 order by b.created_at desc`, [req.user.id]);
   res.json({
     backorders: rows.map(b => ({
       id: b.id, number: b.number, orderNumber: b.order_number, status: b.status,
       reason: b.reason, eligible: b.eligible, createdAt: b.created_at, items: b.items,
+      customerAuthorised: b.customer_authorised,
+      // Its own stamped money, so the customer sees the currency it was struck
+      // in rather than whatever the current viewer happens to be set to.
+      currency: b.currency, fxRate: b.fx_rate,
     })),
   });
 });
 
+/* Retained for compatibility with any client that still calls it.
+
+   A CUSTOMER action may only record the customer's own authorisation. It must
+   never set `eligible`, which is the STAFF/STOCK gate — a customer confirming
+   their own request cannot assert that stock exists. Conversion verifies full
+   locked stock independently regardless of what is set here.
+
+   It also no longer writes status='approved': the admin queue's actions and
+   filter were built around 'open', so that state stranded the record. Leaving
+   it 'open' keeps it processable. */
 r.post('/backorders/:id/approve', async (req, res) => {
   const { rows } = await q(`
-    update backorders set status='approved', eligible=true
-     where id=$1 and customer_id=$2 and status='open' returning number`,
+    update backorders set customer_authorised=true, status='open'
+     where id=$1 and customer_id=$2 and status in ('open','approved')
+     returning number, status, eligible, customer_authorised`,
     [req.params.id, req.user.id]);
-  if (!rows.length) return res.status(404).json({ error: 'Backorder not found or not open' });
-  await audit({ id: req.user.id, name: req.user.business || req.user.email, role: req.user.role },
-    'backorder approved', rows[0].number);
-  res.json({ ok: true });
+  if (!rows.length) return res.status(404).json({ error: 'Backorder not found or already processed' });
+  await afterCommit(`audit 'backorder confirmed' ${rows[0].number}`, () =>
+    audit({ id: req.user.id, name: req.user.business || req.user.email, role: req.user.role },
+      'backorder authorised by customer', rows[0].number,
+      'customer authorisation only — stock eligibility remains with staff'));
+  res.json({ ok: true, status: rows[0].status,
+    customerAuthorised: rows[0].customer_authorised, eligible: rows[0].eligible });
 });
 
 r.post('/backorders/:id/cancel', async (req, res) => {
@@ -320,8 +622,9 @@ r.post('/backorders/:id/cancel', async (req, res) => {
      where id=$1 and customer_id=$2 and status in ('open','approved') returning number`,
     [req.params.id, req.user.id]);
   if (!rows.length) return res.status(404).json({ error: 'Backorder not found' });
-  await audit({ id: req.user.id, name: req.user.business || req.user.email, role: req.user.role },
-    'backorder cancelled', rows[0].number);
+  await afterCommit(`audit 'backorder cancelled' ${rows[0].number}`, () =>
+    audit({ id: req.user.id, name: req.user.business || req.user.email, role: req.user.role },
+      'backorder cancelled', rows[0].number));
   res.json({ ok: true });
 });
 
@@ -377,8 +680,10 @@ r.post('/returns', async (req, res, next) => {
       }
       return ret[0];
     });
-    await audit({ id: req.user.id, name: req.user.business || req.user.email, role: req.user.role },
-      'return created', created.number);
+    // Committed: the return exists whether or not the audit row lands.
+    await afterCommit(`audit 'return created' ${created.number}`, () =>
+      audit({ id: req.user.id, name: req.user.business || req.user.email, role: req.user.role },
+        'return created', created.number));
     res.json({ ok: true, return: { id: created.id, number: created.number } });
   } catch (e) { next(e); }
 });

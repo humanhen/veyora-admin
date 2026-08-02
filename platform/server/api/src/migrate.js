@@ -89,4 +89,29 @@ export async function ensureSchema() {
              set data = jsonb_set(coalesce(data,'{}'::jsonb), '{fx}',
                    '{"base":"USD","rates":{"USD":1,"CAD":1.37,"EUR":0.92}}'::jsonb, true)
            where id = 1 and not (coalesce(data,'{}'::jsonb) ? 'fx')`);
+
+  /* ---- backorder order-context (mirrors db/migrations/0006) ----
+     A fully backordered checkout creates no orders row, so the backorder is the
+     only durable record. Without these columns the agent, currency, rate,
+     addresses, promotion, shipping decision and customer note were lost, and a
+     later conversion could not rebuild a faithful order. */
+  await q(`alter table backorders add column if not exists agent_id         text references users(id) on delete set null`);
+  await q(`alter table backorders add column if not exists source           text not null default 'customer'`);
+  await q(`alter table backorders add column if not exists currency         text not null default 'USD'`);
+  await q(`alter table backorders add column if not exists fx_rate          numeric(12,6) not null default 1`);
+  await q(`alter table backorders add column if not exists shipping_address jsonb`);
+  await q(`alter table backorders add column if not exists billing_address  jsonb`);
+  await q(`alter table backorders add column if not exists promo            jsonb`);
+  await q(`alter table backorders add column if not exists discount         numeric(12,2) not null default 0`);
+  await q(`alter table backorders add column if not exists free_shipping    boolean not null default false`);
+  await q(`alter table backorders add column if not exists shipping         numeric(12,2) not null default 0`);
+  await q(`alter table backorders add column if not exists comments         jsonb not null default '[]'`);
+  /* The customer's own authorisation, deliberately SEPARATE from `eligible`:
+       customer_authorised = the customer asked for it knowing it was unavailable
+       eligible            = staff/stock have cleared it for conversion
+     Conflating them would make a backorder look convertible the instant it was
+     created, asserting stock that nobody has checked. */
+  await q(`alter table backorders add column if not exists customer_authorised boolean not null default false`);
+  await q(`create index if not exists backorders_customer_idx on backorders (customer_id)`);
+  await q(`create index if not exists backorders_status_idx   on backorders (status)`);
 }

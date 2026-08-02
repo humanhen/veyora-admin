@@ -24,7 +24,7 @@ Routes['#/orders'] = {
               <td>${fmtDate(o.date)}</td>
               ${isAgent ? `<td>${esc(o.customerBusiness || '')}</td>` : ''}
               <td>${o.itemCount}</td>
-              ${hide ? '' : `<td>${money(o.total)}</td>`}
+              ${hide ? '' : `<td>${money(o.total, o)}</td>`}
               <td>${pill(o.status)}</td>
               <td class="sub">${o.tracking ? esc(o.tracking.company || '') + ' ' + esc(o.tracking.number || '') : '—'}</td>
             </tr>`).join('')}
@@ -52,21 +52,23 @@ Routes['#/order'] = {
       <h1 class="pagetitle">Order ${esc(o.number)} ${pill(o.status)}</h1>
       <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start">
         <div class="card" style="flex:2;min-width:300px"><div class="pad">
-          <table class="list"><thead><tr><th>SKU</th><th>Item</th><th>Qty</th>
+          <table class="list"><thead><tr><th>Model</th><th>Item</th><th>Qty</th>
             <th><span class="desktop-only">Shipped</span><span class="mobile-only">Shp.</span></th>
             ${hide ? '' : '<th class="hide-m">Price</th><th>Total</th>'}</tr></thead>
           <tbody>${o.items.map(i => `
-            <tr><td><b>${esc(i.sku)}</b></td><td>${esc(i.name)}${i.color ? ' · ' + esc(i.color) : ''}</td>
+            <tr><td><b>${esc(i.modelSku || i.sku)}</b><br/><span class="sub">${esc(i.sku)}</span></td>
+            <td>${esc(i.name)}${i.color ? ' · ' + esc(i.color) : ''}
+              ${i.brand ? `<br/><span class="sub">${esc(i.brand)}</span>` : ''}</td>
             <td>${i.qty}</td><td>${i.collected}</td>
-            ${hide ? '' : `<td class="hide-m">${money(i.price)}</td><td>${money(i.qty * i.price)}</td>`}</tr>`).join('')}
+            ${hide ? '' : `<td class="hide-m">${money(i.price, o)}</td><td>${money(i.qty * i.price, o)}</td>`}</tr>`).join('')}
           </tbody></table>
         </div></div>
         <div class="card" style="flex:1;min-width:250px"><div class="pad">
           <div class="summary-row"><span>Date</span><b>${fmtDate(o.date)}</b></div>
           ${hide ? '' : `
-            ${Number(o.discount) ? `<div class="summary-row"><span>Discount</span><b>−${money(o.discount)}</b></div>` : ''}
-            <div class="summary-row"><span>Shipping</span><b>${o.freeShipping ? 'Free' : money(o.shipping)}</b></div>
-            <div class="summary-row total"><span>Total</span><span>${money(o.total)}</span></div>`}
+            ${Number(o.discount) ? `<div class="summary-row"><span>Discount</span><b>−${money(o.discount, o)}</b></div>` : ''}
+            <div class="summary-row"><span>Shipping</span><b>${o.freeShipping ? 'Free' : money(o.shipping, o)}</b></div>
+            <div class="summary-row total"><span>Total</span><span>${money(o.total, o)}</span></div>`}
           ${o.tracking ? `<div class="summary-row"><span>Tracking</span><b>${esc(o.tracking.company || '')} ${esc(o.tracking.number || '')}</b></div>` : ''}
           <button class="btn ghost" style="width:100%;margin-top:14px" id="repeatBtn">↺ Repeat this order</button>
         </div></div>
@@ -84,7 +86,9 @@ Routes['#/backorders'] = {
   title: 'Backorders',
   async render(el) {
     el.innerHTML = `<h1 class="pagetitle">Backorders</h1>
-      <p class="sub" style="margin:-8px 0 14px">Items that were out of stock when you ordered. Approve a backorder to receive it automatically when stock arrives.</p>
+      <p class="sub" style="margin:-8px 0 14px">Quantities that were not available when you ordered.
+        They are recorded and our team will process them when stock becomes available —
+        there is nothing you need to do. Cancel one at any time if you no longer want it.</p>
       <div id="box"></div>`;
     const box = el.querySelector('#box');
     async function load() {
@@ -98,21 +102,20 @@ Routes['#/backorders'] = {
         <div class="card" style="margin-bottom:12px"><div class="pad">
           <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
             <div><b>${esc(b.number)}</b> ${pill(b.status)}
+              ${['open', 'approved'].includes(b.status)
+                ? `<span class="bo-state">Recorded for staff processing</span>` : ''}
               <span class="sub">· from order ${esc(b.orderNumber || '—')} · ${fmtDate(b.createdAt)}</span></div>
             <div>
-              ${b.status === 'open' ? `<button class="btn sm" data-ap="${esc(b.id)}">Approve</button>` : ''}
               ${['open', 'approved'].includes(b.status) ? `<button class="btn ghost sm" data-ca="${esc(b.id)}">Cancel</button>` : ''}
             </div>
           </div>
           <table class="list" style="margin-top:8px"><tbody>
-            ${b.items.map(i => `<tr><td><b>${esc(i.sku)}</b></td><td>${esc(i.name)}${i.color ? ' · ' + esc(i.color) : ''}</td>
-              <td>× ${i.qty}</td>${hide ? '' : `<td>${money(i.price)}</td>`}</tr>`).join('')}
+            ${b.items.map(i => `<tr><td><b>${esc(i.modelSku || i.sku)}</b><br/><span class="sub">${esc(i.sku)}</span></td>
+              <td>${esc(i.name)}${i.color ? ' · ' + esc(i.color) : ''}
+                ${i.brand ? `<br/><span class="sub">${esc(i.brand)}</span>` : ''}</td>
+              <td>× ${i.qty}</td>${hide ? '' : `<td>${money(i.price, b)}</td>`}</tr>`).join('')}
           </tbody></table>
         </div></div>`).join('');
-      box.querySelectorAll('[data-ap]').forEach(btn => btn.onclick = async () => {
-        await API.post(`/user/backorders/${btn.dataset.ap}/approve`);
-        toast('Backorder approved'); load();
-      });
       box.querySelectorAll('[data-ca]').forEach(btn => btn.onclick = async () => {
         if (!confirm('Cancel this backorder?')) return;
         await API.post(`/user/backorders/${btn.dataset.ca}/cancel`);

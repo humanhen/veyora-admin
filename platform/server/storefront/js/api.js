@@ -38,7 +38,21 @@ const API = (function () {
 const Store = {
   session: null,        // {user}
   fx: { currency: 'USD', rate: 1, symbol: '$' },  // account currency for price display
+  // Server-owned feature switches (from /user/get-user-detail). The default
+  // mirrors the API default so the UI is right even before the call lands.
+  features: { allowBackorders: true },
   cartCount: 0,
+  /* Salesperson "ordering for" context. A convenience only — the server
+     re-checks the customer and the actor's permission on every priced request
+     and again at checkout, so tampering with this buys nothing. Session-scoped
+     so it dies with the tab rather than surprising the next order. */
+  actingFor: (() => {
+    try { return JSON.parse(sessionStorage.getItem('veyora_acting_for') || 'null'); }
+    catch { return null; }
+  })(),
+  // The TARGET customer's currency/rate while assisting, supplied by the server
+  // with every priced response. Null when ordering as yourself.
+  orderingFx: null,
   favourites: new Set(),
   // Presentation mode: temporarily hide the customer's own prices so they can
   // show frames to their retail customers. Per-browser, not saved to the server.

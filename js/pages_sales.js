@@ -124,7 +124,7 @@ App.register('order',function(el,args){
     <div class="flex" style="margin-bottom:16px">
       <a class="back-btn" href="#/orders" title="Back">&larr;</a>
       <div class="page-title" style="font-size:16px">Order Collection</div>
-      <button class="btn btn-sm" id="btn-pdf">${I.pdf} PDF</button>
+      <button class="btn btn-sm" id="btn-print" title="Open the browser print view for this order">${I.printer} Print order</button>
       <div class="right flex">
         ${canEdit?`
         <button class="btn btn-sm" id="btn-merge">${I.merge} Merge orders</button>
@@ -182,7 +182,8 @@ App.register('order',function(el,args){
             const done=it.collected>=it.qty;
             return `<tr>
               <td><button class="count-circle" data-count="${ix}" title="Count manually (+1)">${done?'✓':'+'}</button></td>
-              <td><div class="cell-main">${esc(it.name)} &times; ${it.qty}</div><div class="cell-sub">Color: ${esc(it.color||'N/A')} | SKU: ${esc(it.sku)}</div></td>
+              <td><div class="cell-main">${esc(it.name)} &times; ${it.qty}</div><div class="cell-sub">${
+                it.brand?esc(it.brand)+' | ':''}${it.modelSku?'Model: '+esc(it.modelSku)+' | ':''}Color: ${esc(it.color||'N/A')} | SKU: ${esc(it.sku)}</div></td>
               <td>${esc(it.sku)}</td>
               <td><div class="progress ${done?'full':''}"><span style="width:${Math.min(100,it.collected/it.qty*100)}%"></span></div></td>
               <td><b>${it.collected} / ${it.qty}</b> ${done?'<span class="badge green">Done</span>':''}</td>
@@ -244,14 +245,36 @@ App.register('order',function(el,args){
     </div>`;
 
     /* ------- top actions ------- */
-    el.querySelector('#btn-pdf').onclick=()=>{
+    /* Browser print view of the order — this opens the print dialog; it does
+       NOT generate a PDF file (saving as PDF is the browser's own option).
+       Every line carries the full frame identity the warehouse and the customer
+       need: brand, model number, colour and variation SKU as separate columns.
+       modelSku comes from the API (the product's own sku) — never from
+       splitting the variation sku, which is wrong for dash colorways. */
+    el.querySelector('#btn-print').onclick=()=>{
       const w=window.open('','_blank');
-      const rows=o.items.map(it=>`<tr><td>${esc(it.name)}</td><td>${esc(it.sku)}</td><td>${it.qty}</td><td>$${(it.qty*it.price).toFixed(2)}</td></tr>`).join('');
-      w.document.write(`<html><head><title>${o.number}</title><style>body{font-family:sans-serif;padding:40px}table{border-collapse:collapse;width:100%}td,th{border:1px solid #ccc;padding:8px;text-align:left}h1{letter-spacing:4px}.bc{font-family:monospace;font-size:30px;letter-spacing:2px;border:2px solid #000;display:inline-block;padding:8px 18px;margin:10px 0}</style></head>
+      /* Money on this document is the ORDER's own money: amounts are stored in
+         base USD and converted with the rate stamped on the order when it was
+         placed. Hardcoding "$" showed a CAD customer an unconverted USD figure
+         labelled as their currency. */
+      const cur=(o.currency||'USD').toUpperCase();
+      const rate=Number(o.fxRate)||1;
+      const SYM={USD:'$',CAD:'CA$',EUR:'€'};
+      const pm=base=>(SYM[cur]||'$')+((Number(base)||0)*rate).toFixed(2);
+      const rows=o.items.map(it=>`<tr>
+        <td>${esc(it.brand||'—')}</td>
+        <td><b>${esc(it.modelSku||'—')}</b></td>
+        <td>${esc(it.name||'')}</td>
+        <td>${esc(it.color||'—')}</td>
+        <td>${esc(it.sku)}</td>
+        <td class="n">${it.qty}</td>
+        <td class="n">${pm(it.qty*it.price)}</td></tr>`).join('');
+      w.document.write(`<html><head><title>${o.number}</title><style>body{font-family:sans-serif;padding:40px}table{border-collapse:collapse;width:100%}td,th{border:1px solid #ccc;padding:7px;text-align:left;font-size:12px}th{background:#f4f2ef}.n{text-align:right}h1{letter-spacing:4px}.bc{font-family:monospace;font-size:30px;letter-spacing:2px;border:2px solid #000;display:inline-block;padding:8px 18px;margin:10px 0}</style></head>
       <body><h1>VEYORA</h1><h2>Order ${o.number}</h2><div class="bc">*${o.number}*</div>
-      <p><b>Customer:</b> ${esc(cust.business||'')} &lt;${esc(cust.email||'')}&gt;<br><b>Date:</b> ${fmtDate(o.date)} &middot; <b>Status:</b> ${o.status}</p>
-      <table><tr><th>Product</th><th>SKU</th><th>Qty</th><th>Total</th></tr>${rows}
-      <tr><td colspan="3"><b>Total</b></td><td><b>$${DB.orderTotal(o).toFixed(2)}</b></td></tr></table>
+      <p><b>Customer:</b> ${esc(cust.business||'')} &lt;${esc(cust.email||'')}&gt;<br><b>Date:</b> ${fmtDate(o.date)} &middot; <b>Status:</b> ${esc(o.status)} &middot; <b>Currency:</b> ${esc(cur)}${cur!=='USD'?` (rate ${esc(String(rate))} from USD)`:''}</p>
+      <table><tr><th>Brand</th><th>Model</th><th>Product</th><th>Colour</th><th>Variation SKU</th><th class="n">Qty</th><th class="n">Total</th></tr>${rows}
+      <tr><td colspan="6"><b>Total (${esc(cur)})</b></td><td class="n"><b>${pm(DB.orderTotal(o))}</b></td></tr></table>
+      ${o.comments&&o.comments.length?`<p><b>Notes</b><br>${o.comments.map(c=>esc(c.text)).join('<br>')}</p>`:''}
       <script>print()<\/script></body></html>`);
       w.document.close();
     };
@@ -267,7 +290,9 @@ App.register('order',function(el,args){
       toast('Invoice #'+num+' generated');render();
     };
     const invdl=el.querySelector('#btn-inv-dl');
-    if(invdl)invdl.onclick=()=>toast('Invoice PDF downloaded');
+    /* No document generator exists yet: the invoice is a record, not a file.
+       Say so rather than claiming a download that never happened. */
+    if(invdl)invdl.onclick=()=>toast('Invoice #'+inv.number+' is recorded. No invoice document is generated yet — use Print order for a printable copy.');
 
     const mrg=el.querySelector('#btn-merge');
     if(mrg)mrg.onclick=()=>{
@@ -600,6 +625,11 @@ App.register('quick-scan',function(el){
 });
 
 /* ============================================================ BACKORDERS */
+/* A backorder still awaiting staff action. 'open' is what the storefront and
+   the collection screen create; 'approved' only exists on legacy rows written
+   by the old customer-approve flow, and must remain processable. */
+function OPEN_BO(b){return b.status==='open'||b.status==='approved';}
+
 App.register('backorders',function(el){
   const state=App._bo||(App._bo={status:'',page:1});
 
@@ -612,12 +642,14 @@ App.register('backorders',function(el){
       <div class="page-title">Backorders</div>
       <select class="select" id="bo-status">
         <option value="">Status</option>
-        ${['open','converted','cancelled'].map(s=>`<option ${state.status===s?'selected':''}>${s}</option>`).join('')}
+        ${/* 'approved' is legacy: the storefront no longer creates it, but any
+             row already in that state must stay visible and actionable. */
+          ['open','approved','converted','cancelled'].map(s=>`<option ${state.status===s?'selected':''}>${s}</option>`).join('')}
       </select>
     </div>
     <div class="card">
       <div class="table-wrap"><table class="tbl">
-        <thead><tr><th>Backorder #</th><th>Original Order</th><th>Customer</th><th>Status</th><th>Reason</th><th>Eligible</th><th>Items</th><th>Created</th><th>Actions</th></tr></thead>
+        <thead><tr><th>Backorder #</th><th>Original Order</th><th>Customer</th><th>Status</th><th>Reason</th><th>Customer</th><th>Stock cleared</th><th>Items</th><th>Created</th><th>Actions</th></tr></thead>
         <tbody>
         ${p.slice.length?p.slice.map(b=>`<tr>
           <td class="cell-main">${esc(b.number)}</td>
@@ -625,12 +657,24 @@ App.register('backorders',function(el){
           <td>${esc(DB.userName(b.customerId))}</td>
           <td>${statusBadge(b.status)}</td>
           <td><span class="badge ${b.reason==='out_of_stock'?'yellow':'gray'}">${esc(b.reason)}</span></td>
-          <td>${b.eligible?'<span class="badge green">Eligible</span>':'<span class="badge gray">Not yet</span>'}</td>
-          <td>${b.items.reduce((s,i)=>s+i.qty,0)}</td>
+          ${/* Two DIFFERENT facts, deliberately in two columns:
+                "Customer" = the customer authorised this by ordering an
+                             unavailable quantity;
+                "Stock cleared" = staff have acknowledged it for conversion.
+                They were previously conflated, which made a backorder look
+                convertible the instant it was created. */''}
+          <td>${b.customerAuthorised?'<span class="badge green">Authorised</span>':'<span class="badge gray">—</span>'}</td>
+          <td>${b.eligible?'<span class="badge green">Cleared</span>':'<span class="badge gray">Not yet</span>'}</td>
+          <td>${b.items.reduce((s,i)=>s+i.qty,0)}<br/><span class="cell-sub">${
+            moneyIn(b.items.reduce((s,i)=>s+i.qty*i.price,0),b)}</span></td>
           <td>${fmtDateShort(b.createdAt)}</td>
           <td><div class="row-actions">
-            ${b.status==='open'&&!b.eligible?`<button class="btn btn-sm" data-el="${b.id}">Mark eligible</button>`:''}
-            ${b.status==='open'&&b.eligible?`<button class="btn btn-sm btn-dark" data-cv="${b.id}">Convert</button>`:''}
+            ${/* Convert is always offered on a processable record: the SERVER
+                 decides on real, locked stock and refuses with exact shortages
+                 if any line is short. 'approved' is accepted alongside 'open'
+                 so legacy rows from the old customer-approve flow still work. */''}
+            ${OPEN_BO(b)&&!b.eligible?`<button class="btn btn-sm" data-el="${b.id}">Mark stock cleared</button>`:''}
+            ${OPEN_BO(b)?`<button class="btn btn-sm btn-dark" data-cv="${b.id}">Convert</button>`:''}
             <button class="icon-btn" data-view="${b.id}" title="Details">${I.eye}</button>
           </div></td>
         </tr>`).join(''):`<tr><td colspan="9" class="empty-cell">No backorders found</td></tr>`}
@@ -640,45 +684,106 @@ App.register('backorders',function(el){
 
     el.querySelector('#bo-status').onchange=e=>{state.status=e.target.value;state.page=1;render();};
     bindPager(el,pg=>{state.page=pg;render();});
-    el.querySelectorAll('[data-el]').forEach(b=>b.onclick=()=>{
+    /* Stock eligibility goes through a DEDICATED server endpoint, not the
+       generic browser-state row sync. The sync is debounced and carries a whole
+       snapshot, so it could otherwise write a stale `open`/`eligible` over a
+       backorder the conversion endpoint had just marked converted. */
+    el.querySelectorAll('[data-el]').forEach(b=>b.onclick=async()=>{
       const bo=DB.d.backorders.find(x=>x.id===b.dataset.el);
-      bo.eligible=true;DB.save();DB.audit('backorder.eligible',bo.number,'Marked eligible');
-      render();toast(bo.number+' marked eligible');
+      b.disabled=true;
+      try{
+        await DB.setBackorderEligibility(bo.id,true);
+        await DB.init();                       // re-pull; the server is the truth
+        render();toast(bo.number+' marked stock-cleared');
+      }catch(err){
+        b.disabled=false;toast(err.message||'Could not update eligibility',true);
+      }
     });
+    /* Conversion is SERVER-AUTHORITATIVE. The browser no longer builds the
+       order or touches stock: it asks the API, which locks the backorder and
+       the stock rows, requires full coverage for every line, reserves exactly
+       what is needed, rebuilds the order from the backorder's own preserved
+       context (customer, agent, source, currency, rate, addresses, promotion,
+       notes, locked prices) and records the inventory movements — all in one
+       transaction. Insufficient stock returns 409 and changes nothing. */
     el.querySelectorAll('[data-cv]').forEach(b=>b.onclick=()=>{
       const bo=DB.d.backorders.find(x=>x.id===b.dataset.cv);
-      Modal.confirm('Convert Backorder','Convert <b>'+esc(bo.number)+'</b> into a new fulfillment order for '+esc(DB.userName(bo.customerId))+'? Free shipping, prices locked from the backorder; stock is reserved.',()=>{
-        const num='SO'+(DB.d.nextOrderNumber++);
-        const order={id:uid('o'),number:num,customerId:bo.customerId,agentId:null,
-          date:todayISO(),status:'pending',source:'customer',freeShipping:true,
-          items:bo.items.map(i=>({sku:i.sku,name:i.name,color:i.color,qty:i.qty,price:i.price,collected:0})),
-          discount:0,tracking:null,comments:[],invoiceId:null,total:0};
-        order.total=DB.orderTotal(order);
-        order.items.forEach(i=>reserveStock(i.sku,i.qty));
-        DB.d.orders.push(order);
-        bo.status='converted';bo.convertedOrderId=order.id;bo.convertedOrderNumber=num;
-        DB.save();DB.audit('backorder.convert',bo.number,'→ '+num+' for '+DB.userName(bo.customerId)+' — '+money(order.total));
-        toast('Converted to '+num);
-        location.hash='#/order/'+order.id;
-      },'Convert');
+      Modal.confirm('Convert Backorder',
+        'Convert <b>'+esc(bo.number)+'</b> into a fulfillment order for '+esc(DB.userName(bo.customerId))+'?'
+        +'<div class="small muted" style="margin-top:8px">Prices are locked from the backorder and the original order context is reused. '
+        +'Every line must be fully in stock — if any is short, nothing is changed and you will be told what is missing.</div>',
+        async ()=>{
+          b.disabled=true;
+          try{
+            const r=await DB.convertBackorder(bo.id);
+            if(r.alreadyConverted){
+              toast('Already converted to '+(r.orderNumber||'an order'));
+            } else {
+              toast('Converted to '+r.orderNumber);
+            }
+            /* Re-pull the snapshot: stock, the new order and the backorder's
+               status all changed on the server, and page state must not be
+               allowed to drift from it. */
+            await DB.init();
+            if(r.orderId) location.hash='#/order/'+r.orderId; else render();
+          }catch(err){
+            b.disabled=false;
+            if(err.status===409&&err.data&&err.data.shortages){
+              const rows=err.data.shortages.map(s=>
+                '<tr><td>'+esc(s.sku)+'</td><td>'+esc(s.name||'')+'</td><td class="num">'+s.requested
+                +'</td><td class="num">'+s.available+'</td><td class="num">'+s.short+'</td></tr>').join('');
+              Modal.open({title:'Not enough stock',size:'wide',body:
+                '<div class="small muted" style="margin-bottom:10px">Nothing was changed. '
+                +esc(bo.number)+' is still open and can be converted once stock arrives.</div>'
+                +'<div class="table-wrap"><table class="tbl"><thead><tr><th>SKU</th><th>Product</th>'
+                +'<th class="num">Needed</th><th class="num">Available</th><th class="num">Short</th></tr></thead>'
+                +'<tbody>'+rows+'</tbody></table></div>'});
+            } else {
+              toast(err.message||'Conversion failed',true);
+            }
+          }
+        },'Convert');
     });
     el.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>{
       const bo=DB.d.backorders.find(x=>x.id===b.dataset.view);
       Modal.open({title:'Backorder '+bo.number,size:'wide',
         body:`
+        ${/* Operational context staff need to process it. A fully backordered
+             request has no order row, so this IS the record: who it is for, who
+             placed it, and the currency/rate/addresses/notes it was struck with.
+             Deliberately excludes pricing profiles, balances and tax ids. */''}
         <div class="kv">
           <dt>Customer</dt><dd>${esc(DB.userName(bo.customerId))}</dd>
-          <dt>Source order</dt><dd>${esc(bo.orderNumber)}</dd>
+          <dt>Placed by</dt><dd>${bo.agentId?esc(DB.userName(bo.agentId)):'Customer'} <span class="badge gray">${esc(bo.source||'customer')}</span></dd>
+          <dt>Source order</dt><dd>${bo.orderNumber?esc(bo.orderNumber):'— (fully backordered)'}</dd>
           <dt>New order</dt><dd>${bo.convertedOrderNumber?esc(bo.convertedOrderNumber):'—'}</dd>
           <dt>Status / reason</dt><dd>${statusBadge(bo.status)} <span class="badge gray">${esc(bo.reason)}</span></dd>
+          <dt>Customer authorised</dt><dd>${bo.customerAuthorised?'<span class="badge green">Yes</span>':'<span class="badge gray">No</span>'}</dd>
+          <dt>Stock cleared</dt><dd>${bo.eligible?'<span class="badge green">Yes</span>':'<span class="badge gray">Not yet</span>'}</dd>
+          <dt>Currency</dt><dd>${esc(bo.currency||'USD')}${bo.currency&&bo.currency!=='USD'?' (rate '+esc(String(bo.fxRate||1))+' from USD)':''}</dd>
+          ${bo.shippingAddress?`<dt>Ship to</dt><dd>${esc([bo.shippingAddress.business,bo.shippingAddress.address,bo.shippingAddress.city,bo.shippingAddress.state,bo.shippingAddress.zip,bo.shippingAddress.country].filter(Boolean).join(', '))}</dd>`:''}
+          ${bo.promo&&bo.promo.name?`<dt>Promotion</dt><dd>${esc(bo.promo.name)}</dd>`:''}
+          ${(bo.comments&&bo.comments.length)?`<dt>Customer note</dt><dd>${bo.comments.map(cm=>esc(cm.text)).join('<br>')}</dd>`:''}
         </div>
+        ${/* Money is shown in the BACKORDER's own currency at its stamped rate
+             — not the admin viewer's — so a CAD customer's record never reads
+             as dollars. Aggregate demand is shown per SKU because conversion
+             checks coverage per SKU, not per line. */''}
         <div class="table-wrap"><table class="tbl">
-          <thead><tr><th>Product</th><th>SKU</th><th>Qty</th><th>Price</th><th>Current stock</th></tr></thead>
-          <tbody>${bo.items.map(i=>{
-            const hit=DB.variationBySku(i.sku);
-            const stock=hit?DB.variationQty(hit.v):0;
-            return `<tr><td>${esc(i.name)}</td><td>${esc(i.sku)}</td><td>${i.qty}</td><td>${money(i.price)}</td>
-              <td>${stock>0?'<span class="badge green">'+stock+'</span>':'<span class="badge red">0</span>'}</td></tr>`;}).join('')}
+          <thead><tr><th>Product</th><th>SKU</th><th>Qty</th><th>Price (${esc(bo.currency||'USD')})</th><th>Line total</th><th>Current stock</th></tr></thead>
+          <tbody>${(()=>{
+            const demand={};bo.items.forEach(i=>{demand[i.sku]=(demand[i.sku]||0)+i.qty;});
+            return bo.items.map(i=>{
+              const hit=DB.variationBySku(i.sku);
+              const stock=hit?DB.variationQty(hit.v):0;
+              const short=stock<demand[i.sku];
+              return `<tr><td>${esc(i.name)}</td><td>${esc(i.sku)}</td><td>${i.qty}</td>
+                <td>${moneyIn(i.price,bo)}</td><td>${moneyIn(i.qty*i.price,bo)}</td>
+                <td>${short?'<span class="badge red">'+stock+' of '+demand[i.sku]+'</span>'
+                           :'<span class="badge green">'+stock+'</span>'}</td></tr>`;}).join('');
+          })()}
+          <tr><td colspan="4"><b>Total (${esc(bo.currency||'USD')})</b></td>
+            <td><b>${moneyIn(bo.items.reduce((s,i)=>s+i.qty*i.price,0)-(Number(bo.discount)||0)+(Number(bo.shipping)||0),bo)}</b></td><td></td></tr>
           </tbody></table></div>`,
         foot:`<button class="btn" data-x>Close</button>`,
         setup(ov,close){ov.querySelector('[data-x]').onclick=close;}});

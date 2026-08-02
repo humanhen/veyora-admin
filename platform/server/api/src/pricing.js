@@ -24,6 +24,58 @@ export function priceForCustomer(user, product, variation) {
 
 export function round2(n) { return Math.round((Number(n) || 0) * 100) / 100; }
 
+/**
+ * Split one checkout's commercial terms between the order that ships now and
+ * the backorder that holds the rest.
+ *
+ * The customer authorised ONE set of terms. Whether stock happened to be
+ * available must not change what they end up paying, so:
+ *   - the discount is applied to the immediate order first, and whatever it
+ *     cannot absorb carries to the backorder (a fully backordered checkout
+ *     previously lost its discount entirely — it was hardcoded to 0);
+ *   - shipping is charged exactly ONCE: on the immediate order when there is
+ *     one, otherwise on the backorder;
+ *   - the promotion snapshot and the free-shipping decision travel with both.
+ *
+ * @param allocatedSubtotal  value of the lines that were in stock
+ * @param backorderedSubtotal value of the lines that were not
+ * @param promoDiscount      the whole discount the checkout earned
+ * @param shippingCost       the shipping charge for the checkout
+ * @param shippingFree       whether shipping was waived
+ */
+export function allocateCommercials({
+  allocatedSubtotal = 0, backorderedSubtotal = 0,
+  promoDiscount = 0, shippingCost = 0, shippingFree = false,
+} = {}) {
+  const alloc = round2(Math.max(0, allocatedSubtotal));
+  const back = round2(Math.max(0, backorderedSubtotal));
+  // A discount can never exceed what was actually bought.
+  const discount = round2(Math.min(Math.max(0, promoDiscount), round2(alloc + back)));
+  const hasOrder = alloc > 0;
+
+  const orderDiscount = hasOrder ? round2(Math.min(discount, alloc)) : 0;
+  const backorderDiscount = round2(discount - orderDiscount);
+  const ship = round2(Math.max(0, shippingCost));
+
+  return {
+    order: {
+      discount: orderDiscount,
+      shipping: hasOrder ? ship : 0,
+      freeShipping: Boolean(shippingFree),
+      total: hasOrder ? round2(alloc - orderDiscount + ship) : 0,
+    },
+    backorder: {
+      discount: backorderDiscount,
+      // Charged here only when nothing shipped now, so it is never charged twice.
+      shipping: hasOrder ? 0 : ship,
+      freeShipping: Boolean(shippingFree),
+      total: round2(back - backorderDiscount + (hasOrder ? 0 : ship)),
+    },
+    // What the customer authorised overall; the two totals must reconcile to it.
+    authorisedTotal: round2(alloc + back - discount + ship),
+  };
+}
+
 /** Which active promotions apply to this user today? */
 export function eligiblePromotions(promos, user, isAgentOrder) {
   const today = new Date().toISOString().slice(0, 10);

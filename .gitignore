@@ -2,7 +2,8 @@
 .upload-staging/
 
 node_modules/
-platform/server/api/package-lock.json
+# package-lock.json is COMMITTED on purpose: the Docker build runs `npm ci`, so
+# the lockfile is what makes a rebuild of the same commit reproducible.
 
 # local dev stack (secrets + machine-specific overrides + import scratch)
 platform/server/.env

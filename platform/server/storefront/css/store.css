@@ -209,6 +209,12 @@ table.list tr.click:hover td{background:var(--soft-blue)}
 .stockpill.in{background:#dcfce7;color:var(--ok)}
 .stockpill.out{background:#fee2e2;color:var(--bad)}
 .stockpill.prod{background:#fef3c7;color:var(--warn)}
+/* orderable, just not on the shelf — informative, not an error */
+.stockpill.back{background:#efe9f5;color:#56416d}
+/* per-colour note: "8 now · 4 on backorder", appears as soon as the requested
+   quantity passes what is in stock */
+.vrow .vbo{flex-basis:100%;font-size:11.5px;font-weight:600;color:transparent;min-height:0}
+.vrow .vbo.on{color:#b45309}
 .qtybox{display:flex;align-items:center;gap:0;border:1px solid var(--line);border-radius:8px;overflow:hidden}
 .qtybox button{width:34px;height:36px;background:#f8fafc;border:none;font-size:17px;color:var(--ink-2)}
 .qtybox input{width:46px;height:36px;border:none;text-align:center;font-weight:600;outline:none}
@@ -315,6 +321,38 @@ table.list tr.click:hover td{background:var(--soft-blue)}
 .summary-row{display:flex;justify-content:space-between;padding:7px 0;font-size:13.5px}
 .summary-row.total{font-weight:800;font-size:16px;border-top:1px solid var(--line);margin-top:8px;padding-top:12px}
 .promo-banner{background:var(--soft-purple);border:1px solid #e9d5ff;color:var(--ink-3);border-radius:8px;padding:10px 13px;font-size:13px;font-weight:600;margin-bottom:12px}
+/* backorder disclosure: cart banner + the per-line split, so a customer always
+   knows which pieces ship now and which are being held */
+.bo-banner{background:#fff7ed;border:1px solid #fed7aa;color:#7c2d12;border-radius:8px;padding:10px 13px;font-size:13px;line-height:1.5;margin-bottom:12px}
+.cart-line .bo-split{color:#b45309;font-weight:600}
+/* checkout summary lines — full product identity, not just a SKU */
+.co-line{padding:7px 0;border-bottom:1px solid #f1f5f9;font-size:13px}
+.co-line:last-of-type{border-bottom:none}
+.co-line-main{display:flex;justify-content:space-between;gap:10px;align-items:baseline}
+.co-line-main .co-nm{font-weight:600}
+.co-line-main .co-amt{white-space:nowrap}
+.co-line-sub{color:var(--muted);font-size:11.5px;margin-top:1px}
+.co-line-bo{color:#b45309;font-size:11.5px;font-weight:600;margin-top:1px}
+/* thank-you page backorder recap */
+.ty-bo{margin:14px auto 0;max-width:420px;text-align:left}
+.ty-line{padding:7px 0;border-bottom:1px solid #f1f5f9;font-size:13px;font-weight:600}
+.ty-line .sub{display:block;font-weight:400}
+/* requested vs allocated vs backordered value, kept visibly distinct */
+.ty-values{margin:16px auto 0;max-width:420px;text-align:left;font-size:13px}
+.ty-values div{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #f1f5f9}
+.ty-values span{color:var(--muted)}
+/* backorder state chip on the customer's backorders page */
+.bo-state{display:inline-block;background:#efe9f5;color:#56416d;font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px;margin-left:4px}
+/* "Ordering for: X" — a salesperson must never lose track of whose order this is */
+.acting-bar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;background:#2f2440;color:#f3eefa;padding:10px 3%;font-size:13px;line-height:1.5}
+.acting-bar .sub{color:#bda0d3}
+.acting-actions{display:flex;gap:8px;flex-shrink:0}
+.acting-bar button{background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.28);color:#fff;border-radius:999px;padding:5px 13px;font-size:12px;font-weight:600;cursor:pointer}
+.acting-bar button:hover{background:rgba(255,255,255,.24)}
+/* Checkout confirmation of WHO the assisted order is for — the last chance to
+   notice you are ordering for the wrong account. */
+.co-acting{background:#f7f3fc;border:1px solid #e2d5f0;border-left:4px solid #56416d;border-radius:8px;padding:12px 14px;margin:0 0 14px;font-size:13.5px;line-height:1.55}
+.co-acting .sub{display:block;margin-top:4px;color:#6b5c7d;font-size:12.5px}
 
 /* ---------- status pills ---------- */
 .pill{display:inline-block;font-size:11px;font-weight:700;padding:3px 10px;border-radius:999px;text-transform:capitalize}
@@ -437,6 +475,13 @@ body.hm-dark{background:#0e0d0d;color:#fff}
 .frow{display:flex;align-items:center;flex-wrap:wrap}
 .frow.groups{gap:12px}
 .frow.brands{gap:8px;margin-top:12px}
+/* Clear filters — filters persist until this is pressed. Lives inside .fbar so
+   the same control is present on desktop and inside the mobile filter sheet. */
+.frow.fclear-row{margin-top:12px}
+.fclear{background:#fff;border:1px solid var(--line);border-radius:999px;padding:6px 14px;font-size:12px;font-weight:600;color:var(--ink-2);cursor:pointer;line-height:1.4}
+.fclear:hover{background:#f3f4f6;border-color:#d1d5db}
+.fsheet .frow.fclear-row{margin-top:14px}
+.fsheet .fclear{width:100%;padding:11px 14px;font-size:13.5px}
 .fgroup{display:inline-flex;align-items:center;gap:6px}
 .flabel{font-size:11.2px;font-weight:600;letter-spacing:.5px;text-transform:uppercase;color:#a6a19e;margin:0 2px 0 0}
 .fdiv{width:1px;height:24px;background:#e0e0e0}
@@ -524,6 +569,10 @@ body.hm-dark{background:#0e0d0d;color:#fff}
 .pcard2 .orderbtn{margin-top:auto;background:#1a1a1a;color:#fff;border:none;height:30px;padding:0 8px;font-size:8.8px;font-weight:500;letter-spacing:1.5px;text-transform:uppercase;cursor:pointer}
 .pcard2 .orderbtn:hover{background:#3a3536}
 .pcard2 .orderbtn:disabled{background:#c9c5bf;cursor:default}
+/* orderable but not in stock — distinct from a live "Order" so the customer
+   knows before clicking, without the button looking broken */
+.pcard2 .orderbtn.bo{background:#56416d}
+.pcard2 .orderbtn.bo:hover{background:#6a5185}
 
 /* guest catalog header + full-width product grid */
 .guest-head .hm-head{position:static;background:var(--ink)}

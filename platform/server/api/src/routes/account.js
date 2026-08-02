@@ -8,9 +8,18 @@ import { q, audit } from '../db.js';
 import { requireAuth } from '../authmw.js';
 import { loadProducts } from './catalog.js';
 import { getFx, rateFor, symbolFor, normalizeCurrency } from '../currency.js';
+import { publicFeatures } from '../config.js';
+import { pricingIdentity, resolveOrderingCustomer, orderingContextShape } from '../ordering.js';
+import { priceForCustomer } from '../pricing.js';
 
 const r = Router();
 r.use(requireAuth());
+
+/** Turn a tagged authorisation error into its intended HTTP response. */
+function sendAuthzError(e, res, next) {
+  if (e?.expose) return res.status(e.status).json({ error: e.message });
+  return next(e);
+}
 
 const UPLOADS = process.env.UPLOADS_DIR || '/uploads';
 
@@ -35,7 +44,50 @@ r.get('/get-user-detail', async (req, res) => {
       role: u.role, paymentTerms: u.payment_terms, hidePrices: u.hide_prices,
       balance: u.balance, createdAt: u.created_at,
     },
+    // Server-owned switches the storefront needs in order to render correctly
+    // (e.g. whether out-of-stock frames may be ordered as backorders).
+    features: publicFeatures(),
   });
+});
+
+/* Everything checkout needs about WHOEVER the order is for.
+   `?forCustomer=<id>` returns the target customer's context; without it, the
+   signed-in user's own. Authorised by resolveOrderingCustomer, so an ordinary
+   customer cannot read anyone else and an agent cannot read outside their book.
+
+   Deliberately narrow: contact + address + terms + currency. No balance, no
+   pricing profile, no tax id, no password material, no internal flags. */
+r.get('/checkout-context', async (req, res, next) => {
+  try {
+    const { customer, onBehalf } =
+      await resolveOrderingCustomer(req.user, req.query.forCustomer, q);
+
+    const { rows: addrRows } = await q(
+      `select * from addresses where user_id=$1 order by created_at`, [customer.id]);
+    const fx = await getFx();
+    const currency = normalizeCurrency(customer.currency);
+
+    res.json({
+      orderingFor: onBehalf ? orderingContextShape(customer) : null,
+      customer: {
+        id: customer.id, customerNumber: customer.customer_number,
+        firstName: customer.first_name, lastName: customer.last_name,
+        email: customer.email, phone: customer.phone, business: customer.business,
+        country: customer.country, address: customer.address, city: customer.city,
+        state: customer.state, zip: customer.zip,
+        paymentTerms: customer.payment_terms,
+        hidePrices: customer.hide_prices,
+      },
+      addresses: {
+        billing: addrRows.filter(a => a.kind === 'billing').map(addrShape),
+        shipping: addrRows.filter(a => a.kind === 'shipping').map(addrShape),
+      },
+      // Display context for the CUSTOMER's money, not the salesperson's.
+      fx: { currency, symbol: symbolFor(currency), rate: rateFor(currency, fx), base: fx.base },
+      // Shipping rules follow the customer's country.
+      shippingCountry: customer.country,
+    });
+  } catch (e) { sendAuthzError(e, res, next); }
 });
 
 r.post('/update-profile', async (req, res) => {
@@ -133,11 +185,15 @@ r.get('/shipping-options', async (req, res) => {
 
 /* ---------- favourites ---------- */
 
-r.get('/favourites', async (req, res) => {
-  const { rows } = await q(`select product_id from favourites where user_id=$1`, [req.user.id]);
-  if (!rows.length) return res.json({ products: [] });
-  const items = await loadProducts(req.user, { ids: rows.map(x => x.product_id) });
-  res.json({ products: items.map(p => ({ ...p, isFavourite: true })) });
+r.get('/favourites', async (req, res, next) => {
+  try {
+    const { rows } = await q(`select product_id from favourites where user_id=$1`, [req.user.id]);
+    if (!rows.length) return res.json({ products: [] });
+    // Favourites belong to the actor; their PRICES follow the assisted context.
+    const ctx = await pricingIdentity(req, q);
+    const items = await loadProducts(ctx.identity, { ids: rows.map(x => x.product_id) });
+    res.json({ products: items.map(p => ({ ...p, isFavourite: true })) });
+  } catch (e) { sendAuthzError(e, res, next); }
 });
 
 r.post('/favourites/:productId/toggle', async (req, res) => {
@@ -188,28 +244,35 @@ r.post('/restock-notify', async (req, res) => {
 
 /* ---------- replenishment (reorder suggestions) ---------- */
 
-r.get('/replenishment', async (req, res) => {
-  const { rows } = await q(`
-    select oi.sku, sum(oi.qty) as bought, max(o.order_date) as last_ordered,
-           min(o.order_date) as first_ordered, count(distinct o.id) as times
-      from order_items oi join orders o on o.id = oi.order_id
-     where o.customer_id = $1 and o.status <> 'cancelled'
-     group by oi.sku order by 2 desc limit 40`, [req.user.id]);
-  if (!rows.length) return res.json({ items: [] });
-  const modelSkus = [...new Set(rows.map(x => String(x.sku).split('.')[0]))];
-  const products = await loadProducts(req.user, { skus: modelSkus });
-  const bySku = new Map();
-  for (const p of products) for (const v of p.variations) bySku.set(v.sku, { p, v });
-  res.json({
-    items: rows.filter(x => bySku.has(x.sku)).map(x => {
-      const { p, v } = bySku.get(x.sku);
-      return { sku: x.sku, name: p.name, brand: p.brand, color: v.color,
-               image: v.image || p.images[0] || null,
-               bought: Number(x.bought), lastOrdered: x.last_ordered,
-               firstOrdered: x.first_ordered, times: Number(x.times),
-               available: v.qty, price: v.price };
-    }),
-  });
+r.get('/replenishment', async (req, res, next) => {
+  try {
+    // "What have they bought before" must be the TARGET customer's history when
+    // a salesperson is reordering for them — not the salesperson's own.
+    const ctx = await pricingIdentity(req, q);
+    const historyOwner = ctx.onBehalf ? ctx.customer.id : req.user.id;
+    const { rows } = await q(`
+      select oi.sku, sum(oi.qty) as bought, max(o.order_date) as last_ordered,
+             min(o.order_date) as first_ordered, count(distinct o.id) as times
+        from order_items oi join orders o on o.id = oi.order_id
+       where o.customer_id = $1 and o.status <> 'cancelled'
+       group by oi.sku order by 2 desc limit 40`, [historyOwner]);
+    if (!rows.length) return res.json({ items: [] });
+    const modelSkus = [...new Set(rows.map(x => String(x.sku).split('.')[0]))];
+    const products = await loadProducts(ctx.identity, { skus: modelSkus });
+    const bySku = new Map();
+    for (const p of products) for (const v of p.variations) bySku.set(v.sku, { p, v });
+    res.json({
+      items: rows.filter(x => bySku.has(x.sku)).map(x => {
+        const { p, v } = bySku.get(x.sku);
+        return { sku: x.sku, name: p.name, brand: p.brand, color: v.color,
+                 modelSku: p.sku,
+                 image: v.image || p.images[0] || null,
+                 bought: Number(x.bought), lastOrdered: x.last_ordered,
+                 firstOrdered: x.first_ordered, times: Number(x.times),
+                 available: v.qty, price: v.price };
+      }),
+    });
+  } catch (e) { sendAuthzError(e, res, next); }
 });
 
 /* ---------- scan your list (old-site "scan tray": photo of a handwritten
@@ -271,10 +334,17 @@ r.post('/scan-tray', scanUpload.array('photos', 8), async (req, res, next) => {
 
     // match scanned lines to real variations (separator-insensitive)
     const { rows: vars } = await q(`
-      select v.sku, v.price, v.image, v.color, p.name,
+      select v.sku, v.price, v.sale_price, v.image, v.color,
+             p.name, p.sku as model_sku, p.brand,
+             p.price as p_price, p.sale_price as p_sale,
              coalesce((select sum(s.qty) from stock s where s.variation_id=v.id),0) as qty
         from variations v join products p on p.id=v.product_id
        where v.is_active and p.is_active`);
+    // Price the scanned list for whoever the order is for — and through
+    // priceForCustomer, so it matches the catalogue and the cart instead of
+    // showing the raw list price.
+    const ctx = await pricingIdentity(req, q);
+    const pricedFor = ctx.identity;
     const byNorm = new Map(vars.map(v => [normSku(v.sku), v]));
     const matched = [], unmatched = [];
     for (const line of lines) {
@@ -282,8 +352,12 @@ r.post('/scan-tray', scanUpload.array('photos', 8), async (req, res, next) => {
       if (!raw) continue;
       const v = byNorm.get(normSku(raw));
       if (v) {
+        const price = pricedFor.hide_prices ? null : priceForCustomer(pricedFor,
+          { brand: v.brand, price: v.p_price, sale_price: v.p_sale },
+          { sku: v.sku, price: v.price, sale_price: v.sale_price });
         matched.push({ scanned: raw, sku: v.sku, name: v.name, color: v.color,
-          image: v.image, price: req.user.hide_prices ? null : v.price,
+          modelSku: v.model_sku, brand: v.brand,
+          image: v.image, price,
           available: Number(v.qty), qty: Math.max(1, parseInt(line.qty, 10) || 1) });
       } else unmatched.push(raw);
     }

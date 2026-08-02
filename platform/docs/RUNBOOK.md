@@ -47,6 +47,37 @@ SMTP_FROM=Veyora <info@veyora.com>
 then `cd /opt/veyora && docker compose up -d api`.
 (For Google Workspace, create an **App password** — regular passwords won't work.)
 
+## Ordering behaviour + staff alerts (`/opt/veyora/.env`)
+
+`platform/server/.env.example` documents every variable. **Deploy does not
+touch an existing `.env`** — it only writes one on the very first run — so
+these must be added to `/opt/veyora/.env` by hand, then
+`cd /opt/veyora && docker compose up -d api`.
+
+```
+ALLOW_CUSTOMER_BACKORDERS=true
+ORDER_ALERT_EMAILS=orders@example.com
+```
+
+- **`ALLOW_CUSTOMER_BACKORDERS`** — `true` (the default, and the documented
+  Monday-release value) lets customers order what is not in stock: whatever is
+  available becomes a normal order and the shortfall becomes a backorder, so a
+  fully unavailable purchase is a valid full backorder. Set it to `false` to
+  restrict ordering to stock on hand — the storefront caps quantities and the
+  API rejects a stock conflict atomically, leaving the cart intact. The
+  backorder machinery stays in place either way; the flag only decides whether
+  a customer checkout can reach it.
+- **`ORDER_ALERT_EMAILS`** — comma-separated staff recipients notified when an
+  order or backorder is created. Entries are trimmed, blanks ignored. **Leave
+  it empty and nothing is sent** — the alert simply stays off. The example
+  address `orders@example.com` is treated as a placeholder and ignored at
+  runtime, so copying the example verbatim will not send anywhere; put real
+  addresses in before expecting alerts.
+
+Email problems never invalidate an order: sends are attempted after the
+transaction commits, failures are logged (`[mail] … FAILED`) and recorded in
+the audit log, and the order or backorder stands regardless.
+
 ## Everyday operations
 
 - **Deploy code changes** (from this repo on the office PC):

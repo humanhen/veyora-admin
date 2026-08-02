@@ -36,7 +36,12 @@ const DB = (function(){
     let data = null;
     try { data = await res.json(); } catch(e){}
     if (res.status === 401) { const e = new Error('unauthorized'); e.status = 401; throw e; }
-    if (!res.ok) { const e = new Error((data && (data.error||data.message)) || ('HTTP '+res.status)); e.status = res.status; throw e; }
+    if (!res.ok) {
+      const e = new Error((data && (data.error||data.message)) || ('HTTP '+res.status));
+      e.status = res.status;
+      e.data = data;          // e.g. the 409 shortage list from backorder conversion
+      throw e;
+    }
     return data;
   }
 
@@ -172,6 +177,20 @@ const DB = (function(){
   const api = {
     load, save, reset, audit, init,
     flush(){ clearTimeout(syncTimer); return pushSync(); },
+    /* Backorder -> order conversion is performed by the SERVER in one
+       transaction (locks, full-coverage check, exact reservation, movements,
+       order rebuilt from the backorder's preserved context). The browser must
+       never fabricate the order or the stock change itself.
+       Throws an error carrying .status and .data so the caller can render the
+       409 shortage list. */
+    /* Staff stock-eligibility decision — a DEDICATED endpoint, never the
+       generic row sync, so a debounced snapshot cannot regress it. */
+    async setBackorderEligibility(backorderId, eligible){
+      return apiCall('POST', '/admin/backorders/'+encodeURIComponent(backorderId)+'/eligibility', { eligible: eligible !== false });
+    },
+    async convertBackorder(backorderId){
+      return apiCall('POST', '/admin/backorders/'+encodeURIComponent(backorderId)+'/convert');
+    },
     /* Uploads image files to the server and returns their /s3/ paths. */
     async uploadImages(files){
       const fd = new FormData();

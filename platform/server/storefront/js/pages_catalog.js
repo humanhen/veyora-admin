@@ -15,8 +15,22 @@ const Catalog = {
   })(),
   density: 4,
 };
+/** Is anything actually filtered right now? (page number doesn't count) */
+function filtersActive(F) {
+  return Boolean(F.search) || F.brands.length || F.types.length || F.genders.length
+    || F.sizes.length || F.materials.length || F.sale || F.isNew || F.inStockOnly
+    || F.sort !== CATALOG_FILTER_DEFAULTS.sort;
+}
+/* Persist only a real selection. Once the user clears everything the key goes
+   away, so a fresh visit starts clean instead of restoring an empty filter set. */
 function saveCatalogFilters() {
-  try { sessionStorage.setItem('veyora_filters', JSON.stringify(Catalog.filters)); } catch (e) {}
+  try {
+    if (filtersActive(Catalog.filters)) {
+      sessionStorage.setItem('veyora_filters', JSON.stringify(Catalog.filters));
+    } else {
+      sessionStorage.removeItem('veyora_filters');
+    }
+  } catch (e) {}
 }
 
 function catalogUser() {
@@ -87,6 +101,9 @@ Routes['#/products'] = {
           ${chip('isNew', 'new', 'New')}
         </div>
         <div class="frow brands" id="brandRow"><span class="flabel">Brand</span></div>
+        <div class="frow fclear-row">
+          <button type="button" class="fclear" id="clearFilters" style="display:none">✕ Clear filters</button>
+        </div>
       </div>
       <div class="fsheet-back">
         <div class="fsheet">
@@ -118,13 +135,31 @@ Routes['#/products'] = {
 
     const grid = el.querySelector('#grid');
     const pager = el.querySelector('#pager');
+    const clearBtn = el.querySelector('#clearFilters');
+
+    /* Clear filters — the explicit "until intentionally cleared" half of the
+       persistence rule. Resets every group, the search box and the sort, drops
+       the saved sessionStorage state and reloads. Lives inside .fbar, so the
+       same button is present on desktop and inside the mobile filter sheet. */
+    clearBtn.onclick = () => {
+      // JSON round-trip rather than structuredClone — same result, and it works
+      // on the older mobile Safari versions this storefront still supports.
+      Object.assign(F, JSON.parse(JSON.stringify(CATALOG_FILTER_DEFAULTS)));
+      try { sessionStorage.removeItem('veyora_filters'); } catch (e) {}
+      el.querySelectorAll('.fchip.on').forEach(c => c.classList.remove('on'));
+      const search = el.querySelector('.bigsearch input');
+      if (search) search.value = '';
+      load();
+    };
 
     let loadSeq = 0;
     async function load() {
       const my = ++loadSeq;
       saveCatalogFilters();   // remember the current filters across reloads
+      clearBtn.style.display = filtersActive(F) ? '' : 'none';
       grid.innerHTML = Array(8).fill('<div class="skeleton" style="height:430px"></div>').join('');
-      const res = await API.post('/user/get-products', { ...F, perPage: 24 });
+      const res = await API.post('/user/get-products',
+        { ...F, perPage: 24, customerId: actingFor()?.id || undefined });
       if (my !== loadSeq) return;   // a newer search/filter/pager click superseded this
       grid.innerHTML = '';
       if (!res.products.length) {
@@ -148,7 +183,7 @@ Routes['#/products'] = {
     }
 
     // brand chips from live data, limited to the old site's public brand list
-    API.get('/user/product-filter-data').then(fd => {
+    API.get(withOrderingContext('/user/product-filter-data')).then(fd => {
       const row = el.querySelector('#brandRow');
       const brands = FILTER_BRANDS.filter(b => fd.brands.includes(b));
       row.insertAdjacentHTML('beforeend', brands.map(b =>
@@ -176,7 +211,7 @@ Routes['#/products'] = {
     }, 350);
     // app-layout cart summary (old-site: "Total: $X" + Cart under the search)
     const ctAmt = el.querySelector('#ctAmt');
-    if (!guest) API.get('/user/get-cart')
+    if (!guest) API.get(withOrderingContext('/user/get-cart'))
       .then(c => { if (ctAmt) ctAmt.textContent = money(c.total || 0); setCartBadge(c.totalQty || 0); })
       .catch(() => { if (ctAmt) ctAmt.textContent = money(0); });
     el.querySelectorAll('.density button').forEach(b => b.onclick = () => {
@@ -218,6 +253,15 @@ function attrLine(p) {
   return `${parts}${a.lens_h ? ` — H ${a.lens_h}` : ''}`;
 }
 
+/* The card's call to action. A frame with no stock is still orderable when
+   backorders are enabled — it just says so, instead of being a dead button. */
+function orderButton(p, hide) {
+  const priceBit = (hide || p.price == null) ? '' : ' · ' + money(p.price);
+  if (p.qty > 0) return `<button class="orderbtn">Order${priceBit}</button>`;
+  if (backordersAllowed()) return `<button class="orderbtn bo">Backorder${priceBit}</button>`;
+  return `<button class="orderbtn" disabled>Out of stock</button>`;
+}
+
 function productCard(p) {
   const u = catalogUser();
   const hide = u.hidePrices;
@@ -248,11 +292,7 @@ function productCard(p) {
            title="${esc(v.sku)}${v.color ? ' · ' + esc(v.color) : ''}" loading="lazy"/>`).join('')}
       ${p.variations.length > 7 ? `<span class="more">+${p.variations.length - 7}</span>` : ''}
     </div>` : `<div class="vthumbs empty-thumbs"></div>`}
-    ${u.guest
-      ? `<button class="orderbtn">Log in to order</button>`
-      : `<button class="orderbtn" ${p.qty > 0 ? '' : 'disabled'}>${p.qty > 0
-          ? `Order${hide || p.price == null ? '' : ' · ' + money(p.price)}`
-          : 'Out of stock'}</button>`}
+    ${u.guest ? `<button class="orderbtn">Log in to order</button>` : orderButton(p, hide)}
   </div>`);
 
   card.querySelectorAll('.vthumbs img').forEach(t => t.onclick = (e) => {
@@ -300,6 +340,20 @@ function productGallery(p) {
   return { gallery, colorAt };
 }
 
+/* Per-colour ordering controls.
+   With backorders ON  — every active colourway takes a quantity, and the box is
+                         uncapped so a customer may deliberately order more than
+                         is on the shelf. Out-of-stock rows keep "Notify me" too,
+                         for customers who would rather wait than commit.
+   With backorders OFF — only stocked colourways take a quantity, capped at what
+                         is available; the rest offer "Notify me" as before. */
+function variationOrderControls(v) {
+  const bo = backordersAllowed();
+  const notify = `<button class="btn ghost sm notify" data-sku="${esc(v.sku)}">Notify me</button>`;
+  if (v.qty > 0) return qtyBox(0, 0, bo ? null : v.qty);
+  return bo ? `${qtyBox(0, 0, null)}${notify}` : notify;
+}
+
 function productModal(p) {
   const u = catalogUser();
   const hide = u.hidePrices;
@@ -337,15 +391,15 @@ function productModal(p) {
         <h3 style="font-size:13.5px;margin:14px 0 2px">Colors</h3>
         <div id="vrows">
           ${p.variations.map(v => `
-            <div class="vrow" data-sku="${esc(v.sku)}">
+            <div class="vrow" data-sku="${esc(v.sku)}" data-avail="${v.qty || 0}">
               ${imgOr(v.image || p.images?.[0])}
               <span class="vsku">${esc(v.sku)}</span>
               <span class="vcol">${esc(v.color || '')}</span>
               ${stockPill(v)}
               ${!hide ? `<b class="vprice">${money(v.price)}</b>`
                 : guest ? '' : `<b class="vprice pr-hidden">${money(v.price)}</b>`}
-              ${guest ? '' : (v.qty > 0 ? qtyBox(0, 0, v.qty)
-                : `<button class="btn ghost sm notify" data-sku="${esc(v.sku)}">Notify me</button>`)}
+              ${guest ? '' : variationOrderControls(v)}
+              <span class="vbo"></span>
             </div>`).join('')}
         </div>
         <div style="display:flex;gap:10px;margin-top:16px;align-items:center;flex-wrap:wrap">
@@ -395,12 +449,28 @@ function productModal(p) {
   });
 
   const chosen = new Map();
+  const boTotals = new Map();
   m.querySelectorAll('.vrow .qtybox').forEach(box => {
-    const sku = box.closest('.vrow').dataset.sku;
+    const row = box.closest('.vrow');
+    const sku = row.dataset.sku;
+    const avail = parseInt(row.dataset.avail, 10) || 0;
+    const note = row.querySelector('.vbo');
     bindQtyBox(box, v => {
       if (v > 0) chosen.set(sku, v); else chosen.delete(sku);
+      // Say per row exactly what ships now and what is being backordered, so
+      // nobody discovers the split only after checkout.
+      const backordered = Math.max(0, v - avail);
+      boTotals.set(sku, backordered);
+      if (note) {
+        note.textContent = backordered > 0
+          ? (avail > 0 ? `${avail} now · ${backordered} on backorder` : `${backordered} on backorder`)
+          : '';
+        note.classList.toggle('on', backordered > 0);
+      }
       const total = [...chosen.values()].reduce((s, x) => s + x, 0);
-      m.querySelector('#addSummary').textContent = total ? `${total} pcs selected` : '';
+      const boTotal = [...chosen.keys()].reduce((s, k) => s + (boTotals.get(k) || 0), 0);
+      m.querySelector('#addSummary').textContent = total
+        ? `${total} pcs selected${boTotal ? ` · ${boTotal} on backorder` : ''}` : '';
     });
   });
   // notify buttons reflect their real state (pressed = "✓ We'll email you")
@@ -424,11 +494,19 @@ function productModal(p) {
   if (addBtn) addBtn.onclick = async () => {
     if (!chosen.size) { toast('Choose quantities first', true); return; }
     let cart;
-    for (const [sku, qty] of chosen) {
-      cart = await API.post('/user/add-to-cart', { sku, qty });
+    try {
+      for (const [sku, qty] of chosen) {
+        cart = await API.post('/user/add-to-cart', { sku, qty });
+      }
+    } catch (ex) {
+      // With backorders disabled the server refuses over-ordering; say why.
+      toast(ex.message, true);
+      if (cart) setCartBadge(cart.totalQty);
+      return;
     }
     setCartBadge(cart.totalQty);
-    toast('Added to cart');
+    const boTotal = [...chosen.keys()].reduce((s, k) => s + (boTotals.get(k) || 0), 0);
+    toast(boTotal ? `Added to cart · ${boTotal} on backorder` : 'Added to cart');
     m.remove();
   };
 }
@@ -519,7 +597,7 @@ function scanListModal(pageEl) {
     const fd = new FormData();
     files.forEach(f => fd.append('photos', f));
     let r;
-    try { r = await API.post('/user/scan-tray', fd); }
+    try { r = await API.post(withOrderingContext('/user/scan-tray'), fd); }
     catch (ex) {
       drop.innerHTML = `<p class="sub" style="color:var(--bad);text-align:center;padding:20px 0">${esc(ex.message)}</p>
         <p style="text-align:center"><button class="btn ghost sm" onclick="location.hash='#/products'">Close</button></p>`;
@@ -542,7 +620,7 @@ function scanListModal(pageEl) {
             <span class="sub">read as "${esc(x.scanned)}"</span></span>
           ${stockPill({ qty: x.available, stockStatus: 'in stock' })}
           ${hide || x.price == null ? '' : `<b class="vprice">${money(x.price)}</b>`}
-          ${qtyBox(x.available > 0 ? x.qty : 0, 0, null)}
+          ${qtyBox(x.available > 0 ? x.qty : 0, 0, backordersAllowed() ? null : x.available)}
         </div>`).join('')}
       ${r.unmatched.length ? `<p class="sub" style="margin-top:10px;color:var(--warn)">
         Couldn't match: ${r.unmatched.map(esc).join(', ')}</p>` : ''}
@@ -576,7 +654,7 @@ Routes['#/replenishment'] = {
     el.innerHTML = `<h1 class="pagetitle">Quick reorder</h1>
       <p class="sub" style="margin:-8px 0 14px">Items you've bought before, with live stock.</p>
       <div class="card"><div class="pad" id="box">Loading…</div></div>`;
-    const res = await API.get('/user/replenishment');
+    const res = await API.get(withOrderingContext('/user/replenishment'));
     const box = el.querySelector('#box');
     if (!res.items.length) {
       box.innerHTML = `<div class="empty"><div class="big">📦</div>No purchase history yet</div>`;
@@ -589,7 +667,8 @@ Routes['#/replenishment'] = {
         <span class="vcol">${esc(i.name)}${i.color ? ' · ' + esc(i.color) : ''}<br/>
           <span class="sub">bought ${i.bought} · last ${fmtDate(i.lastOrdered)}</span></span>
         ${stockPill({ qty: i.available, stockStatus: 'in stock' })}
-        ${i.available > 0 ? qtyBox(0, 0, i.available) : ''}
+        ${i.available > 0 ? qtyBox(0, 0, backordersAllowed() ? null : i.available)
+          : (backordersAllowed() ? qtyBox(0, 0, null) : '')}
       </div>`).join('') +
       `<div style="margin-top:14px"><button class="btn" id="addAll">Add selected to cart</button></div>`;
     const chosen = new Map();

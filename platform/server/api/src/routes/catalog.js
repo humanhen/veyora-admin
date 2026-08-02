@@ -3,8 +3,23 @@ import crypto from 'crypto';
 import { q } from '../db.js';
 import { requireAuth, optionalAuth, AGENT_ROLES } from '../authmw.js';
 import { priceForCustomer } from '../pricing.js';
+import { pricingIdentity } from '../ordering.js';
 
 const r = Router();
+
+/* Assisted ordering: when a salesperson is building an order for a customer,
+   the CATALOGUE has to be priced for that customer too — otherwise the rep
+   browses their own prices while the banner claims otherwise, and the cart
+   then disagrees with the shelf. Guests and ordinary customers are rejected by
+   resolveOrderingCustomer, so this cannot be used to peek at another account. */
+async function priceAs(req, res) {
+  try {
+    return await pricingIdentity(req, q);
+  } catch (e) {
+    if (e.expose) { res.status(e.status).json({ error: e.message }); return null; }
+    throw e;
+  }
+}
 // catalog browsing + viewing a shared list are public (guest = prices hidden),
 // like the old site. Everything else on this router requires a session.
 r.use(['/get-products', '/product-filter-data', '/shared-lists'], optionalAuth());
@@ -117,7 +132,11 @@ async function favouriteIds(userId) {
   return new Set(rows.map(x => x.product_id));
 }
 
-async function getProducts(req, res) {
+async function getProducts(req, res, next) {
+  let ctx;
+  try { ctx = await priceAs(req, res); } catch (e) { return next(e); }
+  if (!ctx) return;                       // 403/400 already sent
+  const pricedFor = ctx.identity;
   const b = { ...req.query, ...req.body };
   const search = (b.search || '').trim().toLowerCase();
   const brands = [].concat(b.brands || b.brand || []).filter(Boolean);
@@ -138,7 +157,8 @@ async function getProducts(req, res) {
   const page = Math.max(1, parseInt(b.page, 10) || 1);
   const perPage = Math.min(96, Math.max(1, parseInt(b.perPage, 10) || 24));
 
-  let items = await loadProducts(req.user);
+  // Priced for the target customer when assisting; favourites stay the actor's.
+  let items = await loadProducts(pricedFor);
   const favs = await favouriteIds(req.user.id);
 
   // Never surface non-sellable internal items (warranties, cases, pens, spare
@@ -201,6 +221,12 @@ async function getProducts(req, res) {
     total: guest ? null : total,
     hasMore: page * perPage < total,
     page, perPage,
+    // Echo the pricing context so the storefront can prove the shelf it is
+    // showing was priced for the customer named in its banner.
+    pricedFor: ctx.onBehalf
+      ? { id: ctx.customer.id, business: ctx.customer.business,
+          customerNumber: ctx.customer.customer_number }
+      : null,
   });
 }
 
@@ -225,7 +251,9 @@ r.get('/product-filter-data', async (req, res) => {
   res.json(out);
 });
 
-r.get('/products/top-sellers', async (req, res) => {
+r.get('/products/top-sellers', async (req, res, next) => {
+  let ctx; try { ctx = await priceAs(req, res); } catch (e) { return next(e); }
+  if (!ctx) return;
   const { rows } = await q(`
     select split_part(oi.sku, '.', 1) as model, sum(oi.collected) as sold
       from order_items oi
@@ -234,19 +262,21 @@ r.get('/products/top-sellers', async (req, res) => {
      group by 1 order by 2 desc limit 12`);
   const skus = rows.map(x => x.model);
   if (!skus.length) return res.json({ products: [] });
-  const items = await loadProducts(req.user, { skus });
+  const items = await loadProducts(ctx.identity, { skus });
   const order = new Map(skus.map((s, i) => [s, i]));
   items.sort((a, b) => order.get(a.sku) - order.get(b.sku));
   res.json({ products: items });
 });
 
-r.get('/new-since-last-login', async (req, res) => {
+r.get('/new-since-last-login', async (req, res, next) => {
+  let ctx; try { ctx = await priceAs(req, res); } catch (e) { return next(e); }
+  if (!ctx) return;
   const since = req.user.prev_login_at;
   if (!since) return res.json({ products: [] });
   const { rows } = await q(
     `select id from products where is_active and created_at > $1 order by created_at desc limit 48`, [since]);
   if (!rows.length) return res.json({ products: [] });
-  const items = await loadProducts(req.user, { ids: rows.map(x => x.id) });
+  const items = await loadProducts(ctx.identity, { ids: rows.map(x => x.id) });
   res.json({ products: items });
 });
 
@@ -350,7 +380,8 @@ r.get('/shared-lists/:slug', async (req, res, next) => {
     const { rows } = await q(`select slug, name, skus from shared_lists where slug = $1`,
       [String(req.params.slug || '').toLowerCase()]);
     if (!rows[0]) return res.status(404).json({ error: 'list not found' });
-    const frames = await framesForSkus(req.user, rows[0].skus);
+    const ctx = await pricingIdentity(req, q);
+    const frames = await framesForSkus(ctx.identity, rows[0].skus);
     res.json({ list: { slug: rows[0].slug, name: rows[0].name, count: frames.length }, frames });
   } catch (e) { next(e); }
 });

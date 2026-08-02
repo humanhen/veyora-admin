@@ -10,6 +10,7 @@
    ZOHO_SYNC_MINUTES (default 30, min 5). Setup steps: docs/RUNBOOK.md. */
 import { q, tx, audit } from './db.js';
 import { recordMovement } from './inventory.js';
+import { invalidateCatalogCache } from './routes/catalog.js';
 
 const DC = process.env.ZOHO_DC || 'com';
 const ORG = process.env.ZOHO_ORG_ID || '875980504';
@@ -318,7 +319,12 @@ export async function syncZohoInventory({ dryRun = false, force = false } = {}) 
     };
 
     if (dryRun) await apply(null);
-    else await tx(apply);
+    else {
+      await tx(apply);
+      // A sync rewrites stock and prices for the whole catalog, so the shaped
+      // catalog cache is stale the moment it commits.
+      invalidateCatalogCache();
+    }
 
     summary.newSkuCount = summary.newSkus.length;
     summary.newSkus = summary.newSkus.slice(0, 50); // keep the record small

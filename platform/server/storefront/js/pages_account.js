@@ -101,7 +101,8 @@ Routes['#/favourites'] = {
     el.innerHTML = `<h1 class="pagetitle" style="display:flex;justify-content:space-between;align-items:center">Favorites
       <button class="btn sm" id="allToCart">Add all to cart</button></h1>
       <div id="grid" class="pgrid2"></div>`;
-    const res = await API.get('/user/favourites');
+    // Ownership: the actor's own favourites. Pricing: the assisted context.
+    const res = await API.get(withOrderingContext('/user/favourites'));
     const grid = el.querySelector('#grid');
     if (!res.products.length) {
       grid.innerHTML = `<div class="empty" style="grid-column:1/-1"><div class="big">♡</div>No favorites yet — tap the heart on any product</div>`;

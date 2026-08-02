@@ -11,6 +11,7 @@ import agentRoutes from './routes/agent.js';
 import adminRoutes from './routes/admin.js';
 import { ensureSchema } from './migrate.js';
 import { startZohoSchedule } from './zoho.js';
+import { startServer } from './startup.js';
 
 const app = express();
 app.set('trust proxy', true);
@@ -55,11 +56,18 @@ app.use((err, req, res, next) => {
 });
 
 const port = process.env.PORT || 3000;
-// Ensure post-go-live schema top-ups exist, then start — but never let a
-// migration hiccup stop the server from booting.
-ensureSchema()
-  .catch(err => console.error('[migrate] ensureSchema failed:', err))
-  .finally(() => {
-    app.listen(port, () => console.log(`veyora api listening on :${port}`));
-    startZohoSchedule();
-  });
+
+/* FAIL CLOSED. Schema readiness is a precondition for serving: if ensureSchema
+   fails the process logs a fatal error and exits non-zero rather than starting
+   and letting /health report success against a schema it does not have.
+   Sequencing lives in startup.js so both outcomes are testable without binding
+   a port. */
+startServer({
+  ensureSchema,
+  listen: p => new Promise((resolve, reject) => {
+    const server = app.listen(p, resolve);
+    server.on('error', reject);
+  }),
+  startSchedule: startZohoSchedule,
+  port,
+});

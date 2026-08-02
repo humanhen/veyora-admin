@@ -39,6 +39,8 @@ services:
       ZOHO_SYNC_MINUTES: ${ZOHO_SYNC_MINUTES:-30}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       SCAN_MODEL: ${SCAN_MODEL:-claude-haiku-4-5-20251001}
+      ALLOW_CUSTOMER_BACKORDERS: ${ALLOW_CUSTOMER_BACKORDERS:-true}
+      ORDER_ALERT_EMAILS: ${ORDER_ALERT_EMAILS:-}
     volumes:
       - uploads:/uploads
       - ./data/import:/import

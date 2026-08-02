@@ -71,10 +71,19 @@ r.get('/my-customer/:id', requireAuth(...AGENT_ROLES), async (req, res) => {
     `select * from users where id=$${scope.params.length + 1} and ${scope.sql}`,
     [...scope.params, req.params.id]);
   if (!rows.length) return res.status(404).json({ error: 'Customer not found' });
+  /* Each order carries the currency and rate it was STRUCK in. A salesperson's
+     session spans customers in different currencies, so formatting these with
+     the viewer's global currency showed a CAD customer's totals as USD. */
   const { rows: orders } = await q(
-    `select number, status, order_date, total from orders
+    `select number, status, order_date, total, currency, fx_rate from orders
       where customer_id=$1 order by created_at desc limit 20`, [req.params.id]);
-  res.json({ customer: customerShape(rows[0]), recentOrders: orders });
+  res.json({
+    customer: customerShape(rows[0]),
+    recentOrders: orders.map(o => ({
+      number: o.number, status: o.status, order_date: o.order_date,
+      total: o.total, currency: o.currency, fxRate: o.fx_rate,
+    })),
+  });
 });
 
 r.post('/update-customer/:id', requireAuth(...AGENT_ROLES), async (req, res) => {

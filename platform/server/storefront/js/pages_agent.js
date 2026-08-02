@@ -1,5 +1,27 @@
-/* Agent tools: customer list, create customer, customer detail. */
+/* Agent tools: customer list, create customer, customer detail,
+   and starting an order on a customer's behalf. */
 'use strict';
+
+/* Enter "ordering for <customer>" mode and go straight to the catalogue.
+   Everything priced from here on is priced for THEM — the server enforces it;
+   this only records the choice and shows the banner. */
+async function startOrderingFor(c) {
+  setActingFor({ id: c.id, business: c.business, customerNumber: c.customerNumber });
+  // Fetch THEIR currency before leaving this page, so the catalogue's first
+  // paint already formats in it rather than in the salesperson's.
+  try {
+    await ensureOrderingContext();
+  } catch (e) {
+    /* Transient failure (5xx / network). The customer stays selected — clearing
+       it would silently drop us back to the rep's own prices — but we do NOT
+       navigate to a priced page we cannot price correctly. */
+    toast(e.message, true);
+    return;
+  }
+  if (!actingFor()) return;                    // authorisation was refused (400/403)
+  toast(`Ordering for ${c.business}`);
+  location.hash = '#/products';
+}
 
 Routes['#/customers'] = {
   title: 'My Customers',
@@ -14,7 +36,7 @@ Routes['#/customers'] = {
     let rows = res.customers;
     function draw(list) {
       box.innerHTML = list.length ? `<div style="overflow-x:auto"><table class="list">
-        <thead><tr><th>#</th><th>Business</th><th>Contact</th><th>City</th><th>Status</th><th>Balance</th></tr></thead>
+        <thead><tr><th>#</th><th>Business</th><th>Contact</th><th>City</th><th>Status</th><th>Balance</th><th></th></tr></thead>
         <tbody>${list.map(c => `
           <tr class="click" data-id="${esc(c.id)}">
             <td class="sub">${esc(c.customerNumber || '')}</td>
@@ -23,11 +45,22 @@ Routes['#/customers'] = {
             <td>${esc(c.city)}${c.country === 'CA' ? ' 🇨🇦' : ''}</td>
             <td>${pill(c.status)}</td>
             <td>${money(c.balance)}</td>
+            <td>${c.status === 'active'
+              ? `<button class="btn ghost sm" data-order="${esc(c.id)}">Order for</button>`
+              : `<span class="sub">not active</span>`}</td>
           </tr>`).join('')}
         </tbody></table></div>`
         : `<div class="empty"><div class="big">👥</div>No customers yet</div>`;
       box.querySelectorAll('tr.click').forEach(tr =>
-        tr.onclick = () => location.hash = '#/customers/' + tr.dataset.id);
+        tr.onclick = (e) => {
+          if (e.target.closest('[data-order]')) return;
+          location.hash = '#/customers/' + tr.dataset.id;
+        });
+      box.querySelectorAll('[data-order]').forEach(b => b.onclick = (e) => {
+        e.stopPropagation();
+        const c = rows.find(x => x.id === b.dataset.order);
+        if (c) startOrderingFor(c);
+      });
     }
     draw(rows);
     el.querySelector('#cSearch').oninput = debounce(e => {
@@ -40,8 +73,16 @@ Routes['#/customers'] = {
 
 async function renderCustomerDetail(el, id) {
   const { customer: c, recentOrders } = await API.get('/user/my-customer/' + encodeURIComponent(id));
+  const acting = actingFor();
   el.innerHTML = `
-    <h1 class="pagetitle">${esc(c.business)} ${pill(c.status)}</h1>
+    <h1 class="pagetitle" style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+      <span>${esc(c.business)} ${pill(c.status)}</span>
+      ${c.status === 'active'
+        ? (acting && acting.id === c.id
+          ? `<button class="btn ghost sm" id="stopOrderFor">✕ Stop ordering for them</button>`
+          : `<button class="btn sm" id="startOrderFor">🧾 Order for this customer</button>`)
+        : `<span class="sub">Account not active — cannot order for them</span>`}
+    </h1>
     <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start">
       <div class="card" style="flex:2;min-width:300px"><div class="pad">
         <form id="custForm"><div class="grid2">
@@ -59,10 +100,15 @@ async function renderCustomerDetail(el, id) {
         <h3 style="font-size:15px;margin-bottom:8px">Recent orders</h3>
         ${recentOrders.length ? recentOrders.map(o => `
           <div class="summary-row"><span>${esc(o.number)} <span class="sub">${fmtDate(o.order_date)}</span></span>
-            <span>${pill(o.status)} <b>${money(o.total)}</b></span></div>`).join('')
+            <span>${pill(o.status)} <b>${money(o.total, o)}</b></span></div>`).join('')
           : '<p class="sub">No orders yet</p>'}
       </div></div>
     </div>`;
+  const startBtn = el.querySelector('#startOrderFor');
+  if (startBtn) startBtn.onclick = () => startOrderingFor(c);
+  const stopBtn = el.querySelector('#stopOrderFor');
+  if (stopBtn) stopBtn.onclick = () => { setActingFor(null); toast('Back to your own account'); route(); };
+
   el.querySelector('#custForm').onsubmit = async (e) => {
     e.preventDefault();
     const f = e.target;

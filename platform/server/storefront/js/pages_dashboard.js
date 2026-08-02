@@ -70,7 +70,7 @@ Routes['#/dashboard'] = {
     // ---- tiles (all four sources load in parallel) ----
     const [orders, cart, back, rets] = await Promise.all([
       API.get('/user/get-user-orders?page=1&perPage=200').catch(() => ({ orders: [] })),
-      API.get('/user/get-cart').catch(() => ({ items: [], totalQty: 0, total: 0 })),
+      API.get(withOrderingContext('/user/get-cart')).catch(() => ({ items: [], totalQty: 0, total: 0 })),
       API.get('/user/backorders').catch(() => ({ backorders: [] })),
       API.get('/user/returns').catch(() => ({ returns: [] })),
     ]);
@@ -99,7 +99,7 @@ Routes['#/dashboard'] = {
       rets.returns.filter(x => x.status === 'open').length;
 
     // ---- time to reorder ----
-    const res = await API.get('/user/replenishment').catch(() => ({ items: [] }));
+    const res = await API.get(withOrderingContext('/user/replenishment')).catch(() => ({ items: [] }));
     const box = el.querySelector('#dReorder');
     const today = Date.now();
     const items = res.items.map(i => {

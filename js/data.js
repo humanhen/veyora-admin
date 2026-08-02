@@ -267,6 +267,24 @@ const DB = (function(){
         r.readAsDataURL(f);
       })));
     },
+    /* Backorder conversion is a SERVER transaction (stock locks, full-coverage
+       check, exact reservation, inventory movements, order rebuilt from the
+       backorder's preserved context). The demo build has no server, and doing
+       it in browser state is exactly the unsafe path this replaced — so it
+       refuses rather than faking a converted order. The deployed admin uses the
+       API-backed data layer in platform/server/admin-overrides/js/data.js. */
+    setBackorderEligibility(){
+      const e=new Error('Stock eligibility needs the live server — not available in the demo build.');
+      e.status=501;
+      return Promise.reject(e);
+    },
+    convertBackorder(){
+      const e=new Error('Backorder conversion needs the live server — not available in the demo build.');
+      e.status=501;
+      return Promise.reject(e);
+    },
+    /* Demo build has no server: re-init is a no-op. */
+    init(){return Promise.resolve(true);},
     get d(){return load();},
     user(id){return load().users.find(u=>u.id===id);},
     userName(id){const u=api.user(id);return u?(u.business||((u.firstName||'')+' '+(u.lastName||'')).trim()||u.username):'—';},
