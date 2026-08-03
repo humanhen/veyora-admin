@@ -402,8 +402,30 @@ table.list tr.click:hover td{background:var(--soft-blue)}
   .hide-m{display:none}
 }
 
-/* ==================== public homepage (veyora.com replica) ==================== */
-body.hm-dark{background:#0e0d0d;color:#fff}
+/* ==================== public homepage — "Editorial Showroom" ====================
+   Light, warm-neutral, photography-led. Everything here is scoped to hm-*
+   classes that only the marketing homepage renders, except `.hm-head` and its
+   children (the DARK GUEST HEADER reused by the sign-in, catalogue and list
+   pages inside `.guest-head`) and `.hm-wa` (also worn by the signed-in shell's
+   float as `.hm-wa.shell-wa`). Those two are left alone.
+
+   `body.hm-dark` is the marketing-homepage body flag — app.js toggles it for
+   #/ and #/home and the authenticated pages remove it. The name is historical;
+   it now carries the light canvas and the page's design tokens. */
+body.hm-dark{
+  --hm-canvas:#f5f2ec;      /* warm ivory page */
+  --hm-paper:#fffdf9;       /* lifted panel    */
+  --hm-stone:#ebe5db;       /* pale stone      */
+  --hm-ink:#191612;
+  --hm-ink-soft:rgba(25,22,18,.64);
+  --hm-ink-faint:rgba(25,22,18,.42);
+  --hm-rule:rgba(25,22,18,.14);
+  --hm-night:#141210;
+  --hm-serif:'Iowan Old Style','Palatino Linotype',Palatino,'Book Antiqua',Georgia,'Times New Roman',serif;
+  background:var(--hm-canvas);color:var(--hm-ink)
+}
+
+/* ---- dark guest header (sign-in / catalogue / lists) — unchanged ---- */
 .hm-head{position:fixed;top:0;left:0;right:0;z-index:30;display:flex;align-items:center;justify-content:space-between;padding:14px 24px}
 .hm-logo img{width:200px;display:block}
 .hm-head-right{display:flex;align-items:center;gap:16px}
@@ -414,87 +436,208 @@ body.hm-dark{background:#0e0d0d;color:#fff}
 .hm-account svg{width:26px;height:26px}
 .hm-account:hover{opacity:1}
 
-.hm-hero{position:relative;height:100vh;min-height:560px;overflow:hidden;background:#0e0d0d}
-/* slow Ken Burns zoom on the active slide, like the original */
-.hm-hero-slides img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0;transform:scale(1);transition:opacity 2.5s ease-in-out,transform 6s ease-out}
-.hm-hero-slides img.on{opacity:1;transform:scale(1.06)}
-.hm-hero-shade{position:absolute;inset:0;background:linear-gradient(90deg,rgba(10,9,9,.82) 0%,rgba(10,9,9,.45) 42%,rgba(10,9,9,.12) 70%,rgba(10,9,9,0) 100%)}
-.hm-hero-inner{position:absolute;left:8%;top:61.5%;transform:translateY(-50%);max-width:640px;z-index:5}
-.hm-label{font-size:12.8px;font-weight:300;letter-spacing:5px;text-transform:uppercase;color:rgba(255,255,255,.55);line-height:1.6}
-.hm-hero-inner .hm-label{font-weight:200;letter-spacing:12px;color:rgba(255,255,255,.7);margin-bottom:16px}
-.hm-hero-inner h1{font-family:'Montserrat',sans-serif;font-weight:200;font-size:72px;letter-spacing:4px;text-transform:uppercase;line-height:1.1;color:#fff;margin:0 0 24px}
-.hm-hero-inner p{color:rgba(255,255,255,.6);font-size:16px;font-weight:300;line-height:1.7;max-width:400px;margin-bottom:32px}
-.hm-outline-btn{display:inline-block;border:1px solid rgba(255,255,255,.55);color:#fff;padding:13px 40px;font-size:12px;font-weight:400;letter-spacing:3px;line-height:1.75;text-transform:uppercase;transition:background .2s,border-color .2s}
-.hm-outline-btn:hover{background:rgba(255,255,255,.1);border-color:#fff}
-.hm-hero-dots{position:absolute;bottom:34px;right:44px;display:flex;gap:10px;z-index:6}
-.hm-hero-dots span{width:22px;height:2px;background:rgba(255,255,255,.3);cursor:pointer;transition:all .25s}
-.hm-hero-dots span.on{background:#fff;width:34px}
+/* ---------- editorial type scale + controls ----------
+   The display face is a local serif stack — no extra webfont is requested, and
+   the mixed-case serif is what separates this page from the letter-spaced
+   uppercase Montserrat used everywhere else in the app. */
+.hm-eyebrow{font-size:10.5px;font-weight:600;letter-spacing:.22em;line-height:1.7;color:var(--hm-ink-faint);margin:0 0 18px}
+.hm-eyebrow.on-dark{color:rgba(255,255,255,.6)}
+.hm-display{font-family:var(--hm-serif);font-weight:400;font-size:clamp(32px,5.4vw,66px);line-height:1.06;letter-spacing:-.015em;color:var(--hm-ink);margin:0;overflow-wrap:break-word}
+.hm-display.sm{font-size:clamp(26px,4vw,46px);line-height:1.13}
+.hm-display.xs{font-size:clamp(24px,3vw,34px);line-height:1.18}
+.hm-display.on-dark{color:#fff}
+.hm-lead{font-size:clamp(15px,1.1vw,17px);line-height:1.75;color:var(--hm-ink-soft);max-width:44ch;margin:22px 0 0}
+.hm-body{font-size:15.5px;line-height:1.8;color:var(--hm-ink-soft);max-width:46ch;margin:18px 0 0}
+.hm-actions{display:flex;flex-wrap:wrap;align-items:center;gap:14px 26px;margin-top:34px}
+.hm-btn{display:inline-flex;align-items:center;justify-content:center;min-height:50px;padding:0 32px;background:var(--hm-ink);border:1px solid var(--hm-ink);color:#fff;font-size:11.5px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;text-align:center;transition:background .18s,border-color .18s,color .18s}
+.hm-btn:hover{background:#000;border-color:#000;color:#fff}
+.hm-btn.light{background:var(--hm-canvas);border-color:var(--hm-canvas);color:var(--hm-ink)}
+.hm-btn.light:hover{background:#fff;border-color:#fff;color:var(--hm-ink)}
+.hm-btn.ghost{background:transparent;border-color:rgba(255,255,255,.4);color:#fff}
+.hm-btn.ghost:hover{background:rgba(255,255,255,.1);border-color:#fff;color:#fff}
+.hm-textlink{display:inline-flex;align-items:center;gap:10px;min-height:44px;color:var(--hm-ink);font-size:11.5px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;box-shadow:inset 0 -1px 0 var(--hm-rule);transition:box-shadow .18s}
+.hm-textlink::after{content:'→';font-size:13px;letter-spacing:0}
+.hm-textlink:hover{box-shadow:inset 0 -1px 0 var(--hm-ink);color:var(--hm-ink)}
 
-.hm-sec{padding:80px 8%;background:#0e0d0d}
-.hm-center{text-align:center}
-.hm-h2{font-family:'Montserrat',sans-serif;font-weight:200;font-size:40px;letter-spacing:3px;line-height:1.4;color:#fff;text-align:center;margin:24px auto 0;max-width:760px}
-.hm-h2.lg{font-size:48px;line-height:1.3;max-width:700px}
-/* Global distribution map.
-   The artwork's own background is #020202 while the landing sections are
-   #0e0d0d, so a plain image would read as a slightly darker rectangle. It
-   cannot be feathered: artwork reaches the bottom edge (a 1% bottom band still
-   peaks at luminance 176 against a page background of 13), so an edge mask
-   would erase part of the map. Instead the SECTION carries the artwork's black,
-   easing back to the page colour well clear of the image — 100px at the top
-   (the label and heading sit above that) and 50px at the bottom (the section's
-   own padding below the image is 80px on desktop, 60px on mobile). The join is
-   invisible and not one pixel of the map is touched. */
-.hm-map-sec{text-align:center;
-  background:linear-gradient(180deg,#0e0d0d 0,#010101 100px,
-             #010101 calc(100% - 50px),#0e0d0d 100%)}
-/* width:100% + height:auto keeps the artwork's own aspect ratio at every width,
-   so the map scales down on small screens and is never cropped. object-fit:
-   contain is belt-and-braces should a future rule ever impose a fixed height. */
-.hm-map{display:block;width:100%;max-width:1280px;height:auto;margin:48px auto 0;
-  object-fit:contain;background:transparent;border:0}
-.hm-three-labels{display:flex;gap:44px;justify-content:center;flex-wrap:wrap;margin:36px 0 84px}
-.hm-three-labels span{font-size:13.6px;font-weight:300;letter-spacing:3px;text-transform:uppercase;color:rgba(255,255,255,.75)}
-/* 4-column mosaic with spans — mirrors the original tile arrangement
-   (measured on the original: 475px cols, 300px rows, 4px gaps @1920) */
-.hm-collage{display:grid;grid-template-columns:repeat(4,1fr);grid-auto-rows:minmax(150px,15.7vw);gap:4px;margin:0 -9.55%}
-.hm-collage img{width:100%;height:100%;object-fit:cover;display:block}
-.hm-collage .c-a{grid-column:1/3;grid-row:1/3}
-.hm-collage .c-b{grid-column:3;grid-row:1}
-.hm-collage .c-c{grid-column:3;grid-row:2}
-.hm-collage .c-d{grid-column:4;grid-row:1/3}
-.hm-collage .c-e{grid-column:1;grid-row:3}
-.hm-collage .c-f{grid-column:2/4;grid-row:3/5}
-.hm-collage .c-g{grid-column:4;grid-row:3}
-.hm-collage .c-h{grid-column:1;grid-row:4}
-.hm-collage .c-i{grid-column:4;grid-row:4}
+/* ---------- compact homepage header ----------
+   In the page flow rather than floating over the artwork, and both controls
+   stay visible on a phone (the logo and the type shrink with the viewport, so
+   the row never has to wrap or overflow). */
+.hm-nav{position:sticky;top:0;z-index:30;background:rgba(245,242,236,.93);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);border-bottom:1px solid var(--hm-rule)}
+.hm-nav-in{max-width:1320px;margin:0 auto;padding:clamp(11px,1.2vw,14px) clamp(20px,5.6vw,40px);display:flex;align-items:center;justify-content:space-between;gap:16px}
+.hm-nav-logo{display:block;min-width:0;flex:0 1 auto}
+.hm-nav-logo img{display:block;width:auto;height:clamp(17px,4.8vw,24px);max-width:100%}
+.hm-nav-links{display:flex;align-items:center;gap:clamp(10px,2.4vw,30px);flex:0 0 auto}
+.hm-nav-links a{display:inline-flex;align-items:center;min-height:40px;color:var(--hm-ink);font-size:clamp(10px,1.6vw,11.5px);font-weight:600;letter-spacing:.14em;text-transform:uppercase;white-space:nowrap}
+.hm-nav-links a:hover{color:#000}
+.hm-nav-links .hm-nav-acct{padding:0 clamp(10px,1.4vw,16px);border:1px solid var(--hm-rule)}
+.hm-nav-links .hm-nav-acct:hover{border-color:var(--hm-ink)}
 
-.hm-bleed{position:relative;height:92vh;min-height:480px;overflow:hidden}
-.hm-bleed>img{width:100%;height:100%;object-fit:cover;display:block}
-.hm-bleed-shade{position:absolute;inset:0;background:rgba(10,9,9,.32)}
-.hm-bleed-text{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;align-items:center;padding:0 6%}
+/* ---------- 1. editorial split hero ----------
+   Asymmetric: narrower copy column on the left, one dominant campaign frame on
+   the right. A second overlapping frame was tried and removed — mid-scroll it
+   showed a large pale stretch of studio architecture with no subject in it, and
+   one excellent photograph beats two badly composed ones.
 
-.hm-portfolio{display:grid;grid-template-columns:1fr 1.15fr;gap:70px;align-items:center}
-.hm-port-text{max-width:580px}
-.hm-port-text h3{font-family:'Montserrat',sans-serif;font-weight:200;font-size:30.4px;letter-spacing:.5px;line-height:1.4;color:#fff;margin:24px 0 32px}
-.hm-port-text p{color:rgba(255,255,255,.72);font-size:17.6px;font-weight:300;line-height:1.8;margin-bottom:24px}
-.hm-port-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-.hm-port-grid img{width:100%;height:100%;object-fit:cover;display:block;aspect-ratio:1/0.98}
+   Crop: hero-04 is a 2:3 portrait whose model sits between 31% and 82% of the
+   frame height (hair 31%, sunglasses 36%, hips 60%, boots 82%). The 46% vertical
+   object-position keeps that whole band inside the visible window at every
+   width the 4/5 box and the 70vh cap produce. */
+.hm-ed{background:var(--hm-canvas);overflow:hidden}
+.hm-ed-in{max-width:1320px;margin:0 auto;padding:clamp(40px,5vw,70px) clamp(20px,4vw,40px) clamp(52px,6vw,84px);display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.12fr);gap:clamp(36px,5vw,72px);align-items:center}
+.hm-ed-copy{min-width:0}
+.hm-ed-copy .hm-eyebrow{padding-top:20px;background-image:linear-gradient(var(--hm-ink),var(--hm-ink));background-size:56px 1px;background-repeat:no-repeat;background-position:0 0}
+.hm-ed-art{margin:0;min-width:0}
+.hm-ed-art-main{display:block;width:100%;aspect-ratio:4/5;max-height:min(70vh,680px);object-fit:cover;object-position:50% 46%;background:var(--hm-stone)}
 
-.hm-video-sec{margin:0;line-height:0}
-.hm-video-sec video{width:100%;max-height:70vh;object-fit:cover;display:block}
-.hm-cta{text-align:center;padding:120px 8%}
-.hm-cta .hm-label{font-size:11.2px;font-weight:200;letter-spacing:8px;color:rgba(255,255,255,.4)}
-.hm-cta .hm-h2{font-size:56px;letter-spacing:4px;line-height:1.2;max-width:640px}
-.hm-cta-p{color:rgba(255,255,255,.72);font-size:17.6px;font-weight:300;margin:24px auto 40px;max-width:600px;line-height:1.8}
-.hm-cta .hm-outline-btn{font-weight:300;letter-spacing:4px;padding:15px 44px}
+/* ---------- 2. retailer value strip ---------- */
+.hm-strip{background:var(--hm-paper);border-top:1px solid var(--hm-rule);border-bottom:1px solid var(--hm-rule)}
+.hm-strip-in{max-width:1320px;margin:0 auto;padding:clamp(30px,3.2vw,46px) clamp(20px,4vw,40px);display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:clamp(24px,3vw,44px)}
+.hm-strip article{padding-left:clamp(20px,2vw,30px);border-left:1px solid var(--hm-rule)}
+.hm-strip article:first-child{padding-left:0;border-left:0}
+.hm-strip-no{display:block;font-family:var(--hm-serif);font-size:13px;color:var(--hm-ink-faint);margin-bottom:12px}
+.hm-strip h2{font-size:11px;font-weight:600;letter-spacing:.2em;color:var(--hm-ink);margin:0 0 10px}
+.hm-strip p{font-size:14.5px;line-height:1.7;color:var(--hm-ink-soft);max-width:34ch;margin:0}
 
-.hm-footer{display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;padding:24px 3%;border-top:1px solid rgba(255,255,255,.09);background:#0b0a0a;color:#fff;font-size:14px}
-.hm-footer nav{display:flex;gap:14px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
-.hm-footer a{color:#e2ddd7}
-.hm-footer a:hover{color:#fff}
-.hm-footer span{color:#4c4844}
+/* ---------- 3. collections in focus ----------
+   Copy on the left, then ONE pair of frames sharing a top and bottom line. The
+   earlier version staggered three frames of unrelated proportions down the
+   page; it read as accidental rather than asymmetric and left a blank column.
+   Equal height, unequal width is the controlled version of the same idea.
+
+   Crops: hero-05 (two models, faces at 32% and 45% of the frame) sits at 25%,
+   which keeps both faces and the eyewear in view. hero-10 (single model, face
+   25–48%) is narrower than its box here, so its full height shows. */
+.hm-focus{background:var(--hm-canvas)}
+.hm-focus-in{max-width:1320px;margin:0 auto;padding:clamp(52px,6vw,92px) clamp(20px,4vw,40px);display:grid;grid-template-columns:minmax(0,.78fr) minmax(0,1.22fr);gap:clamp(32px,4.4vw,64px);align-items:center}
+.hm-focus-lead{min-width:0}
+.hm-focus-lead .hm-textlink{margin-top:26px}
+.hm-focus-pair{display:grid;grid-template-columns:minmax(0,1.22fr) minmax(0,1fr);gap:clamp(12px,1.6vw,22px);height:clamp(400px,54vh,580px)}
+.hm-focus-pair figure{margin:0;min-width:0;height:100%}
+.hm-focus-pair img{display:block;width:100%;height:100%;object-fit:cover;background:var(--hm-stone)}
+.hm-focus-a img{object-position:50% 25%}
+.hm-focus-b img{object-position:50% 30%}
+
+/* ---------- 4. full-bleed campaign statement ----------
+   One absolutely-positioned photograph behind a left-weighted scrim; the copy
+   sits low and left rather than centred, and the height comes from a clamp
+   plus the copy's own padding so it never collapses or runs away on a phone.
+
+   Crop: hero-02's model is on the right of the frame (face 35–78% across,
+   sunglasses at 27–48% down, chin at 88%). 57% across keeps the face inside the
+   narrow window a phone crops to; 43% down keeps the eyewear and the mouth
+   inside the shallow window a wide desktop crops to. The left of the frame is
+   an out-of-focus ghost image, which is exactly where the scrim is heaviest. */
+.hm-state{position:relative;display:flex;align-items:flex-end;min-height:clamp(340px,50vh,520px);background:var(--hm-night);overflow:hidden}
+.hm-state>img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:57% 43%}
+.hm-state-scrim{position:absolute;inset:0;background:linear-gradient(100deg,rgba(12,10,9,.8) 0%,rgba(12,10,9,.52) 46%,rgba(12,10,9,.2) 78%,rgba(12,10,9,.06) 100%),linear-gradient(0deg,rgba(12,10,9,.52) 0%,rgba(12,10,9,0) 44%)}
+.hm-state-copy{position:relative;width:100%;max-width:1320px;margin:0 auto;padding:clamp(64px,8vw,120px) clamp(20px,4vw,40px) clamp(34px,4vw,60px)}
+.hm-state-copy h2{font-family:var(--hm-serif);font-weight:400;font-size:clamp(26px,4.2vw,50px);line-height:1.14;letter-spacing:-.012em;color:#fff;max-width:19ch;margin:0;overflow-wrap:break-word}
+
+/* ---------- 5. product portfolio: one feature + supporting details ----------
+   The product shots are 4:5 studio frames with the product between 28% and 90%
+   of the height, so the box matches the file and nothing is cropped away — the
+   whole product, and the brand mark above it, stay visible at every size. The
+   feature is width-capped rather than column-filled so it does not tower over
+   the copy beside it. The middle detail shot used to be nudged down 24px; the
+   stagger read as a mistake, so all three now share one line. */
+.hm-port{background:var(--hm-stone)}
+.hm-port-in{max-width:1320px;margin:0 auto;padding:clamp(52px,6vw,92px) clamp(20px,4vw,40px);display:grid;grid-template-columns:minmax(0,.85fr) minmax(0,1.15fr);gap:clamp(32px,4.4vw,64px);align-items:center}
+.hm-port-feature{margin:0;min-width:0;max-width:500px}
+.hm-port-feature img{display:block;width:100%;aspect-ratio:4/5;object-fit:cover;object-position:50% 50%;background:#111}
+.hm-port-side{min-width:0}
+.hm-port-side .hm-textlink{margin-top:26px}
+.hm-port-row{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:clamp(8px,1.2vw,16px);margin-top:clamp(28px,3vw,42px)}
+.hm-port-row img{display:block;width:100%;aspect-ratio:4/5;object-fit:cover;object-position:50% 50%;background:#111}
+
+/* ---------- 6. veyora in motion — framed, not full-bleed ---------- */
+.hm-motion{background:var(--hm-canvas)}
+.hm-motion-in{max-width:1240px;margin:0 auto;padding:clamp(50px,6vw,92px) clamp(20px,4vw,40px);display:grid;grid-template-columns:minmax(0,.66fr) minmax(0,1.34fr);gap:clamp(30px,4vw,56px);align-items:end}
+.hm-motion-copy{min-width:0}
+.hm-motion-frame{margin:0;min-width:0;background:var(--hm-night);padding:clamp(8px,.9vw,12px);box-shadow:0 24px 60px rgba(25,22,18,.16)}
+.hm-motion-frame video{display:block;width:100%;aspect-ratio:16/9;object-fit:cover;background:var(--hm-night)}
+
+/* ---------- 7. closing CTA on the dark canvas ---------- */
+.hm-close{background:var(--hm-night)}
+.hm-close-in{max-width:1320px;margin:0 auto;padding:clamp(52px,6vw,96px) clamp(20px,4vw,40px);display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,.85fr);gap:clamp(30px,4vw,64px);align-items:end}
+.hm-close-side{min-width:0}
+.hm-close-side p{font-size:15.5px;line-height:1.8;color:rgba(255,255,255,.66);max-width:38ch;margin:0}
+
+/* ---------- 8. footer ---------- */
+.hm-foot{background:#0d0b0a;color:#fff;border-top:1px solid rgba(255,255,255,.08)}
+.hm-foot-in{max-width:1320px;margin:0 auto;padding:clamp(34px,3.6vw,48px) clamp(20px,4vw,40px) clamp(52px,5vw,76px);display:grid;grid-template-columns:auto minmax(0,1fr);gap:20px 40px;align-items:center}
+.hm-foot-logo{grid-column:1;justify-self:start}
+.hm-foot-logo img{display:block;width:auto;height:19px}
+.hm-foot-links{grid-column:2;display:flex;flex-wrap:wrap;gap:4px 26px;justify-content:flex-end}
+.hm-foot-links a{display:inline-flex;align-items:center;min-height:36px;color:rgba(255,255,255,.72);font-size:12.5px}
+.hm-foot-links a:hover{color:#fff}
+.hm-foot-legal{grid-column:1/-1;padding-top:20px;border-top:1px solid rgba(255,255,255,.08);font-size:12px;color:rgba(255,255,255,.42)}
+
+/* The WhatsApp float. `.hm-wa` is shared with the signed-in shell (as
+   `.hm-wa.shell-wa`), whose orange is untouched below. The homepage control is
+   restyled charcoal-on-ivory under body.hm-dark so it belongs to the editorial
+   palette and matches the View Collections button; the orange read as a
+   third-party badge stuck on the page. The footer reserves height below its
+   last line so the button never sits over copy or a CTA, and the phone safe
+   area is added on top. "Talk to Sales" also exists as a text link under the
+   hero CTA and as a button in the closing section, so the float is never the
+   only route to sales. */
 .hm-wa{position:fixed;bottom:26px;right:26px;z-index:50;width:56px;height:56px;border-radius:999px;background:#ED6A2F;color:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 10px 28px rgba(0,0,0,.45);transition:transform .15s}
 .hm-wa:hover{transform:scale(1.07)}
+body.hm-dark .hm-wa{width:48px;height:48px;bottom:calc(22px + env(safe-area-inset-bottom));right:22px;background:var(--hm-ink);color:var(--hm-canvas);border:1px solid rgba(245,242,236,.16);box-shadow:0 8px 24px rgba(25,22,18,.3)}
+body.hm-dark .hm-wa svg{width:22px;height:22px}
+body.hm-dark .hm-wa:hover{background:#000;transform:scale(1.06)}
+
+/* ---------- homepage responsive ---------- */
+@media(max-width:900px){
+  /* Phone and small-tablet layout, designed as its own sequence rather than the
+     desktop grid squeezed into one column: the campaign photograph leads (it is
+     ordered above the copy so it is on the first screen), everything else
+     stacks in reading order, and nothing overlaps or is nudged off the line. */
+  .hm-ed-in{grid-template-columns:minmax(0,1fr);gap:clamp(20px,4vw,28px);padding:clamp(16px,3vw,26px) clamp(20px,5.6vw,32px) clamp(44px,6vw,64px)}
+  .hm-ed-art{order:-1}
+  /* landscape crop on the model's head and shoulders, so the hero photograph
+     fits the first screen above the headline instead of filling it */
+  .hm-ed-art-main{aspect-ratio:5/4;max-height:48vh}
+  .hm-focus-in{grid-template-columns:minmax(0,1fr);gap:clamp(24px,4vw,32px)}
+  .hm-focus-pair{grid-template-columns:minmax(0,1fr);height:auto;gap:clamp(12px,3vw,18px)}
+  .hm-focus-pair figure{height:auto}
+  .hm-focus-pair img{height:auto}
+  .hm-focus-a img{aspect-ratio:4/5}
+  .hm-focus-b img{aspect-ratio:3/2}
+  .hm-port-in{grid-template-columns:minmax(0,1fr);gap:30px}
+  .hm-port-feature{max-width:none}
+  .hm-motion-in{grid-template-columns:minmax(0,1fr);gap:26px;align-items:start}
+  .hm-close-in{grid-template-columns:minmax(0,1fr);gap:24px;align-items:start}
+}
+@media(max-width:820px){
+  .hm-strip-in{grid-template-columns:minmax(0,1fr);gap:0}
+  .hm-strip article{padding:22px 0 0;margin-top:22px;border-left:0;border-top:1px solid var(--hm-rule)}
+  .hm-strip article:first-child{padding-top:0;margin-top:0;border-top:0}
+  .hm-foot-in{grid-template-columns:minmax(0,1fr);gap:16px;padding-bottom:calc(72px + env(safe-area-inset-bottom))}
+  .hm-foot-logo,.hm-foot-links{grid-column:1}
+  .hm-foot-links{justify-content:flex-start;gap:2px 22px}
+  /* smaller and further into the corner, clear of the reading column */
+  body.hm-dark .hm-wa{width:44px;height:44px;bottom:calc(14px + env(safe-area-inset-bottom));right:14px}
+  body.hm-dark .hm-wa svg{width:20px;height:20px}
+}
+@media(max-width:560px){
+  /* full-width primary button, with Talk to Sales as the text link beneath it */
+  .hm-actions{gap:12px 18px;margin-top:28px}
+  .hm-actions .hm-btn{flex:1 1 100%}
+  /* A shallower band on the smallest phones. At 375x667 the 5/4 crop put the
+     CTA exactly on the fold; 3/2 buys 44px and still shows the model's head,
+     sunglasses and shoulders across the full width of the screen. */
+  .hm-ed-art-main{aspect-ratio:3/2}
+  .hm-state-copy h2{max-width:none}
+  /* On a phone there is no corner the float can sit in without landing on a
+     headline, a photograph or the primary CTA at some scroll position, so the
+     homepage drops it entirely. Talk to Sales stays reachable three other
+     ways: the text link under the hero CTA, the button in the closing section
+     and the footer link. Scoped to body.hm-dark, so the authenticated shell's
+     `.hm-wa.shell-wa` is untouched — that one still sits above the bottom nav. */
+  body.hm-dark .hm-wa{display:none}
+}
 
 /* ==================== products page (old veyora.com card design) ==================== */
 .prod-head{display:flex;justify-content:space-between;align-items:center;margin:6px 0 14px}
@@ -618,32 +761,10 @@ body.hm-dark{background:#0e0d0d;color:#fff}
   .page:has(.prod-page-inner){padding-left:12px;padding-right:12px}
 }
 
-@media(max-width:900px){
-  .hm-hero-inner h1{font-size:44px;letter-spacing:3px}
-  .hm-hero-inner .hm-label{letter-spacing:7px}
-  .hm-h2{font-size:30px}
-  .hm-h2.lg{font-size:34px}
-  .hm-cta .hm-h2{font-size:38px}
-  .hm-port-text h3{font-size:26px}
-}
 @media(max-width:820px){
-  /* OG mobile home header: just the transparent logo, centered (measured on
-     veyora.com: 150px logo, toolbar justify center, no other items) */
-  body.hm-dark .hm-head{padding:16px 18px;justify-content:center}
-  body.hm-dark .hm-head .hm-head-right{display:none}
+  /* the dark guest header (sign-in / catalogue / lists) on a phone */
   .hm-head{padding:16px 18px}
   .hm-logo img{width:150px}
-  .hm-hero-inner{left:20px;right:20px;max-width:none}
-  /* full-bleed margin must cancel the 6% mobile padding exactly (6/88) */
-  .hm-collage{grid-template-columns:1fr 1fr;grid-auto-rows:minmax(180px,42vw);margin:0 -6.82%}
-  .hm-collage .c-a{grid-column:1/3;grid-row:auto/span 1}
-  .hm-collage .c-b,.hm-collage .c-c,.hm-collage .c-d,.hm-collage .c-e,
-  .hm-collage .c-g,.hm-collage .c-h,.hm-collage .c-i{grid-column:auto;grid-row:auto}
-  .hm-collage .c-f{grid-column:1/3;grid-row:auto/span 1}
-  .hm-portfolio{grid-template-columns:1fr;gap:40px}
-  .hm-sec{padding:70px 6% 60px}
-  .hm-footer{flex-direction:column;justify-content:center;text-align:center}
-  .hm-footer nav{justify-content:center}
 }
 
 /* ---- Customer view: one frame, no price, for turning the screen to a shopper ---- */

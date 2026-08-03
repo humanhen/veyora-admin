@@ -1,9 +1,20 @@
-/* Public marketing homepage — replica of the original veyora.com landing page. */
+/* Public marketing homepage — the "Editorial Showroom".
+
+   A light, warm-neutral, photography-led page: an asymmetric split hero (no
+   carousel), a restrained value strip, an off-grid collections composition, a
+   single full-bleed statement, a featured-product portfolio, a framed video and
+   a dark closing CTA.
+
+   The global distribution map is deliberately gone — the concept was retired,
+   not replaced, so there is no map, no map-style graphic and no infographic
+   standing in for it.
+
+   Only assets already in the repository are used. `homeHeader()` below is NOT
+   the homepage header: it is the dark guest header that pages_auth.js,
+   pages_catalog.js and pages_lists.js render inside `.guest-head`, so it stays
+   exactly as it was. The homepage renders `editorialHeader()` instead. */
 'use strict';
 
-// same slide set + order as the original carousel
-const HOME_HERO = ['assets/home/hero-03.webp', 'assets/home/hero-02.webp',
-  'assets/home/hero-04.webp'];
 const WHATSAPP = 'https://wa.me/16467731000';
 
 function glassesIcon() {
@@ -16,6 +27,8 @@ function waIcon() {
   return `<svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor"><path d="M17.5 14.4c-.3-.15-1.76-.87-2.03-.97-.27-.1-.47-.15-.67.15-.2.3-.77.96-.94 1.16-.17.2-.35.22-.65.07-.3-.15-1.26-.46-2.4-1.48-.88-.79-1.48-1.76-1.65-2.06-.17-.3-.02-.46.13-.61.14-.13.3-.35.45-.52.15-.17.2-.3.3-.5.1-.2.05-.37-.02-.52-.08-.15-.67-1.62-.92-2.22-.24-.58-.49-.5-.67-.51h-.57c-.2 0-.52.07-.8.37-.27.3-1.04 1.02-1.04 2.5 0 1.47 1.07 2.89 1.22 3.09.15.2 2.11 3.22 5.1 4.51.71.31 1.27.49 1.7.63.72.23 1.37.2 1.88.12.57-.09 1.76-.72 2.01-1.41.25-.7.25-1.29.17-1.41-.07-.13-.27-.2-.57-.35z"/><path d="M12.05 2a9.9 9.9 0 0 0-8.57 14.84L2 22l5.31-1.39A9.9 9.9 0 1 0 12.05 2zm0 18.1a8.2 8.2 0 0 1-4.18-1.15l-.3-.18-3.15.83.84-3.07-.2-.31a8.2 8.2 0 1 1 6.99 3.88z"/></svg>`;
 }
 
+/* The dark guest header used by the sign-in, catalogue and list pages. Left
+   untouched by the homepage redesign — those pages are not being restyled. */
 function homeHeader() {
   return `
     <header class="hm-head">
@@ -27,145 +40,212 @@ function homeHeader() {
     </header>`;
 }
 
-function homeFooter() {
+/* Compact homepage header. Same destinations as before — Products goes to the
+   catalogue, the account control goes to the catalogue when signed in and to
+   sign-in otherwise — but it sits in the page flow rather than floating over
+   the artwork, and both controls stay visible on a phone. */
+function editorialHeader() {
+  const signedIn = !!Store.session;
   return `
-    <footer class="hm-footer">
-      <div>© ${new Date().getFullYear()} Veyora. All rights reserved.</div>
-      <nav>
-        <a href="#/">Privacy policy</a><span>|</span>
-        <a href="#/">Terms of service</a><span>|</span>
-        <a href="#/">Accessibility Statement</a><span>|</span>
-        <a href="${WHATSAPP}" target="_blank" rel="noopener">Talk to sales</a>
-      </nav>
+    <header class="hm-nav">
+      <div class="hm-nav-in">
+        <a class="hm-nav-logo" href="#/" aria-label="Veyora — home">
+          <img src="assets/logo-black.svg" alt="Veyora" width="937" height="125"/>
+        </a>
+        <nav class="hm-nav-links" aria-label="Primary">
+          <a href="#/products">Products</a>
+          <a class="hm-nav-acct" href="${signedIn ? '#/products' : '#/login'}">${
+            signedIn ? 'My account' : 'Sign in'}</a>
+        </nav>
+      </div>
+    </header>`;
+}
+
+function editorialFooter() {
+  return `
+    <footer class="hm-foot">
+      <div class="hm-foot-in">
+        <a class="hm-foot-logo" href="#/" aria-label="Veyora — home">
+          <img src="assets/logo-white.svg" alt="Veyora" width="937" height="125" loading="lazy"/>
+        </a>
+        <nav class="hm-foot-links" aria-label="Footer">
+          <a href="#/">Privacy policy</a>
+          <a href="#/">Terms of service</a>
+          <a href="#/">Accessibility Statement</a>
+          <a href="${WHATSAPP}" target="_blank" rel="noopener">Talk to sales</a>
+        </nav>
+        <div class="hm-foot-legal">© ${new Date().getFullYear()} Veyora. All rights reserved.</div>
+      </div>
     </footer>`;
 }
 
 function whatsappFloat() {
-  return `<a class="hm-wa" href="${WHATSAPP}" target="_blank" rel="noopener" title="Chat on WhatsApp">${waIcon()}</a>`;
+  return `<a class="hm-wa" href="${WHATSAPP}" target="_blank" rel="noopener"
+             title="Talk to sales on WhatsApp" aria-label="Talk to sales on WhatsApp">${waIcon()}</a>`;
 }
 
 Routes['#/'] = Routes['#/home'] = {
-  public: true, title: 'Global Eyewear Distribution',
+  public: true, title: 'Curated Eyewear for Optical Retail',
   render(el) {
+    /* `hm-dark` is the marketing-homepage body flag (app.js toggles it for #/
+       and #/home; the authenticated pages remove it). It now carries the light
+       editorial canvas — the name is historical, the scope is unchanged. */
     document.body.classList.add('hm-dark');
     el.innerHTML = `
-      ${homeHeader()}
+      ${editorialHeader()}
 
-      <!-- ============ hero ============ -->
-      <section class="hm-hero">
-        <div class="hm-hero-slides">
-          ${HOME_HERO.map((s, i) => `<img src="${s}" alt="" class="${i === 0 ? 'on' : ''}"/>`).join('')}
-        </div>
-        <div class="hm-hero-shade"></div>
-        <div class="hm-hero-inner">
-          <div class="hm-label">Global eyewear distribution<br/>for optical retailers</div>
-          <h1>Framing the<br/>future</h1>
-          <p>Veyora helps optical retailers access quality eyewear collections with
-             reliable service, responsive logistics, and support built around their business.</p>
-          <a class="hm-outline-btn" href="#/products">Explore collections</a>
-        </div>
-        <div class="hm-hero-dots">${HOME_HERO.map((s, i) =>
-          `<span class="${i === 0 ? 'on' : ''}" data-dot="${i}"></span>`).join('')}</div>
-      </section>
-
-      <!-- ============ global distribution ============ -->
-      <section class="hm-sec hm-map-sec">
-        <div class="hm-label hm-center">Worldwide reach</div>
-        <h2 class="hm-h2">Global Distribution</h2>
-        ${/* The approved artwork, carrying no wordmark of its own. It is used
-             exactly as supplied — nothing is overlaid on it: no logo, no
-             avatar, no Products control, and no repeat of the "Worldwide reach"
-             label or the "Global Distribution" heading above, which stay in the
-             markup where they belong. width/height are the intrinsic pixel
-             size, so the browser reserves the right box before the file arrives
-             and the section never jumps. */''}
-        <img class="hm-map" src="assets/landing/veyora-global-distribution-map.webp"
-             width="1672" height="941" loading="lazy" decoding="async"
-             alt="Veyora global distribution across Canada, USA, Europe, Morocco and the UAE"/>
-      </section>
-
-      <!-- ============ collections ============ -->
-      <section class="hm-sec">
-        <div class="hm-label hm-center">Curated for optical retail</div>
-        <h2 class="hm-h2 lg">The right collection is only<br/>the beginning.</h2>
-        <div class="hm-three-labels">
-          <span>Curated Collections</span>
-          <span>Reliable Replenishment</span>
-          <span>Retailer-First Support</span>
-        </div>
-        <div class="hm-collage">
-          <img class="c-a" src="assets/home/hero-04.webp" alt="" loading="lazy"/>
-          <img class="c-b" src="assets/home/hero-01.webp" alt="" loading="lazy"/>
-          <img class="c-c" src="assets/home/hero-10.webp" alt="" loading="lazy"/>
-          <img class="c-d" src="assets/home/hero-07.webp" alt="" loading="lazy"/>
-          <img class="c-e" src="assets/home/hero-08.webp" alt="" loading="lazy"/>
-          <img class="c-f" src="assets/home/hero-06-hq.webp" alt="" loading="lazy"/>
-          <img class="c-g" src="assets/home/hero-09.webp" alt="" loading="lazy"/>
-          <img class="c-h" src="assets/home/hero-02.webp" alt="" loading="lazy"/>
-          <img class="c-i" src="assets/home/hero-03.webp" alt="" loading="lazy"/>
+      <!-- ============ 1. editorial split hero ============ -->
+      <section class="hm-ed">
+        <div class="hm-ed-in">
+          <div class="hm-ed-copy">
+            <p class="hm-eyebrow">CURATED EYEWEAR FOR OPTICAL RETAIL</p>
+            <h1 class="hm-display">Designed to move<br/>with modern retail.</h1>
+            <p class="hm-lead">Veyora brings together distinctive eyewear collections,
+               dependable supply and responsive support for independent optical retailers.</p>
+            <div class="hm-actions">
+              <a class="hm-btn" href="#/products">View Collections</a>
+              <a class="hm-textlink" href="${WHATSAPP}" target="_blank" rel="noopener">Talk to Sales</a>
+            </div>
+          </div>
+          ${/* One photograph carries the hero. A second, overlapping frame was
+               tried and dropped: mid-scroll it left a large pale stretch of
+               studio architecture with no face, eyewear or subject in view. The
+               single frame is the only image above the fold, fetched at high
+               priority, and it declares its intrinsic size so the box is
+               reserved before the file arrives. */''}
+          <figure class="hm-ed-art">
+            <img class="hm-ed-art-main" src="assets/home/hero-04.webp"
+                 width="1600" height="2400" fetchpriority="high" decoding="async"
+                 alt="Veyora campaign portrait — a model in aviator sunglasses seated in an arched white studio"/>
+          </figure>
         </div>
       </section>
 
-      <!-- ============ built for retail success ============ -->
-      <section class="hm-bleed">
-        <img src="assets/home/hero-05.webp" alt="" loading="lazy"/>
-        <div class="hm-bleed-shade"></div>
-        <div class="hm-bleed-text">
-          <div class="hm-label hm-center">Built for retail success</div>
-          <h2 class="hm-h2">More than eyewear distribution. A partner<br/>built to help retailers move with confidence.</h2>
+      <!-- ============ 2. retailer value strip ============ -->
+      <section class="hm-strip">
+        <div class="hm-strip-in">
+          <article>
+            <span class="hm-strip-no">01</span>
+            <h2>CURATED COLLECTIONS</h2>
+            <p>Distinctive eyewear selected for independent optical retail.</p>
+          </article>
+          <article>
+            <span class="hm-strip-no">02</span>
+            <h2>DEPENDABLE SUPPLY</h2>
+            <p>Clear availability, replenishment and ordering support.</p>
+          </article>
+          <article>
+            <span class="hm-strip-no">03</span>
+            <h2>RESPONSIVE PARTNERSHIP</h2>
+            <p>Practical support shaped around each retailer’s business.</p>
+          </article>
         </div>
       </section>
 
-      <!-- ============ portfolio ============ -->
-      <section class="hm-sec hm-portfolio">
-        <div class="hm-port-text">
-          <div class="hm-label">Our portfolio</div>
-          <h3>A house of eyewear brands, backed by one distribution partner.</h3>
-          <p>At Veyora, precision, quality, and modern vision come together.</p>
-          <p>At Veyora, we don't just sell products. We help you build success.</p>
-        </div>
-        <div class="hm-port-grid">
-          <img src="assets/home/product-shot-01.webp" alt="" loading="lazy"/>
-          <img src="assets/home/product-shot-02.webp" alt="" loading="lazy"/>
-          <img src="assets/home/product-shot-03.webp" alt="" loading="lazy"/>
-          <img src="assets/home/product-shot-04.webp" alt="" loading="lazy"/>
+      <!-- ============ 3. collections in focus ============ -->
+      <section class="hm-focus">
+        <div class="hm-focus-in">
+          <div class="hm-focus-lead">
+            <p class="hm-eyebrow">COLLECTIONS IN FOCUS</p>
+            <h2 class="hm-display sm">Collections with<br/>a point of view.</h2>
+            <p class="hm-body">A considered portfolio of eyewear brands, selected to give
+               optical retailers variety without losing focus.</p>
+            <a class="hm-textlink" href="#/products">Explore Products</a>
+          </div>
+          ${/* Two frames, one pair: same top and bottom line, different widths.
+               Both crops were chosen against the actual photographs so each one
+               shows a face and the eyewear. A third, wider frame of draped
+               studio fabric was dropped — its subject read as empty space. */''}
+          <div class="hm-focus-pair">
+            <figure class="hm-focus-a">
+              <img src="assets/home/hero-05.webp" width="1600" height="2400"
+                   loading="lazy" decoding="async"
+                   alt="Two models wearing Veyora sunglasses against draped ivory fabric"/>
+            </figure>
+            <figure class="hm-focus-b">
+              <img src="assets/home/hero-10.webp" width="1000" height="1500"
+                   loading="lazy" decoding="async"
+                   alt="Model wearing tortoiseshell Veyora optical frames"/>
+            </figure>
+          </div>
         </div>
       </section>
 
-      <!-- ============ veyora in motion ============ -->
-      <section class="hm-video-sec">
-        <video src="assets/home/charlett-video.mp4" poster="assets/home/charlett-poster.webp"
-               muted loop playsinline preload="metadata" disableremoteplayback></video>
-      </section>
-      <section class="hm-sec hm-cta">
-        <div class="hm-label hm-center">Veyora in motion</div>
-        <h2 class="hm-h2">Our Vision Can Be Yours</h2>
-        <p class="hm-cta-p">At Veyora, we don't just sell products. We help you build success.</p>
-        <a class="hm-outline-btn" href="#/products">Start Purchase</a>
+      <!-- ============ 4. full-bleed campaign statement ============ -->
+      <section class="hm-state">
+        <img src="assets/home/hero-02.webp" width="1600" height="866"
+             loading="lazy" decoding="async"
+             alt="Close campaign portrait of a model in black Veyora sunglasses"/>
+        <div class="hm-state-scrim"></div>
+        <div class="hm-state-copy">
+          <p class="hm-eyebrow on-dark">BUILT AROUND RETAILERS</p>
+          <h2>More than a supplier.<br/>A partner for what comes next.</h2>
+        </div>
       </section>
 
-      ${homeFooter()}
+      <!-- ============ 5. product-focused portfolio ============ -->
+      <section class="hm-port">
+        <div class="hm-port-in">
+          <figure class="hm-port-feature">
+            <img src="assets/home/product-shot-03.webp" width="800" height="1003"
+                 loading="lazy" decoding="async"
+                 alt="Charlett Saint Cloud sunglasses arranged on a leather case"/>
+          </figure>
+          <div class="hm-port-side">
+            <p class="hm-eyebrow">THE VEYORA PORTFOLIO</p>
+            <h2 class="hm-display sm">Distinct brands.<br/>One considered collection.</h2>
+            <p class="hm-body">Veyora brings precision, quality and contemporary design
+               together in a portfolio created for modern optical retail.</p>
+            <a class="hm-textlink" href="#/products">See all products</a>
+            <div class="hm-port-row">
+              <img src="assets/home/product-shot-01.webp" width="800" height="1004"
+                   loading="lazy" decoding="async" alt="Gold aviator frames from the Veyora portfolio"/>
+              <img src="assets/home/product-shot-02.webp" width="800" height="1004"
+                   loading="lazy" decoding="async" alt="Detail of a Veyora metal frame and temple"/>
+              <img src="assets/home/product-shot-04.webp" width="800" height="1003"
+                   loading="lazy" decoding="async" alt="Veyora frames styled on a studio surface"/>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ 6. veyora in motion ============ -->
+      <section class="hm-motion">
+        <div class="hm-motion-in">
+          <div class="hm-motion-copy">
+            <p class="hm-eyebrow">VEYORA IN MOTION</p>
+            <h2 class="hm-display xs">The collection,<br/>in movement.</h2>
+            <p class="hm-body">A closer look at the frames, the finishes and the way the
+               collection carries on the face.</p>
+          </div>
+          <figure class="hm-motion-frame">
+            <video src="assets/home/charlett-video.mp4" poster="assets/home/charlett-poster.webp"
+                   muted loop playsinline preload="metadata" disableremoteplayback></video>
+          </figure>
+        </div>
+      </section>
+
+      <!-- ============ 7. closing CTA ============ -->
+      <section class="hm-close">
+        <div class="hm-close-in">
+          <h2 class="hm-display sm on-dark">Eyewear selected for<br/>the way retailers sell.</h2>
+          <div class="hm-close-side">
+            <p>Explore the collection or speak directly with the Veyora team.</p>
+            <div class="hm-actions">
+              <a class="hm-btn light" href="#/products">View Collections</a>
+              <a class="hm-btn ghost" href="${WHATSAPP}" target="_blank" rel="noopener">Talk to Sales</a>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      ${editorialFooter()}
       ${whatsappFloat()}`;
 
-    /* hero carousel: crossfade every 6s */
-    const slides = [...el.querySelectorAll('.hm-hero-slides img')];
-    const dots = [...el.querySelectorAll('.hm-hero-dots span')];
-    let cur = 0;
-    function show(i) {
-      slides[cur].classList.remove('on'); dots[cur].classList.remove('on');
-      cur = (i + slides.length) % slides.length;
-      slides[cur].classList.add('on'); dots[cur].classList.add('on');
-    }
-    const timer = setInterval(() => {
-      if (!document.body.contains(slides[0])) { clearInterval(timer); return; }
-      show(cur + 1);
-    }, 6000);
-    dots.forEach(d => d.onclick = () => show(parseInt(d.dataset.dot, 10)));
-
-    /* the motion video starts by itself when scrolled into view — no play
+    /* The motion video starts by itself when scrolled into view — no play
        button. IO + a plain scroll fallback (some browsers throttle IO), and
        a touch retry because iOS Low-Power blocks play() until any gesture. */
-    const vid = el.querySelector('.hm-video-sec video');
+    const vid = el.querySelector('.hm-motion-frame video');
     vid.muted = true;   // belt & braces: some browsers ignore the attribute
     const inView = () => {
       const r = vid.getBoundingClientRect();
