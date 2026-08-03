@@ -573,20 +573,27 @@ body.hm-dark{
 .hm-foot-links a:hover{color:#fff}
 .hm-foot-legal{grid-column:1/-1;padding-top:20px;border-top:1px solid rgba(255,255,255,.08);font-size:12px;color:rgba(255,255,255,.42)}
 
-/* The WhatsApp float. `.hm-wa` is shared with the signed-in shell (as
-   `.hm-wa.shell-wa`), whose orange is untouched below. The homepage control is
-   restyled charcoal-on-ivory under body.hm-dark so it belongs to the editorial
-   palette and matches the View Collections button; the orange read as a
-   third-party badge stuck on the page. The footer reserves height below its
-   last line so the button never sits over copy or a CTA, and the phone safe
-   area is added on top. "Talk to Sales" also exists as a text link under the
-   hero CTA and as a button in the closing section, so the float is never the
-   only route to sales. */
-.hm-wa{position:fixed;bottom:26px;right:26px;z-index:50;width:56px;height:56px;border-radius:999px;background:#ED6A2F;color:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 10px 28px rgba(0,0,0,.45);transition:transform .15s}
-.hm-wa:hover{transform:scale(1.07)}
-body.hm-dark .hm-wa{width:48px;height:48px;bottom:calc(22px + env(safe-area-inset-bottom));right:22px;background:var(--hm-ink);color:var(--hm-canvas);border:1px solid rgba(245,242,236,.16);box-shadow:0 8px 24px rgba(25,22,18,.3)}
-body.hm-dark .hm-wa svg{width:22px;height:22px}
-body.hm-dark .hm-wa:hover{background:#000;transform:scale(1.06)}
+/* The WhatsApp float, shared by the marketing homepage (`.hm-wa`) and the
+   signed-in shell (`.hm-wa.shell-wa`, rendered by app.js on every authenticated
+   page — Products, Orders, Backorders, Returns, Favorites, Reorder, Spare
+   Parts, My Account). The editorial charcoal-on-ivory treatment lives HERE, in
+   the base rule, so every instance inherits one appearance; the bright orange
+   read as a third-party badge stuck on the page and clashed with the ink,
+   ivory and stone palette. Literal colours rather than the --hm-* tokens,
+   because those are declared on body.hm-dark and the authenticated pages
+   remove that class.
+
+   What stays page-specific below is only geometry: size, placement, the
+   homepage's phone hiding, and the shell's lift above the bottom nav. */
+.hm-wa{position:fixed;bottom:26px;right:26px;z-index:50;width:56px;height:56px;border-radius:999px;background:#191612;color:#f5f2ec;border:1px solid rgba(245,242,236,.16);display:flex;align-items:center;justify-content:center;box-shadow:0 8px 24px rgba(25,22,18,.3);transition:transform .15s,background .18s}
+.hm-wa svg{width:22px;height:22px}
+.hm-wa:hover{background:#000;transform:scale(1.06)}
+/* Homepage: geometry only — the appearance comes from the base rule above. The
+   footer reserves height below its last line so the button never sits over copy
+   or a CTA, and the phone safe area is added on top. "Talk to Sales" also
+   exists as a text link under the hero CTA, as a button in the closing section
+   and in the footer, so the float is never the only route to sales. */
+body.hm-dark .hm-wa{width:48px;height:48px;bottom:calc(22px + env(safe-area-inset-bottom));right:22px}
 
 /* ---------- homepage responsive ---------- */
 @media(max-width:900px){
@@ -619,7 +626,7 @@ body.hm-dark .hm-wa:hover{background:#000;transform:scale(1.06)}
   .hm-foot-links{justify-content:flex-start;gap:2px 22px}
   /* smaller and further into the corner, clear of the reading column */
   body.hm-dark .hm-wa{width:44px;height:44px;bottom:calc(14px + env(safe-area-inset-bottom));right:14px}
-  body.hm-dark .hm-wa svg{width:20px;height:20px}
+  body.hm-dark .hm-wa svg{width:20px;height:20px}   /* sizing only */
 }
 @media(max-width:560px){
   /* full-width primary button, with Talk to Sales as the text link beneath it */

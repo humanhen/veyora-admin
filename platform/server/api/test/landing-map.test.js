@@ -389,15 +389,42 @@ test('no fixed pixel height can squash a section on a phone', () => {
   assert.match(PHONE, /\.hm-focus-pair\{[^}]*height:auto/);
 });
 
-test('the homepage WhatsApp control is editorial, not orange', () => {
+test('one dark editorial WhatsApp style is shared by every storefront page', () => {
+  /* The appearance lives in the BASE rule, so the homepage, the guest pages and
+     every authenticated page (Products, Orders, Backorders, Returns, Favorites,
+     Reorder, Spare Parts, My Account — all of which render `.hm-wa.shell-wa`
+     from app.js) inherit one identical control. */
+  const base = cssRule('.hm-wa');
+  assert.ok(base, 'the shared base rule exists');
+  assert.match(base, /background:#191612/, 'charcoal, matching the primary CTA');
+  assert.match(base, /color:#f5f2ec/, 'with an ivory glyph');
+  assert.match(base, /border:1pxsolidrgba\(245,242,236,\.16\)/, 'a thin neutral border');
+  assert.match(base, /box-shadow:08px24pxrgba\(25,22,18,\.3\)/, 'a restrained shadow');
+  assert.match(cssRule('.hm-wa:hover'), /background:#000/);
+  assert.match(cssRule('.hm-wasvg'), /width:22px;height:22px/, 'one glyph size everywhere');
+  /* Literal colours, not --hm-* tokens: those are declared on body.hm-dark,
+     which the authenticated pages remove, so a token here would resolve to
+     nothing outside the homepage. */
+  assert.ok(!/var\(--hm-/.test(base), 'the base rule does not depend on homepage tokens');
+});
+
+test('no storefront WhatsApp rule uses the old orange', () => {
+  for (const m of flatCss.matchAll(/(?:^|[{}])([^{}@]*(?:hm-wa|shell-wa)[^{}]*)\{([^}]*)\}/g)) {
+    assert.ok(!/ED6A2F/i.test(m[2]), `${m[1]} must not carry the orange`);
+  }
+  /* Belt and braces: the colour is gone from the stylesheet altogether. */
+  assert.ok(!/ED6A2F/i.test(flatCss), 'the orange is no longer used anywhere');
+});
+
+test('the homepage control keeps its own geometry', () => {
   const rule = cssRule('body.hm-dark.hm-wa');
-  assert.ok(rule, 'the homepage float is restyled');
-  assert.match(rule, /background:var\(--hm-ink\)/, 'charcoal, matching the primary CTA');
-  assert.match(rule, /color:var\(--hm-canvas\)/, 'with an ivory glyph');
-  assert.ok(!/ED6A2F/i.test(rule), 'no orange on the homepage control');
+  assert.ok(rule, 'the homepage float is positioned');
   assert.match(rule, /width:48px;height:48px/, 'a 48px target on desktop');
-  assert.match(rule, /border:1pxsolidrgba\(245,242,236,\.16\)/, 'a thin neutral border');
   assert.match(rule, /bottom:calc\(22px\+env\(safe-area-inset-bottom\)\)/);
+  /* Geometry only — colour, border and shadow now come from the base rule, so
+     the duplicated homepage-only override is gone. */
+  assert.ok(!/background:|color:|border:|box-shadow:/.test(rule),
+    'no duplicate colour override survives on the homepage rule');
   const block820 = BLOCK820;
   assert.match(block820, /body\.hm-dark\.hm-wa\{width:44px;height:44px;bottom:calc\(14px\+env\(safe-area-inset-bottom\)\);right:14px\}/,
     'smaller and further into the corner on a tablet, still a 44px target');
@@ -430,15 +457,21 @@ test('the float is dropped altogether on a phone', () => {
   assert.match(HOME, /href="\$\{WHATSAPP\}"[^>]*>Talk to sales</, 'footer link');
 });
 
-test('the signed-in shell WhatsApp button is untouched', () => {
-  /* The restyle is scoped to body.hm-dark, which the authenticated pages remove.
-     The shell keeps its orange, its size and its lift above the bottom nav. */
-  assert.match(cssRule('.hm-wa'), /background:#ED6A2F/, 'the shared base rule still carries orange');
-  assert.match(cssRule('.hm-wa'), /width:56px;height:56px/);
+test('the signed-in shell keeps its size, its lift and its safe area', () => {
+  /* Only the appearance was shared out; the shell's geometry is untouched —
+     48px, above the 44px minimum, and lifted clear of the bottom navigation
+     with the home-indicator inset on a phone. */
   assert.match(cssRule('.shell-wa'), /width:48px;height:48px/);
-  assert.match(flatCss, /@media\(max-width:900px\)\{\.hm-wa\.shell-wa\{bottom:calc\(72px\+env\(safe-area-inset-bottom\)\);right:16px\}\}/);
+  assert.match(flatCss, /@media\(max-width:900px\)\{\.hm-wa\.shell-wa\{bottom:calc\(72px\+env\(safe-area-inset-bottom\)\);right:16px\}\}/,
+    'still lifted above the bottom navigation');
+  assert.ok(!/shell-wa[^{]*\{[^}]*display:none/.test(flatCss),
+    'the authenticated control is never hidden');
   assert.ok(!/\.shell-wa[^{]*\{[^}]*var\(--hm-/.test(flatCss),
     'no homepage token leaks into the shell control');
+  /* The homepage's phone hide is scoped to body.hm-dark, which app.js removes
+     on every authenticated route, so it can never reach the shell. */
+  assert.match(PHONE, /body\.hm-dark\.hm-wa\{display:none\}/);
+  assert.ok(!/\.hm-wa\.shell-wa\{[^}]*display:none/.test(flatCss));
 });
 
 test('Talk to Sales is reachable without relying on the float', () => {
