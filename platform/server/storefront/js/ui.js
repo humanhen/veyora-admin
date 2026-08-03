@@ -102,15 +102,27 @@ function backorderedSentence(n) {
     ? 'One item has been placed on backorder.'
     : `${count} items have been placed on backorder.`;
 }
+/* Fully backordered request: the backorder number has already been stated, so
+   this says what happened to the goods without repeating the reference or
+   piling on "nothing is shipping yet" — "unavailable … placed on backorder"
+   already carries that, and the following sentence explains the next step. */
+function unavailableSentence(n) {
+  const count = Math.max(0, Math.trunc(Number(n) || 0));
+  if (!count) return '';
+  return count === 1
+    ? 'One item is currently unavailable and has been placed on backorder.'
+    : `${count} items are currently unavailable and have been placed on backorder.`;
+}
 
-/** "3 available now · 2 recorded for staff processing".
+/** "3 available now · 2 backordered".
     Deliberately avoids "shipping" — an allocated quantity has been taken from
-    stock, not dispatched, and a backordered one is recorded, not promised. */
+    stock, not dispatched, and a backordered one is recorded, not promised.
+    Reads as a STATUS; the surrounding copy explains that staff process it. */
 function stockSplitLabel(inStockQty, backorderQty) {
   if (!backorderQty) return '';
   return inStockQty
-    ? `${inStockQty} available now · ${backorderQty} recorded for staff processing`
-    : `${backorderQty} recorded for staff processing`;
+    ? `${inStockQty} available now · ${backorderQty} backordered`
+    : `${backorderQty} backordered`;
 }
 function imgOr(src, cls) {
   return src

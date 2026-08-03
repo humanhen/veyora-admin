@@ -14,6 +14,50 @@ function moneyIn(n,doc){
   const rate=Number(doc&&doc.fxRate)||1;
   return (CURRENCY_SYMBOLS[cur]||'$')+(Number(n)*rate).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
 }
+
+/* ---------- admin order money ----------
+   THE single helper for every admin surface that shows an existing order's
+   money. Amounts are stored in base USD; each order carries the currency it
+   was struck in and the rate stamped on it at that moment, so:
+
+       displayed = stored base amount × order.fxRate
+
+   Legacy rows with no stamps fall back to USD at rate 1, which is what they
+   are. Never call money() on an order amount — that prints the base figure
+   with a dollar sign, which is how a CAD order read "$49.00" instead of
+   "CA$67.13". And never pre-convert before calling this: the rate is applied
+   here exactly once. */
+function orderMoney(baseAmount,order){return moneyIn(baseAmount,order);}
+/** "CAD" / "USD" — the code, for headings and labels. */
+function orderCurrencyCode(order){return String((order&&order.currency)||'USD').toUpperCase();}
+
+/* ---------- chronological order sorting ----------
+   Order NUMBERS are not chronological: legacy "VEYORA000629" (2025) sorts
+   before "SO11889" (2026) as a string, which put five-year-old orders at the
+   top of "Newest first". Sort on a real timestamp instead, falling back to the
+   order date, and only then to the number/id so equal timestamps stay stable. */
+function orderTimestamp(o){
+  const raw=(o&&(o.createdAt||o.date))||null;
+  if(!raw)return null;
+  const t=new Date(raw).getTime();
+  return Number.isNaN(t)?null:t;
+}
+/** Comparator. newestFirst=true puts the most recent order first. */
+function compareOrdersByTime(a,b,newestFirst){
+  const ta=orderTimestamp(a),tb=orderTimestamp(b);
+  // undated rows sink to the bottom in both directions rather than jumping to the top
+  if(ta==null&&tb==null)return tieBreakOrders(a,b,newestFirst);
+  if(ta==null)return 1;
+  if(tb==null)return -1;
+  if(ta!==tb)return newestFirst?tb-ta:ta-tb;
+  return tieBreakOrders(a,b,newestFirst);
+}
+function tieBreakOrders(a,b,newestFirst){
+  const ka=String((a&&(a.number||a.id))||''),kb=String((b&&(b.number||b.id))||'');
+  if(ka===kb)return 0;
+  const cmp=ka<kb?-1:1;
+  return newestFirst?-cmp:cmp;
+}
 function money0(n){return '$'+Number(n||0).toLocaleString('en-US',{maximumFractionDigits:0});}
 function fmtDate(d){if(!d)return '—';const dt=(d instanceof Date)?d:new Date(d);if(isNaN(dt))return '—';return dt.toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'});}
 function fmtDateShort(d){if(!d)return '—';const dt=new Date(d);return dt.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});}

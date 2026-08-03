@@ -304,7 +304,7 @@ App.register('agent-revenue',function(el){
 
   function render(){
     el.innerHTML=`
-    <div class="page-head"><div class="page-title">Revenue</div></div>
+    <div class="page-head"><div class="page-title">Revenue (USD)</div></div>
     <div class="card card-pad" style="margin-bottom:16px">
       <div class="flex">
         <div class="fieldset-outline"><label>Start Date</label><input type="date" id="ar-from" value="${state.from}"></div>

@@ -103,8 +103,8 @@ Routes['#/backorders'] = {
           <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
             <div><b>${esc(b.number)}</b> ${pill(b.status)}
               ${['open', 'approved'].includes(b.status)
-                ? `<span class="bo-state">Recorded for staff processing</span>` : ''}
-              <span class="sub">· from order ${esc(b.orderNumber || '—')} · ${fmtDate(b.createdAt)}</span></div>
+                ? `<span class="bo-state">On backorder</span>` : ''}
+              <span class="sub">· ${b.orderNumber ? `from order ${esc(b.orderNumber)}` : 'Full backorder'} · ${fmtDate(b.createdAt)}</span></div>
             <div>
               ${['open', 'approved'].includes(b.status) ? `<button class="btn ghost sm" data-ca="${esc(b.id)}">Cancel</button>` : ''}
             </div>

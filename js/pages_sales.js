@@ -38,7 +38,11 @@ App.register('orders',function(el){
         return o.number.toLowerCase().includes(q)||(c.business||'').toLowerCase().includes(q)||(c.email||'').toLowerCase().includes(q);
       });
     }
-    list.sort((a,b)=>state.sort==='Newest first'?(b.number>a.number?1:-1):(a.number>b.number?1:-1));
+    /* Order NUMBERS are not chronological — legacy "VEYORA000629" (2025)
+       string-sorts above "SO11889" (2026), which put ancient orders at the top
+       of "Newest first". compareOrdersByTime uses createdAt, then date, and
+       only falls back to the number to keep equal timestamps stable. */
+    list.sort((a,b)=>compareOrdersByTime(a,b,state.sort==='Newest first'));
     const p=paginate(list,state.page);
 
     el.innerHTML=`
@@ -59,7 +63,7 @@ App.register('orders',function(el){
         <div class="flex-col" style="gap:8px;align-items:flex-end">
           <div class="flex">
             <select class="select" id="f-country"><option value="">Country</option><option ${state.country==='US'?'selected':''}>US</option><option ${state.country==='CA'?'selected':''}>CA</option></select>
-            <div class="search-wrap">${I.search}<input class="input" id="f-q" placeholder="Search here…" value="${esc(state.q)}"></div>
+            <div class="search-wrap">${I.search}<input class="input" id="f-q" placeholder="Search order number, customer or email…" value="${esc(state.q)}"></div>
           </div>
           <div class="flex">
             <div class="fieldset-outline"><label>From</label><input type="date" id="f-from" value="${state.from}"></div>
@@ -81,7 +85,7 @@ App.register('orders',function(el){
             <td>${o.agentId?esc(DB.userName(o.agentId)):'—'}</td>
             <td>${fmtDate(o.date)}</td>
             <td>${statusBadge(o.status)}</td>
-            <td>${money(o.total)}</td>
+            <td>${orderMoney(o.total,o)}</td>
             <td><span class="badge outline">${o.source==='agent'?'Agent':'Customer'}</span></td>
             <td><button class="icon-btn" data-view="${o.id}" title="Open order">${I.eye}</button></td>
           </tr>`;}).join(''):`<tr><td colspan="8" class="empty-cell">No orders found</td></tr>`}
@@ -137,7 +141,7 @@ App.register('order',function(el,args){
       <div class="card card-pad"><div class="stat-label">ORDER NUMBER</div><div style="font-weight:600;margin-top:6px">${esc(o.number)}</div></div>
       <div class="card card-pad"><div class="stat-label">ORDER DATE</div><div style="font-weight:600;margin-top:6px">${fmtDateShort(o.date)}</div></div>
       <div class="card card-pad"><div class="stat-label">STATUS</div><div style="margin-top:6px">${statusBadge(o.status)}</div></div>
-      <div class="card card-pad"><div class="stat-label">TOTAL AMOUNT</div><div class="money-green" style="font-size:16px;margin-top:6px">${money(DB.orderTotal(o))}</div></div>
+      <div class="card card-pad"><div class="stat-label">TOTAL AMOUNT (${esc(orderCurrencyCode(o))})</div><div class="money-green" style="font-size:16px;margin-top:6px">${orderMoney(DB.orderTotal(o),o)}</div></div>
     </div>
 
     <div class="card card-pad" style="margin-top:14px">
@@ -198,18 +202,18 @@ App.register('order',function(el,args){
           <button class="btn btn-sm" id="btn-discount">${I.tag} Admin discount</button>
         </div>`:''}</div>
       <div class="table-wrap" style="margin-top:12px"><table class="tbl">
-        <thead><tr><th>Product</th><th class="num">Total</th><th style="width:90px"></th></tr></thead>
+        <thead><tr><th>Product</th><th class="num">Total (${esc(orderCurrencyCode(o))})</th><th style="width:90px"></th></tr></thead>
         <tbody>
           ${o.items.map((it,ix)=>`<tr>
             <td><div class="cell-main">${esc(it.name)} &times; ${it.qty}</div><div class="cell-sub">Color: ${esc(it.color||'N/A')} | SKU: ${esc(it.sku)}</div></td>
-            <td class="num">${money(it.qty*it.price)}</td>
+            <td class="num">${orderMoney(it.qty*it.price,o)}</td>
             <td><div class="row-actions">
               ${canEdit?`<button class="icon-btn" data-edit-item="${ix}" title="Edit / swap SKU">${I.pencil}</button>
               <button class="icon-btn danger" data-del-item="${ix}" title="Delete line">${I.trash}</button>`:''}
             </div></td>
           </tr>`).join('')}
-          ${o.discount||o.discountPct?`<tr><td class="cell-sub">Admin discount ${o.discountPct?o.discountPct+'%':''}</td><td class="num" style="color:var(--red)">−${money(o.discountPct?(o.items.reduce((s,i)=>s+i.qty*i.price,0)*o.discountPct/100):o.discount)}</td><td></td></tr>`:''}
-          <tr><td style="font-weight:600">Total</td><td class="num" style="font-weight:600">${money(DB.orderTotal(o))}</td><td></td></tr>
+          ${o.discount||o.discountPct?`<tr><td class="cell-sub">Admin discount ${o.discountPct?o.discountPct+'%':''}</td><td class="num" style="color:var(--red)">−${orderMoney(o.discountPct?(o.items.reduce((s,i)=>s+i.qty*i.price,0)*o.discountPct/100):o.discount,o)}</td><td></td></tr>`:''}
+          <tr><td style="font-weight:600">Total</td><td class="num" style="font-weight:600">${orderMoney(DB.orderTotal(o),o)}</td><td></td></tr>
         </tbody></table></div>
     </div>
 
@@ -286,7 +290,7 @@ App.register('order',function(el,args){
         amount:DB.orderTotal(o),provider:'Green Invoice',date:todayISO(),status:'paid'};
       DB.d.invoices.unshift(invc);o.invoiceId=invc.id;
       const u=DB.user(o.customerId);if(u)u.balance=(u.balance||0)+invc.amount;
-      saveAudit('invoice.generate','#'+num,'Invoice for '+o.number+' — '+money(invc.amount));
+      saveAudit('invoice.generate','#'+num,'Invoice for '+o.number+' — '+orderMoney(invc.amount,o));
       toast('Invoice #'+num+' generated');render();
     };
     const invdl=el.querySelector('#btn-inv-dl');
@@ -300,7 +304,7 @@ App.register('order',function(el,args){
       if(!others.length)return toast('No other open orders from this customer',true);
       Modal.open({title:'Merge orders',
         body:`<div class="small muted">Combine open orders from ${esc(cust.business)} into ${esc(o.number)}. Promotions are recalculated.</div>
-        ${others.map(x=>`<label class="checkbox-row"><input type="checkbox" value="${x.id}"> ${esc(x.number)} — ${money(x.total)} — ${statusBadge(x.status)}</label>`).join('')}`,
+        ${others.map(x=>`<label class="checkbox-row"><input type="checkbox" value="${x.id}"> ${esc(x.number)} — ${orderMoney(x.total,x)} — ${statusBadge(x.status)}</label>`).join('')}`,
         foot:`<button class="btn" data-x>Cancel</button><button class="btn btn-dark" data-merge>Merge</button>`,
         setup(ov,close){
           ov.querySelector('[data-x]').onclick=close;
@@ -486,7 +490,7 @@ App.register('order',function(el,args){
             if(ex)ex.qty+=qty;else o.items.push({sku:hit.v.sku,name:hit.p.name,color:hit.v.color,qty,price,collected:0});
             reserveStock(hit.v.sku,qty);
             o.total=DB.orderTotal(o);saveAudit('order.item.add',o.number,hit.v.sku+' × '+qty);
-            close();render();toast('Item added at '+money(price));
+            close();render();toast('Item added at '+orderMoney(price,o));
           };
         }});
     };
@@ -496,7 +500,7 @@ App.register('order',function(el,args){
       if(!['admin','super-agent'].includes(sess.role))return toast('Admin / super-agent only',true);
       Modal.open({title:'Admin discount',
         body:`<div class="two-col">
-          <div class="field"><label>Type</label><select class="select" id="ad-type"><option value="pct">Percentage (%)</option><option value="fix">Fixed amount ($)</option></select></div>
+          <div class="field"><label>Type</label><select class="select" id="ad-type"><option value="pct">Percentage (%)</option><option value="fix">Fixed amount (USD)</option></select></div>
           <div class="field"><label>Value</label><input class="input" id="ad-val" type="number" min="0" value="${o.discountPct||o.discount||0}"></div>
         </div>
         <div class="small muted">Applied on top of any existing promotion. Admin / super-agent only.</div>`,
@@ -563,7 +567,7 @@ App.register('quick-scan',function(el){
       <div class="flex" style="justify-content:space-between">
         <div><b>${esc(o.number)}</b> &middot; ${esc(DB.userName(o.customerId))}</div>
         ${statusBadge(o.status)}
-        <div class="money-green">${money(DB.orderTotal(o))}</div>
+        <div class="money-green">${orderMoney(DB.orderTotal(o),o)}</div>
       </div>
       ${['pending','approved','collecting'].includes(o.status)?`
       <div class="divider"></div>
@@ -581,7 +585,7 @@ App.register('quick-scan',function(el){
           <span class="dot" style="background:${s.qty>0?'var(--green)':'var(--red)'}"></span>
           <b>${esc(s.sku)}</b><span class="muted">${esc(s.name)}</span>
           <span>${s.qty>0?'+':''}${s.qty}</span>
-          <span class="right">Total: <b>${money(s.total)}</b></span>
+          <span class="right">Total: <b>${orderMoney(s.total,o)}</b></span>
         </div>`).join(''):'<div class="muted small">No scans yet.</div>'}
     </div>`:''}`;
 
@@ -629,6 +633,10 @@ App.register('quick-scan',function(el){
    the collection screen create; 'approved' only exists on legacy rows written
    by the old customer-approve flow, and must remain processable. */
 function OPEN_BO(b){return b.status==='open'||b.status==='approved';}
+/* Terminal: nothing further will happen to it, so "stock cleared" is not a
+   pending task — it is simply not applicable. Mirrors the server's
+   isTerminalBackorderStatus()/canDeleteBackorder() rule. */
+function TERMINAL_BO(b){return !!b&&(b.status==='converted'||b.status==='cancelled'||!!b.convertedOrderId);}
 
 App.register('backorders',function(el){
   const state=App._bo||(App._bo={status:'',page:1});
@@ -649,7 +657,7 @@ App.register('backorders',function(el){
     </div>
     <div class="card">
       <div class="table-wrap"><table class="tbl">
-        <thead><tr><th>Backorder #</th><th>Original Order</th><th>Customer</th><th>Status</th><th>Reason</th><th>Customer</th><th>Stock cleared</th><th>Items</th><th>Created</th><th>Actions</th></tr></thead>
+        <thead><tr><th>Backorder #</th><th>Original Order</th><th>Customer</th><th>Status</th><th>Reason</th><th>Customer authorised</th><th>Stock cleared</th><th>Items</th><th>Created</th><th>Actions</th></tr></thead>
         <tbody>
         ${p.slice.length?p.slice.map(b=>`<tr>
           <td class="cell-main">${esc(b.number)}</td>
@@ -664,7 +672,11 @@ App.register('backorders',function(el){
                 They were previously conflated, which made a backorder look
                 convertible the instant it was created. */''}
           <td>${b.customerAuthorised?'<span class="badge green">Authorised</span>':'<span class="badge gray">—</span>'}</td>
-          <td>${b.eligible?'<span class="badge green">Cleared</span>':'<span class="badge gray">Not yet</span>'}</td>
+          ${/* Presentation only — the stored eligibility value is untouched.
+               "Not yet" on a cancelled or converted record reads as work still
+               to do; for a terminal record it simply does not apply. */''}
+          <td>${TERMINAL_BO(b)?'<span class="muted">—</span>'
+            :b.eligible?'<span class="badge green">Cleared</span>':'<span class="badge gray">Not yet</span>'}</td>
           <td>${b.items.reduce((s,i)=>s+i.qty,0)}<br/><span class="cell-sub">${
             moneyIn(b.items.reduce((s,i)=>s+i.qty*i.price,0),b)}</span></td>
           <td>${fmtDateShort(b.createdAt)}</td>
@@ -677,7 +689,7 @@ App.register('backorders',function(el){
             ${OPEN_BO(b)?`<button class="btn btn-sm btn-dark" data-cv="${b.id}">Convert</button>`:''}
             <button class="icon-btn" data-view="${b.id}" title="Details">${I.eye}</button>
           </div></td>
-        </tr>`).join(''):`<tr><td colspan="9" class="empty-cell">No backorders found</td></tr>`}
+        </tr>`).join(''):`<tr><td colspan="10" class="empty-cell">No backorders found</td></tr>`}
         </tbody></table></div>
       ${pagerHTML(p)}
     </div>`;
@@ -759,7 +771,8 @@ App.register('backorders',function(el){
           <dt>New order</dt><dd>${bo.convertedOrderNumber?esc(bo.convertedOrderNumber):'—'}</dd>
           <dt>Status / reason</dt><dd>${statusBadge(bo.status)} <span class="badge gray">${esc(bo.reason)}</span></dd>
           <dt>Customer authorised</dt><dd>${bo.customerAuthorised?'<span class="badge green">Yes</span>':'<span class="badge gray">No</span>'}</dd>
-          <dt>Stock cleared</dt><dd>${bo.eligible?'<span class="badge green">Yes</span>':'<span class="badge gray">Not yet</span>'}</dd>
+          <dt>Stock cleared</dt><dd>${TERMINAL_BO(bo)?'<span class="muted">Not applicable</span>'
+            :bo.eligible?'<span class="badge green">Yes</span>':'<span class="badge gray">Not yet</span>'}</dd>
           <dt>Currency</dt><dd>${esc(bo.currency||'USD')}${bo.currency&&bo.currency!=='USD'?' (rate '+esc(String(bo.fxRate||1))+' from USD)':''}</dd>
           ${bo.shippingAddress?`<dt>Ship to</dt><dd>${esc([bo.shippingAddress.business,bo.shippingAddress.address,bo.shippingAddress.city,bo.shippingAddress.state,bo.shippingAddress.zip,bo.shippingAddress.country].filter(Boolean).join(', '))}</dd>`:''}
           ${bo.promo&&bo.promo.name?`<dt>Promotion</dt><dd>${esc(bo.promo.name)}</dd>`:''}
@@ -854,7 +867,7 @@ App.register('returns',function(el){
           const orderSel=ov.querySelector('#nr-order'),custSel=ov.querySelector('#nr-cust');
           function loadOrders(){
             const list=DB.d.orders.filter(o=>o.customerId===custSel.value).slice(-25).reverse();
-            orderSel.innerHTML='<option value="">—</option>'+list.map(o=>`<option value="${o.number}">${o.number} — ${money(o.total)}</option>`).join('');
+            orderSel.innerHTML='<option value="">—</option>'+list.map(o=>`<option value="${o.number}">${o.number} — ${orderMoney(o.total,o)}</option>`).join('');
           }
           custSel.onchange=loadOrders;loadOrders();
           function paint(){
@@ -1174,10 +1187,10 @@ App.register('reports',function(el){
 
   function headers(){
     switch(state.tab){
-      case 'By Customer':return ['Customer','Orders','Amount','Frames'];
-      case 'By Item':return ['Product / SKU','Units sold','Revenue'];
-      case 'By Agent':return ['Agent','Orders','Customers','Revenue','Avg order value'];
-      default:return ['City','Orders','Revenue'];
+      case 'By Customer':return ['Customer','Orders','Amount (USD)','Frames'];
+      case 'By Item':return ['Product / SKU','Units sold','Revenue (USD)'];
+      case 'By Agent':return ['Agent','Orders','Customers','Revenue (USD)','Average order value (USD)'];
+      default:return ['City','Orders','Revenue (USD)'];
     }
   }
   function rowCells(r){
@@ -1212,7 +1225,7 @@ App.register('reports',function(el){
           <tr class="${state.tab==='By Customer'?'clickable':''}" data-drill="${ix}">${rowCells(r).map(c=>`<td>${c}</td>`).join('')}</tr>
           ${state.drill===ix&&state.tab==='By Customer'?`<tr><td colspan="4" style="background:#fbf8f1">
             ${DB.d.orders.filter(o=>o.customerId===r.key&&o.status!=='cancelled'&&o.date>=state.from&&o.date<=state.to)
-              .map(o=>`<div class="flex small" style="padding:3px 0"><a class="link" href="#/order/${o.id}">${o.number}</a><span>${fmtDateShort(o.date)}</span>${statusBadge(o.status)}<span class="right">${money(o.total)}</span></div>`).join('')}
+              .map(o=>`<div class="flex small" style="padding:3px 0"><a class="link" href="#/order/${o.id}">${o.number}</a><span>${fmtDateShort(o.date)}</span>${statusBadge(o.status)}<span class="right">${orderMoney(o.total,o)}</span></div>`).join('')}
           </td></tr>`:''}`).join(''):`<tr><td colspan="${headers().length}" class="empty-cell">No data for this range</td></tr>`}
         </tbody></table></div>
       ${state.rows.length>100?'<div class="small muted" style="margin-top:8px">Showing top 100 rows — export CSV for the full list.</div>':''}`:

@@ -192,7 +192,7 @@ Routes['#/checkout'] = {
             ${i.backorderQty ? `<div class="co-line-bo">${esc(stockSplitLabel(i.inStockQty, i.backorderQty))}</div>` : ''}
           </div>`).join('')}
           ${cart.backorderQty ? `<div class="co-line-bo" style="padding-top:8px">
-            ${cart.inStockQty} available now · ${cart.backorderQty} recorded for staff processing</div>` : ''}
+            ${cart.inStockQty} available now · ${cart.backorderQty} backordered</div>` : ''}
           ${hide ? '' : `
             <div class="summary-row" style="border-top:1px solid var(--line);margin-top:6px;padding-top:10px"><span>Subtotal</span><b>${money(cart.subtotal)}</b></div>
             ${cart.promotion?.discount ? `<div class="summary-row" style="color:var(--ok)"><span>Promotion</span><b>−${money(cart.promotion.discount)}</b></div>` : ''}
@@ -294,12 +294,21 @@ Routes['#/thank-you'] = {
       `<div class="ty-line">${esc(i.name || i.sku)}${i.color ? ' · ' + esc(i.color) : ''}
         <span class="sub">${identityLine(i)} · ${i.qty} pcs</span></div>`).join('');
     // Requested / allocated / backordered, kept distinct and correctly labelled.
-    const valueRows = (!hide && v && res.backorderedQty) ? `
+    /* A fully backordered request has nothing allocated, so an "Allocated
+       value $0.00" row is noise. Show it a single, plain total instead; keep
+       the three-way breakdown only where it is genuinely informative — a
+       MIXED order, where the customer needs to see what splits which way. */
+    const fullyBackordered = !order && !!bo;
+    const valueRows = (hide || !v || !res.backorderedQty) ? ''
+      : fullyBackordered ? `
+      <div class="ty-values">
+        <div><span>Backorder total</span><b>${money(v.backorderedValue, v)}</b></div>
+      </div>` : `
       <div class="ty-values">
         <div><span>Allocated value</span><b>${money(v.allocatedValue, v)}</b></div>
         <div><span>Backordered value</span><b>${money(v.backorderedValue, v)}</b></div>
         <div><span>Full requested value</span><b>${money(v.requestedValue, v)}</b></div>
-      </div>` : '';
+      </div>`;
 
     el.innerHTML = `<div class="card"><div class="empty">
       <div class="big">${order ? '✅' : '📦'}</div>
@@ -308,10 +317,9 @@ Routes['#/thank-you'] = {
       ${order ? `<p>Your order <b>${esc(order.number)}</b> has been received.${
         (!hide && order.total != null) ? ` Total: <b>${money(order.total, order)}</b>.` : ''}
         ${allocatedSentence(res.allocatedQty)}</p>` : ''}
-      ${!order && bo ? `<p>None of these items are available right now, so
-        <b>nothing is shipping yet</b>. ${backorderedSentence(res.backorderedQty)}
-        Your request is recorded as backorder <b>${esc(bo.number)}</b> for our
-        team to process when stock becomes available.</p>` : ''}
+      ${!order && bo ? `<p>Your backorder <b>${esc(bo.number)}</b> has been recorded.
+        ${unavailableSentence(res.backorderedQty)}
+        Our team will process it when stock becomes available.</p>` : ''}
       ${order && bo ? `<p style="margin-top:6px">${backorderedSentence(res.backorderedQty)}
         ${res.backorderedQty === 1 ? 'It is' : 'They are'} <b>not part of the
         allocated quantities above</b>, and ${res.backorderedQty === 1 ? 'is' : 'are'}

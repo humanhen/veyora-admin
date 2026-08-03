@@ -260,7 +260,9 @@ App.register('invoices',function(el){
           <td class="cell-main">${iv.number}</td>
           <td><a class="link" href="#/order/${iv.orderId}">${esc(iv.orderNumber)}</a></td>
           <td>${esc(DB.userName(iv.customerId))}</td>
-          <td class="num">${money(iv.amount)}</td>
+          ${/* An invoice record stores the order total in base USD; show it
+               in the ORDER's own currency at its stamped rate. */''}
+          <td class="num">${orderMoney(iv.amount,DB.order(iv.orderId)||DB.order(iv.orderNumber))}</td>
           <td><span class="badge outline">${esc(iv.provider)}</span></td>
           <td>${fmtDateShort(iv.date)}</td>
           <td>${statusBadge(iv.status)}</td>

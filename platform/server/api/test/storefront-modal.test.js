@@ -319,3 +319,83 @@ test('no storefront page claims an email was delivered', () => {
     assert.ok(!/email is on its way/i.test(src), `${f} still promises an email`);
   }
 });
+
+/* ============ BATCH 1G — customer backorder copy ============ */
+
+test('a fully backordered confirmation reads cleanly and states the reference once', () => {
+  const cart = copyOf('js/pages_cart.js');
+  assert.match(cart, /Your backorder <b>\$\{esc\(bo\.number\)\}<\/b> has been recorded\./);
+  assert.match(cart, /unavailableSentence\(res\.backorderedQty\)/);
+  assert.match(cart, /Our team will process it when stock becomes available\./);
+  assert.ok(!/None of these items are available right now/.test(cart),
+    'the old repetitive wording is gone');
+});
+
+test('the unavailable sentence pluralises correctly', () => {
+  const sf = loadStorefront();
+  assert.equal(sf.unavailableSentence(1),
+    'One item is currently unavailable and has been placed on backorder.');
+  assert.equal(sf.unavailableSentence(2),
+    '2 items are currently unavailable and have been placed on backorder.');
+  assert.equal(sf.unavailableSentence(0), '');
+});
+
+test('backorder copy never claims shipment or automatic fulfilment', () => {
+  const sf = loadStorefront();
+  for (const s of [sf.unavailableSentence(1), sf.unavailableSentence(3),
+                   sf.backorderedSentence(1), sf.backorderedSentence(4)]) {
+    assert.ok(!/shipping now|preparing to ship|will ship|automatically/i.test(s), s);
+  }
+});
+
+test('a full backorder shows a single Backorder total, not "Allocated value $0.00"', () => {
+  const cart = copyOf('js/pages_cart.js');
+  assert.match(cart, /const fullyBackordered = !order && !!bo;/);
+  assert.match(cart, /fullyBackordered \? `[\s\S]*?Backorder total/,
+    'a fully backordered request gets one plain total');
+  // the three-way breakdown survives for the case where it is informative
+  assert.match(cart, /Allocated value/);
+  assert.match(cart, /Full requested value/);
+});
+
+test('a MIXED order keeps the allocated / backordered / requested breakdown', () => {
+  const cart = copyOf('js/pages_cart.js');
+  const mixedBranch = cart.slice(cart.indexOf('fullyBackordered ?'));
+  for (const label of ['Allocated value', 'Backordered value', 'Full requested value']) {
+    assert.ok(mixedBranch.includes(label), `${label} must remain for a mixed order`);
+  }
+});
+
+test('status labels read as a status, not as an internal workflow note', () => {
+  const orders = copyOf('js/pages_orders.js');
+  assert.match(orders, /<span class="bo-state">On backorder<\/span>/);
+  assert.ok(!/Recorded for staff processing/.test(orders));
+  const ui = copyOf('js/ui.js');
+  assert.match(ui, /\$\{backorderQty\} backordered/);
+  assert.ok(!/recorded for staff processing/.test(ui));
+});
+
+test('the split label still distinguishes available from backordered', () => {
+  const sf = loadStorefront();
+  assert.equal(sf.stockSplitLabel(3, 2), '3 available now · 2 backordered');
+  assert.equal(sf.stockSplitLabel(0, 2), '2 backordered');
+  assert.equal(sf.stockSplitLabel(3, 0), '');
+});
+
+test('a full backorder says "Full backorder" instead of "from order —"', () => {
+  const orders = copyOf('js/pages_orders.js');
+  assert.match(orders, /b\.orderNumber \? `from order \$\{esc\(b\.orderNumber\)\}` : 'Full backorder'/);
+  assert.ok(!/from order \$\{esc\(b\.orderNumber \|\| '—'\)\}/.test(orders));
+});
+
+test('the customer backorders page keeps every material detail', () => {
+  const orders = copyOf('js/pages_orders.js');
+  for (const [what, re] of [
+    ['backorder number', /esc\(b\.number\)/],
+    ['status', /pill\(b\.status\)/],
+    ['SKU', /esc\(i\.sku\)/],
+    ['quantity', /× \$\{i\.qty\}/],
+    ['value', /money\(i\.price, b\)/],
+    ['cancel action', /data-ca="\$\{esc\(b\.id\)\}"/],
+  ]) assert.match(orders, re, `${what} must remain`);
+});

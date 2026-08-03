@@ -91,12 +91,12 @@ App.register('dashboard',function(el){
       <div class="stat-card"><div class="stat-label">TOTAL USERS ${I.users}</div><div class="stat-value">${d.users.length}</div></div>
       <div class="stat-card"><div class="stat-label">TOTAL PRODUCTS ${I.box}</div><div class="stat-value">${d.products.length}</div></div>
       <div class="stat-card"><div class="stat-label">TOTAL ORDERS ${I.cart}</div><div class="stat-value">${d.orders.length}</div></div>
-      <div class="stat-card"><div class="stat-label">REVENUE ${I.money}</div><div class="stat-value">${money0(revenue)}</div></div>
+      <div class="stat-card"><div class="stat-label">REVENUE (USD) ${I.money}</div><div class="stat-value">${money0(revenue)}</div></div>
     </div>
 
     <div class="section-label">BY COUNTRY</div>
     <div class="grid g3">
-      ${[['Users','users',v=>v],['Orders','orders',v=>v],['Revenue','revenue',v=>money0(v)]].map(([t,k,f])=>`
+      ${[['Users','users',v=>v],['Orders','orders',v=>v],['Revenue (USD)','revenue',v=>money0(v)]].map(([t,k,f])=>`
       <div class="card card-pad">
         <div class="card-title" style="margin-bottom:10px">${t}</div>
         <table class="mini-tbl"><thead><tr><th>Country</th><th>${t}</th></tr></thead>
