@@ -15,10 +15,19 @@ import { invalidateCatalogCache } from './catalog.js';
 import { recordMovement, planSkuReservations, reserveTakes } from '../inventory.js';
 import { invalidateFxCache } from '../currency.js';
 import { orderAlertRecipients } from '../config.js';
-import { orderFieldsFromBackorder, isBackorderProcessable,
-         reconcileBackorderSync, BACKORDER_LOCK_SQL,
-         canDeleteBackorder, BACKORDER_DELETE_CANDIDATES_SQL } from '../ordering.js';
+/* reconcileBackorderSync, BACKORDER_LOCK_SQL, canDeleteBackorder and
+   BACKORDER_DELETE_CANDIDATES_SQL are no longer imported. They existed only to
+   police the generic sync's backorder writes; Batch 1H removed that write path
+   entirely, so there is nothing left to police. They remain exported from
+   ordering.js and covered by their own tests. */
+import { orderFieldsFromBackorder, isBackorderProcessable } from '../ordering.js';
 import { afterCommit, afterCommitDetached } from '../postcommit.js';
+import { ADMIN_ORDERS_SQL, ADMIN_ORDERS_COUNT_SQL, ADMIN_ORDER_ONE_SQL,
+         ADMIN_BACKORDERS_SQL, ADMIN_BACKORDERS_COUNT_SQL,
+         orderRowToJs, backorderRowToJs, resolveLimit, listCompleteness,
+         sanitizeOrderPatch, orderUpdateSql, describeOrderPatch,
+         recomputeOrderTotal, checkSyncPayload,
+         isFinancialActor, patchTouchesMoney } from '../admin-data.js';
 
 const r = Router();
 r.use(requireAuth('admin', 'warehouse'));
@@ -305,34 +314,18 @@ async function productsSnapshot() {
 /* Brand + model number are reconstructed by joining each line back to its
    product, so warehouse and admin views can identify a frame without new
    columns. `modelSku` is the PRODUCT sku — never a slice of the variation sku,
-   which is wrong for dash colorways like VEDETTE-2002. These keys are
-   read-only: upsertOrder writes an explicit column list and ignores them. */
+   which is wrong for dash colorways like VEDETTE-2002. Still used by the
+   Returns snapshot and by the dedicated order/backorder endpoints. */
 const ITEM_IDENTITY_JOIN = `
   left join variations v on v.sku = i.sku
   left join products  p on p.id = v.product_id`;
 
-async function ordersSnapshot() {
-  const { rows } = await q(`
-    select o.*, coalesce((
-      select json_agg(json_build_object(
-        'sku', i.sku, 'name', i.name, 'color', i.color, 'qty', i.qty,
-        'modelSku', p.sku, 'brand', p.brand,
-        'collected', i.collected, 'price', i.price, 'note', i.note, 'labels', i.labels
-      ) order by i.created_at)
-      from order_items i ${ITEM_IDENTITY_JOIN}
-     where i.order_id = o.id), '[]') as items
-      from orders o order by o.created_at desc`);
-  return rows.map(o => ({
-    id: o.id, number: o.number, customerId: o.customer_id, agentId: o.agent_id,
-    source: o.source, status: o.status, date: o.order_date,
-    discount: o.discount, discountPct: o.discount_pct, freeShipping: o.free_shipping,
-    shipping: o.shipping, total: o.total, tracking: o.tracking, comments: o.comments,
-    invoiceId: o.invoice_id, promo: o.promo,
-    currency: o.currency, fxRate: o.fx_rate,
-    shippingAddress: o.shipping_address, billingAddress: o.billing_address,
-    createdAt: o.created_at, items: o.items,
-  }));
-}
+/* ordersSnapshot() lived here. The generic snapshot no longer carries orders or
+   backorders at all: they are read from GET /admin/orders and
+   GET /admin/backorders, which are the only endpoints that return the customer
+   and agent display names, the converted order number and the honest
+   returned/total/complete bounds. Leaving a second, thinner copy in the
+   snapshot is how the two views drifted apart in the first place. */
 
 async function nestedNumberSnapshot(table, itemsTable, fk, itemCols, mapRow, itemJoin = '') {
   const { rows } = await q(`
@@ -358,25 +351,9 @@ r.get('/snapshot', async (req, res, next) => {
       out[name] = rows.map(row => rowToJs(cfg, row));
     }
     out.products = await productsSnapshot();
-    out.orders = await ordersSnapshot();
-    out.backorders = await nestedNumberSnapshot('backorders', 'backorder_items', 'backorder_id',
-      `'sku', i.sku, 'name', i.name, 'color', i.color, 'qty', i.qty, 'price', i.price,
-       'modelSku', p.sku, 'brand', p.brand`,
-      b => ({ id: b.id, number: b.number, orderId: b.order_id, orderNumber: b.order_number,
-              customerId: b.customer_id, status: b.status, reason: b.reason,
-              eligible: b.eligible, convertedOrderId: b.converted_order_id,
-              createdAt: b.created_at, items: b.items,
-              // Preserved order context — a fully backordered request has no
-              // orders row, so this is the only durable copy. Round-tripped by
-              // upsertBackorder so an admin save cannot erase it.
-              customerAuthorised: b.customer_authorised,
-              agentId: b.agent_id, source: b.source,
-              currency: b.currency, fxRate: b.fx_rate,
-              shippingAddress: b.shipping_address, billingAddress: b.billing_address,
-              promo: b.promo, discount: b.discount,
-              freeShipping: b.free_shipping, shipping: b.shipping,
-              comments: b.comments }),
-      ITEM_IDENTITY_JOIN);
+    /* Orders and backorders are deliberately ABSENT. They are server-managed:
+       read them from GET /admin/orders and GET /admin/backorders, and write
+       them only through the dedicated endpoints. */
     out.returns = await nestedNumberSnapshot('returns', 'return_items', 'return_id',
       `'sku', i.sku, 'name', i.name, 'qty', i.qty, 'price', i.price, 'resolution', i.resolution,
        'exchangeSku', i.exchange_sku, 'modelSku', p.sku, 'brand', p.brand`,
@@ -396,6 +373,183 @@ r.get('/snapshot', async (req, res, next) => {
         serverTime: new Date().toISOString(),
       },
     });
+  } catch (e) { next(e); }
+});
+
+/* ==================== live order + backorder surfaces ====================
+   Batch 1H. These are the endpoints the admin Orders list, order detail,
+   Backorders, dashboard metrics, order reports and the Finance invoice rows
+   read. They exist because those screens were reading a SEEDED BROWSER
+   DATASET (1,107 generated records ending at SO11876) while PostgreSQL held
+   the real 1,128 orders.
+
+   Money is returned in BASE USD exactly as stored, with the order's own
+   `currency` and `fxRate` alongside it. The browser converts once, at render
+   (Batch 1G orderMoney). Converting here as well is the CA$91.97 bug. */
+
+r.get('/orders', async (req, res, next) => {
+  try {
+    const limit = resolveLimit(req.query.limit);
+    const [{ rows }, { rows: countRows }] = await Promise.all([
+      q(ADMIN_ORDERS_SQL, [limit]),
+      q(ADMIN_ORDERS_COUNT_SQL),
+    ]);
+    const orders = rows.map(orderRowToJs);
+    res.json({ orders, ...listCompleteness(orders.length, countRows[0]?.n, limit), limit });
+  } catch (e) { next(e); }
+});
+
+r.get('/orders/:id', async (req, res, next) => {
+  try {
+    const { rows } = await q(ADMIN_ORDER_ONE_SQL, [req.params.id]);
+    if (!rows.length) return res.status(404).json({ error: 'Order not found' });
+    res.json({ order: orderRowToJs(rows[0]) });
+  } catch (e) { next(e); }
+});
+
+r.get('/backorders', async (req, res, next) => {
+  try {
+    const limit = resolveLimit(req.query.limit);
+    const [{ rows }, { rows: countRows }] = await Promise.all([
+      q(ADMIN_BACKORDERS_SQL, [limit]),
+      q(ADMIN_BACKORDERS_COUNT_SQL),
+    ]);
+    const backorders = rows.map(backorderRowToJs);
+    res.json({ backorders, ...listCompleteness(backorders.length, countRows[0]?.n, limit), limit });
+  } catch (e) { next(e); }
+});
+
+/* Narrow, whitelisted order write. Deliberately covers ONLY the changes that
+   move no stock and re-point no identity: status, tracking, an internal
+   comment, the admin discount and warehouse collection counts.
+
+   Item add/edit/delete, merges and customer reassignment are NOT here. Those
+   move stock, and doing that from browser page state is the unsafe path Batch
+   1C removed for backorder conversion; the admin disables those controls
+   honestly rather than appearing to succeed. Sending one of their fields is a
+   400, never a silent drop.
+
+   The total is recomputed on the server from the stored lines — the client
+   never supplies money. */
+r.patch('/orders/:id', async (req, res, next) => {
+  try {
+    const actorName = req.user.business || req.user.email;
+    const patch = sanitizeOrderPatch(req.body, { actorName });
+    if (!patch.ok) return res.status(400).json({ error: patch.error });
+
+    /* MONEY IS ADMIN-ONLY, enforced here. The warehouse role reaches this
+       router for fulfilment work — status, tracking, comments, collection
+       counts — but a discount changes what the customer owes. The panel hides
+       the control from a warehouse login; hiding a button is not a control,
+       because the request can be issued without it. */
+    if (patchTouchesMoney(patch) && !isFinancialActor(req.user)) {
+      return res.status(403).json({
+        error: 'Only an admin can change an order discount.' });
+    }
+
+    const outcome = await tx(async (c) => {
+      const { rows: locked } = await c.query(
+        `select * from orders where id=$1 or number=$1 for update`, [req.params.id]);
+      const order = locked[0];
+      if (!order) return { status: 404, body: { error: 'Order not found' } };
+      /* A shipped order is a dispatched one. Re-opening it from a list screen
+         would contradict what the customer has already been told. */
+      if (order.status === 'shipped' && patch.fields.status
+          && patch.fields.status !== 'shipped') {
+        return { status: 409, body: { error: 'That order has already shipped' } };
+      }
+
+      const { sets, values, nextParam } = orderUpdateSql(patch.fields);
+      if (patch.comment) {
+        sets.push(`comments = coalesce(comments,'[]'::jsonb) || $${nextParam}::jsonb`);
+        values.push(JSON.stringify([patch.comment]));
+      }
+      if (sets.length) {
+        await c.query(`update orders set ${sets.join(', ')}, updated_at=now() where id=$1`,
+          [order.id, ...values]);
+      }
+
+      if (patch.collected) {
+        /* Collection counts only. Quantity and price are never touched here,
+           so no stock moves and the ledger stays consistent. */
+        for (const line of patch.collected) {
+          await c.query(
+            `update order_items set collected = least($3, qty)
+              where order_id=$1 and sku=$2`, [order.id, line.sku, line.collected]);
+        }
+      }
+      /* Status back to pending resets the collection, matching the panel. */
+      if (patch.fields.status === 'pending') {
+        await c.query(`update order_items set collected=0 where order_id=$1`, [order.id]);
+      }
+
+      const { rows: items } = await c.query(
+        `select qty, price from order_items where order_id=$1`, [order.id]);
+      const { rows: cur } = await c.query(
+        `select discount, discount_pct from orders where id=$1`, [order.id]);
+      const total = recomputeOrderTotal(items, cur[0].discount, cur[0].discount_pct);
+      await c.query(`update orders set total=$2, updated_at=now() where id=$1`,
+        [order.id, total]);
+
+      const { rows: fresh } = await c.query(ADMIN_ORDER_ONE_SQL, [order.id]);
+      return { status: 200, body: { ok: true, order: orderRowToJs(fresh[0]) },
+        _number: order.number };
+    });
+
+    if (outcome.status === 200) {
+      await afterCommit(`audit 'order updated' ${outcome._number}`, () =>
+        audit({ id: req.user.id, name: actorName, role: req.user.role },
+          'order updated', outcome._number, describeOrderPatch(patch)));
+    }
+    res.status(outcome.status).json(outcome.body);
+  } catch (e) { next(e); }
+});
+
+/* Records an invoice against an order. This creates the invoice ROW and moves
+   the customer balance; it does NOT produce an invoice document — no PDF
+   generator exists yet, and the admin says so rather than offering a download
+   that never happens. Idempotent: a second press returns the existing invoice
+   instead of numbering another one. */
+r.post('/orders/:id/invoice', async (req, res, next) => {
+  try {
+    /* Invoicing issues a number and moves the customer's balance. Admin only,
+       checked before anything is read or written. */
+    if (!isFinancialActor(req.user)) {
+      return res.status(403).json({ error: 'Only an admin can generate an invoice.' });
+    }
+    const outcome = await tx(async (c) => {
+      const { rows: locked } = await c.query(
+        `select * from orders where id=$1 or number=$1 for update`, [req.params.id]);
+      const order = locked[0];
+      if (!order) return { status: 404, body: { error: 'Order not found' } };
+      if (order.invoice_id) {
+        const { rows: ex } = await c.query(`select * from invoices where id=$1`, [order.invoice_id]);
+        if (ex.length) {
+          return { status: 200, body: { ok: true, alreadyInvoiced: true,
+            invoice: rowToJs(SIMPLE_COLLECTIONS.invoices, ex[0]) } };
+        }
+      }
+      const { rows: num } = await c.query(`select 'IN' || nextval('invoice_number_seq') as n`);
+      const { rows: inv } = await c.query(`
+        insert into invoices (number, order_id, order_number, customer_id, amount, provider, status)
+        values ($1,$2,$3,$4,$5,'Green Invoice','paid') returning *`,
+        [num[0].n, order.id, order.number, order.customer_id, order.total]);
+      await c.query(`update orders set invoice_id=$2, updated_at=now() where id=$1`,
+        [order.id, inv[0].id]);
+      if (order.customer_id) {
+        await c.query(`update users set balance = coalesce(balance,0) + $2 where id=$1`,
+          [order.customer_id, order.total]);
+      }
+      return { status: 200, body: { ok: true,
+        invoice: rowToJs(SIMPLE_COLLECTIONS.invoices, inv[0]) }, _number: order.number };
+    });
+    if (outcome.status === 200 && !outcome.body.alreadyInvoiced) {
+      await afterCommit(`audit 'invoice generated' ${outcome._number}`, () =>
+        audit({ id: req.user.id, name: req.user.business || req.user.email, role: req.user.role },
+          'invoice generated', outcome.body.invoice.number,
+          `for ${outcome._number} — ${outcome.body.invoice.amount} USD base`));
+    }
+    res.status(outcome.status).json(outcome.body);
   } catch (e) { next(e); }
 });
 
@@ -498,130 +652,24 @@ async function upsertNumbered(c, obj, seqName, prefix, insertFn, remaps, collect
   }
 }
 
-async function upsertOrder(c, o) {
-  if (!o.id) throw new Error('order missing id');
-  await c.query(`
-    insert into orders (id, number, customer_id, agent_id, source, status, order_date,
-                        discount, discount_pct, free_shipping, shipping, total,
-                        tracking, comments, invoice_id, currency, fx_rate)
-    values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
-    on conflict (id) do update set
-      number=excluded.number, customer_id=excluded.customer_id, agent_id=excluded.agent_id,
-      source=excluded.source, status=excluded.status, order_date=excluded.order_date,
-      discount=excluded.discount, discount_pct=excluded.discount_pct,
-      free_shipping=excluded.free_shipping, shipping=excluded.shipping, total=excluded.total,
-      tracking=excluded.tracking, comments=excluded.comments, invoice_id=excluded.invoice_id,
-      currency=excluded.currency, fx_rate=excluded.fx_rate`,
-    [o.id, o.number, o.customerId || null, o.agentId || null, o.source || 'customer',
-     o.status || 'pending', o.date || new Date().toISOString().slice(0, 10),
-     num(o.discount) ?? 0, num(o.discountPct) ?? 0, !!o.freeShipping,
-     num(o.shipping) ?? 0, num(o.total) ?? 0,
-     o.tracking ? JSON.stringify(o.tracking) : null,
-     JSON.stringify(o.comments || []), o.invoiceId || null,
-     (o.currency || 'USD'), num(o.fxRate) ?? 1]);
-  await c.query(`delete from order_items where order_id=$1`, [o.id]);
-  for (const i of (o.items || [])) {
-    await c.query(`
-      insert into order_items (order_id, sku, name, color, qty, collected, price, note, labels)
-      values ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-      [o.id, String(i.sku), i.name || '', i.color || '', parseInt(i.qty, 10) || 0,
-       parseInt(i.collected, 10) || 0, num(i.price) ?? 0, i.note || '',
-       JSON.stringify(i.labels || [])]);
-  }
-}
+/* upsertOrder() and upsertBackorder() lived here.
 
-/* The preserved order context is written back with coalesce(): a client that
-   round-trips the row keeps it, and a client that omits a key (an older admin
-   build, a hand-built payload) leaves the stored value alone instead of
-   nulling it. Losing this context would make a full backorder unconvertible.
+   They let the generic row-diff sync write whole orders and backorders from a
+   browser snapshot: replacing every line, rewriting the total, and — in the
+   backorder case — needing an elaborate terminal-state guard
+   (reconcileBackorderSync, BACKORDER_LOCK_SQL, canDeleteBackorder) purely to
+   stop a stale tab putting `open` back over `converted` or deleting a
+   backorder that had already become a real order.
 
-   TERMINAL STATE IS SERVER-OWNED. The admin panel holds the whole dataset in
-   the browser and pushes row diffs on a debounce, so a save can carry a
-   snapshot taken BEFORE the conversion endpoint ran. Without this guard that
-   stale payload writes `open` over `converted`, blanks converted_order_id and
-   deletes the items of a backorder that has already become a real order.
-   reconcileBackorderSync() decides what the payload is allowed to change. */
-async function upsertBackorder(c, b, refusals = []) {
-  const has = k => Object.prototype.hasOwnProperty.call(b, k);
-
-  /* FOR UPDATE. Without the lock this read and the write below straddle a
-     window: sync reads `open`, the conversion endpoint locks the row and
-     converts it, sync then wakes at its own UPDATE and writes the decision it
-     made from the STALE read — putting `open` back over `converted` and
-     erasing the order link. Locking here makes the state we reconcile the same
-     state we write, and serialises this transaction behind any conversion. */
-  const { rows: storedRows } = await c.query(
-    BACKORDER_LOCK_SQL, [b.id]);
-  const stored = storedRows[0] || null;
-  const guard = reconcileBackorderSync(stored, b);
-  if (guard.regressed.length) {
-    console.warn(`[admin sync] ignored stale backorder change on ${b.id}: `
-      + guard.regressed.join(', '));
-    await audit({ id: 'system', name: 'Admin sync guard', role: 'system' },
-      'stale backorder sync ignored', b.number || b.id,
-      guard.regressed.join('; '), 'system').catch(() => {});
-    // Reported back to the client, so the caller learns its write was refused
-    // instead of assuming a clean save.
-    refusals.push({ collection: 'backorders', id: b.id, number: b.number || null,
-      suppressed: guard.regressed });
-  }
-  b = { ...b, status: guard.status, eligible: guard.eligible,
-        convertedOrderId: guard.convertedOrderId };
-  await c.query(`
-    insert into backorders (id, number, order_id, order_number, customer_id, status,
-                            reason, eligible, converted_order_id,
-                            customer_authorised, agent_id, source, currency, fx_rate,
-                            shipping_address, billing_address, promo,
-                            discount, free_shipping, shipping, comments)
-    values ($1,$2,$3,$4,$5,$6,$7,$8,$9,
-            coalesce($10,false), $11, coalesce($12,'customer'), coalesce($13,'USD'),
-            coalesce($14,1), $15, $16, $17,
-            coalesce($18,0), coalesce($19,false), coalesce($20,0), coalesce($21,'[]'::jsonb))
-    on conflict (id) do update set
-      number=excluded.number, order_id=excluded.order_id, order_number=excluded.order_number,
-      customer_id=excluded.customer_id, status=excluded.status, reason=excluded.reason,
-      eligible=excluded.eligible, converted_order_id=excluded.converted_order_id,
-      customer_authorised = coalesce($10, backorders.customer_authorised),
-      agent_id            = coalesce($11, backorders.agent_id),
-      source              = coalesce($12, backorders.source),
-      currency            = coalesce($13, backorders.currency),
-      fx_rate             = coalesce($14, backorders.fx_rate),
-      shipping_address    = coalesce($15, backorders.shipping_address),
-      billing_address     = coalesce($16, backorders.billing_address),
-      promo               = coalesce($17, backorders.promo),
-      discount            = coalesce($18, backorders.discount),
-      free_shipping       = coalesce($19, backorders.free_shipping),
-      shipping            = coalesce($20, backorders.shipping),
-      comments            = coalesce($21, backorders.comments)`,
-    [b.id, b.number, b.orderId || null, b.orderNumber || null, b.customerId || null,
-     b.status || 'open', b.reason || 'out of stock', !!b.eligible, b.convertedOrderId || null,
-     has('customerAuthorised') ? !!b.customerAuthorised : null,
-     b.agentId ?? null,
-     has('source') ? b.source : null,
-     has('currency') ? b.currency : null,
-     has('fxRate') ? num(b.fxRate) : null,
-     b.shippingAddress ? JSON.stringify(b.shippingAddress) : null,
-     b.billingAddress ? JSON.stringify(b.billingAddress) : null,
-     b.promo ? JSON.stringify(b.promo) : null,
-     has('discount') ? num(b.discount) : null,
-     has('freeShipping') ? !!b.freeShipping : null,
-     has('shipping') ? num(b.shipping) : null,
-     has('comments') ? JSON.stringify(b.comments || []) : null]);
-  /* The items of a CONVERTED backorder are the record of what became an order
-     and what was reserved against it. A stale snapshot must not replace or
-     delete them. */
-  if (!guard.itemsWritable) {
-    console.warn(`[admin sync] kept items of converted backorder ${b.id} (stale payload)`);
-    return;
-  }
-  await c.query(`delete from backorder_items where backorder_id=$1`, [b.id]);
-  for (const i of (b.items || [])) {
-    await c.query(`
-      insert into backorder_items (backorder_id, sku, name, color, qty, price)
-      values ($1,$2,$3,$4,$5,$6)`,
-      [b.id, String(i.sku), i.name || '', i.color || '', parseInt(i.qty, 10) || 0, num(i.price) ?? 0]);
-  }
-}
+   Batch 1H removed the write path instead of continuing to guard it. Orders
+   and backorders are now written ONLY by:
+     PATCH /admin/orders/:id
+     POST  /admin/orders/:id/invoice
+     POST  /admin/backorders/:id/eligibility
+     POST  /admin/backorders/:id/convert
+   and /admin/sync rejects the whole request if either collection appears in
+   the payload — see checkSyncPayload(). The guards those helpers needed are
+   unnecessary once the unsafe path does not exist. */
 
 /* Dedicated staff operation for stock eligibility.
    Previously the admin panel toggled `eligible` in browser state and relied on
@@ -672,9 +720,11 @@ async function upsertReturn(c, x) {
   }
 }
 
+/* Keeps a server sequence ahead of any number a client assigned itself.
+   'orders' and 'backorders' are gone: the browser no longer assigns either
+   number, so there is nothing to catch up with, and order_number_seq /
+   backorder_number_seq are advanced only by the endpoints that issue them. */
 const SEQ_SYNC = [
-  ['orders', 'order_number_seq', 'SO'],
-  ['backorders', 'backorder_number_seq', 'BO'],
   ['returns', 'return_number_seq', 'RT'],
   ['invoices', 'invoice_number_seq', 'IN'],
   ['purchaseOrders', 'po_number_seq', 'PO'],
@@ -683,11 +733,27 @@ const SEQ_SYNC = [
 r.post('/sync', async (req, res, next) => {
   try {
     const changes = Array.isArray(req.body?.changes) ? req.body.changes : [];
+
+    /* STALE-CLIENT GATE — runs before the transaction opens and before any
+       query. An admin tab left open across the Batch 1H deployment (or one
+       served a cached copy of the previous bundle) still has `orders` and
+       `backorders` in its SYNCED list, so its next debounced save carries a
+       whole snapshot of order state taken BEFORE the deployment — plus a
+       `deletes` list naming every id that tab has not seen.
+
+       The entire request is refused, not just the offending collections. A
+       partial write would be the worse failure: the caller would be told its
+       order changes were rejected while its product changes had already
+       landed, from the same stale snapshot. */
+    const gate = checkSyncPayload(changes);
+    if (!gate.ok) {
+      console.warn(`[admin sync] refused stale server-managed payload: `
+        + gate.collections.join(', '));
+      return res.status(gate.status).json({
+        error: gate.error, collections: gate.collections });
+    }
+
     const remaps = [];
-    /* Writes the server REFUSED to make (terminal-state protection). Returned
-       to the client so a sync can never look wholly successful while state was
-       silently suppressed. */
-    const refusals = [];
     const touched = new Set();
     await tx(async (c) => {
       for (const ch of changes) {
@@ -707,51 +773,10 @@ r.post('/sync', async (req, res, next) => {
           const actor = { id: req.user.id, name: req.user.email, role: req.user.role };
           for (const p of upserts) await upsertProduct(c, p, actor);
           if (deletes.length) await c.query(`delete from products where id = any($1)`, [deletes]);
-        } else if (name === 'orders') {
-          for (const o of upserts) {
-            await upsertNumbered(c, o, 'order_number_seq', 'SO',
-              row => upsertOrder(c, row), remaps, 'orders');
-          }
-          if (deletes.length) await c.query(`delete from orders where id = any($1)`, [deletes]);
-        } else if (name === 'backorders') {
-          for (const b of upserts) {
-            await upsertNumbered(c, b, 'backorder_number_seq', 'BO',
-              row => upsertBackorder(c, row, refusals), remaps, 'backorders');
-          }
-          /* Terminal records are not deletable by a generic sync. Deleting a
-             converted backorder would orphan a real order and erase the record
-             of the stock reserved for it; deleting a cancelled one would erase
-             the decision. Live open/approved rows keep the existing behaviour. */
-          if (deletes.length) {
-            /* Lock EVERY requested row first, with no state predicate.
-               Selecting only rows that already looked terminal left an `open`
-               row unlocked, so a conversion could land between the protection
-               query and the delete — and the delete would then remove a
-               backorder that had just become a real order.
-
-               With every candidate locked: if a conversion holds the row we
-               wait, and after it commits we read `converted` and refuse. If we
-               get the lock first on a genuinely open row we delete it, and the
-               conversion then finds no row and creates nothing. */
-            const { rows: candidates } = await c.query(
-              BACKORDER_DELETE_CANDIDATES_SQL, [deletes]);
-            const protectedRows = candidates.filter(row => !canDeleteBackorder(row));
-            const blocked = new Set(protectedRows.map(x => x.id));
-            for (const row of protectedRows) {
-              console.warn(`[admin sync] refused delete of ${row.status} backorder `
-                + `${row.number || row.id}`);
-              await audit({ id: 'system', name: 'Admin sync guard', role: 'system' },
-                'stale backorder delete refused', row.number || row.id,
-                `status=${row.status}${row.converted_order_id ? ', linked to an order' : ''}`,
-                'system').catch(() => {});
-            }
-            const deletable = deletes.filter(id => !blocked.has(id));
-            if (deletable.length) {
-              await c.query(`delete from backorders where id = any($1)`, [deletable]);
-            }
-            if (blocked.size) refusals.push(
-              { collection: 'backorders', action: 'delete', ids: [...blocked] });
-          }
+        /* No 'orders' or 'backorders' branch exists. They are rejected above,
+           before this loop runs; reaching this point with either collection is
+           impossible, and the `unknown collection` error below would catch it
+           anyway. */
         } else if (name === 'returns') {
           for (const x of upserts) {
             await upsertNumbered(c, x, 'return_number_seq', 'RT',
@@ -796,7 +821,7 @@ r.post('/sync', async (req, res, next) => {
     // Product edits must show in the storefront immediately, not after the
     // catalog cache TTL.
     if (touched.has('products')) invalidateCatalogCache();
-    res.json({ ok: true, remaps, refusals });
+    res.json({ ok: true, remaps });
   } catch (e) {
     if (e.status) return res.status(e.status).json({ error: e.message });
     next(e);

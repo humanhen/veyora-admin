@@ -229,6 +229,9 @@ App.register('invoices',function(el){
   const state=App._inv2||(App._inv2={cust:'',from:'',to:'',provider:'',page:1});
 
   function render(){
+    /* Each row is priced in ITS OWN order's stamped currency, so the order must
+       have loaded. Without it the amounts would silently fall back to USD. */
+    if(!requireLiveData(el,render,'Invoices could not be loaded'))return;
     const d=DB.d;
     let list=d.invoices.slice();
     if(state.cust){const q=state.cust.toLowerCase();list=list.filter(i=>DB.userName(i.customerId).toLowerCase().includes(q));}

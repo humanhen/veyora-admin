@@ -35,11 +35,10 @@ for all operations.
 - `platform/server/` — everything deployed: `docker-compose.yml`, `Caddyfile`,
   `api/` (Node/Express, all endpoints from `docs/OLD-API-MAP.md`),
   `db/migrations/` (schema + reporting views), `storefront/` (new customer
-  portal, vanilla JS SPA), `admin-overrides/` (API-backed `data.js`/`app.js`
-  that replace the demo layer at deploy), `deploy.sh` (one-command deploy),
-  `api/scripts/` (import-zoho, import-photos, seed-admin).
-- Repo root — the admin panel UI (unchanged; still the veyora.design demo
-  until DNS flips; deploy overlays the API-backed data layer).
+  portal, vanilla JS SPA), `deploy.sh` (one-command deploy),
+  `api/scripts/` (import-zoho, import-photos, seed-admin). The `admin-overrides/`
+  fork was removed in Batch 1H.
+- Repo root — the admin panel UI, API-backed and deployed as-is.
 - `platform/docs/OLD-API-MAP.md` — extracted old veyora.com API surface.
 - `platform/supabase/` — superseded (Supabase plan replaced by IONOS VPS).
 
@@ -305,8 +304,8 @@ decide. The two missing pieces are now built, deployed, and tested live:
    refuse while paused. Tested: pause→sync refused→unpause→sync ran
    (and re-imposed Zoho's stock, reverting the test bump — exactly the
    designed authority model). RUNBOOK has the cutover checklist.
-NOTE: admin nav lives in admin-overrides/js/app.js (the deploy overwrites
-the repo-root app.js) — nav items must be added in BOTH files.
+NOTE: admin nav lives in the repo-root js/app.js. Batch 1H removed the deploy
+overlay, so there is now only ONE file to change.
 Zoho remains active/authoritative — nothing flipped.
 
 ## UPDATE 2026-07-17 (late night) — Sam's 3 asks: order push LIVE

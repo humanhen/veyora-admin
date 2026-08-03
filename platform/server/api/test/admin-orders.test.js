@@ -171,9 +171,13 @@ test('the shipped order surfaces call orderMoney with the BASE amount', () => {
     /orderMoney\(o\.total,o\)/,                       // list total
     /orderMoney\(DB\.orderTotal\(o\),o\)/,            // headline + summary total
     /orderMoney\(it\.qty\*it\.price,o\)/,             // line total
-    /orderMoney\(x\.total,x\)/,                       // merge-order selection
-    /orderMoney\(price,o\)/,                          // Add Item confirmation toast
   ]) assert.match(src, call, `missing ${call}`);
+  /* The merge-order selection list and the Add Item toast also formatted an
+     order amount. Batch 1H DISABLED both controls — they moved stock from
+     browser state — so the right assertion is now that they are gone, not that
+     they convert correctly. Their replacements are asserted below. */
+  assert.ok(!/orderMoney\(x\.total,x\)/.test(src), 'the merge selection list is gone');
+  assert.ok(!/orderMoney\(price,o\)/.test(src), 'the Add Item toast is gone');
   // nothing pre-multiplies by the rate before calling — that would double-convert
   assert.ok(!/orderMoney\([^)]*fxRate[^)]*\)/.test(src),
     'an amount was scaled by fxRate before being passed to orderMoney');
@@ -205,11 +209,18 @@ test('the orders search placeholder explains what it searches', () => {
   assert.ok(!/id="f-q" placeholder="Search here…"/.test(src));
 });
 
-test('the search LOGIC is unchanged — number, business and email', () => {
+test('the search matches number, customer and email — now against live data', () => {
   const src = codeOf('js/pages_sales.js');
   assert.match(src, /o\.number\.toLowerCase\(\)\.includes\(q\)/);
   assert.match(src, /\(c\.business\|\|''\)\.toLowerCase\(\)\.includes\(q\)/);
-  assert.match(src, /\(c\.email\|\|''\)\.toLowerCase\(\)\.includes\(q\)/);
+  /* Batch 1H: the browser no longer holds a fabricated users table, so the
+     customer name and email are the ones the SERVER resolved for the row, with
+     the local user as a fallback. Searching only the local copy would fail to
+     match a real customer the panel had not loaded. */
+  assert.match(src, /name=DB\.orderCustomerName\(o\)/);
+  assert.match(src, /email=o\.customerEmail\|\|c\.email\|\|''/);
+  assert.match(src, /name\.toLowerCase\(\)\.includes\(q\)/);
+  assert.match(src, /email\.toLowerCase\(\)\.includes\(q\)/);
 });
 
 /* ============ TASKS 4 & 5 — backorder headings and terminal state ============ */
@@ -290,16 +301,16 @@ test('dashboard totals are still summed in base USD, not converted per order', (
 
 /* ============ Final micro-correction — the three remaining surfaces ============ */
 
-test('the Add Item toast quotes the price in the ORDER\'s currency', () => {
+test('Add Item is disabled rather than quoting a price it cannot save', () => {
   const src = codeOf('js/pages_sales.js');
-  assert.match(src, /toast\('Item added at '\+orderMoney\(price,o\)\)/,
-    'the confirmation toast must use the order-specific helper');
-  assert.ok(!/toast\('Item added at '\+money\(/.test(src),
-    'the toast must never format an order line with the ambient money()');
-  // The price handed to the toast is the one just pushed onto the order, so it
-  // is a BASE amount — passing it through orderMoney converts it exactly once.
-  assert.match(src, /const price=DB\.priceForCustomer\(cust,hit\.p,hit\.v\)/);
-  assert.match(src, /price,collected:0\}\)/, 'the same base price is stored on the line');
+  /* Batch 1G routed this toast through orderMoney so a CAD order quoted CAD.
+     Batch 1H removed the control outright: adding a line reserves stock, there
+     is no server endpoint for that, and with orders no longer part of the
+     browser sync the edit would have changed nothing anywhere while still
+     showing a confirmed price. A disabled control beats a lying one. */
+  assert.ok(!/toast\('Item added at '/.test(src), 'no Add Item confirmation remains');
+  assert.ok(!/o\.items\.push\(/.test(src), 'no order line is created in page state');
+  assert.match(src, /offBtn\('Add item'/, 'the control is present but disabled');
 });
 
 test('no admin order item price is quoted with a bare money() anywhere', () => {

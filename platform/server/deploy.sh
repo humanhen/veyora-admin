@@ -16,10 +16,14 @@ echo "==> shipping server stack (compose, caddy, api, db, storefront)"
 (cd "$SRV" && tar czf - docker-compose.yml Caddyfile api db storefront) \
   | ssh $HOST "tar xzf - -C $DEST"
 
-echo "==> shipping admin panel (repo root UI + API overrides)"
+# The admin panel used to ship as "repo root UI + a deploy-time overlay" that
+# replaced js/app.js and js/data.js with API-backed forks. The repo root kept a
+# seeded demo store, so whenever the overlay was missed the panel silently
+# served 1,107 invented orders — which is exactly what the release candidate
+# was doing. There is now ONE admin: the repo root, API-backed, no overlay and
+# nothing to forget.
+echo "==> shipping admin panel"
 (cd "$ROOT" && tar czf - index.html css js assets) \
-  | ssh $HOST "tar xzf - -C $DEST/admin"
-(cd "$SRV/admin-overrides" && tar czf - js) \
   | ssh $HOST "tar xzf - -C $DEST/admin"
 
 echo "==> generating .env (first run only)"

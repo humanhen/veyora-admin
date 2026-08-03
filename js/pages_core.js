@@ -25,6 +25,9 @@ App.register('dashboard',function(el){
   }
 
   function render(){
+    /* Every figure below is computed from live orders. If they could not be
+       read, showing zeros would read as "no trade today" — so show the error. */
+    if(!requireLiveData(el,render,'Dashboard metrics could not be loaded'))return;
     const d=DB.d;
     const [start,end]=rangeDates();
     const inRange=o=>{const t=new Date(o.date);return t>=start&&t<=new Date(end.getTime()+864e5);};

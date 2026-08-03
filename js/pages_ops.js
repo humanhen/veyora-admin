@@ -303,6 +303,8 @@ App.register('agent-revenue',function(el){
   }
 
   function render(){
+    /* Agent commission is derived from live orders. */
+    if(!requireLiveData(el,render,'Agent revenue could not be calculated'))return;
     el.innerHTML=`
     <div class="page-head"><div class="page-title">Revenue (USD)</div></div>
     <div class="card card-pad" style="margin-bottom:16px">

@@ -242,6 +242,50 @@ function applyTableLabels(root){
   });
 }
 
+/* ---------- live-data failure states (Batch 1H) ----------
+   Orders, backorders and everything derived from them come from PostgreSQL.
+   When that read fails the surface must SAY SO. It must never fall back to a
+   local dataset and it must never render an empty table, which reads as
+   "there are no orders" when the truth is "we could not ask". */
+
+/** Render a visible, retryable error panel into `el`. */
+function liveDataError(el,err,retry,headline){
+  const msg=(err&&err.message)?err.message:'The server did not respond.';
+  el.innerHTML=`
+    <div class="card card-pad" style="border-left:4px solid var(--red,#c8402e)">
+      <div class="card-title" style="margin-bottom:6px">${esc(headline||'Could not load live data')}</div>
+      <div class="small" style="margin-bottom:4px">${esc(msg)}</div>
+      <div class="small muted" style="margin-bottom:12px">
+        No records are shown because none could be read from the database.
+        Nothing here is sample or placeholder data.
+      </div>
+      <button class="btn btn-dark btn-sm" data-retry>Retry</button>
+    </div>`;
+  const b=el.querySelector('[data-retry]');
+  if(b&&retry)b.onclick=()=>{b.disabled=true;b.textContent='Retrying…';Promise.resolve(retry()).catch(()=>{});};
+}
+
+/** Guard for a page that reads live orders/backorders.
+    Returns true when the page may render; otherwise it has already rendered
+    the error state itself. */
+function requireLiveData(el,rerender,headline){
+  if(typeof DB==='undefined'||DB.ready)return true;
+  liveDataError(el,DB.lastError,async()=>{
+    try{await DB.refreshLive();}catch(e){}
+    rerender();
+  },headline);
+  return false;
+}
+
+/** "Showing 1,128 of 1,128" honesty for a bounded server list. */
+function liveCountNote(meta){
+  if(!meta)return '';
+  if(meta.complete)return '';
+  return `<div class="small muted" style="padding:8px 14px">Showing the most recent
+    ${esc(String(meta.returned))} of ${esc(String(meta.total))} records — the server
+    caps a single read. Narrow the date range to see older records.</div>`;
+}
+
 function beep(){
   try{
     const ctx=beep._ctx||(beep._ctx=new (window.AudioContext||window.webkitAudioContext)());

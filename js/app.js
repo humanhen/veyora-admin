@@ -1,4 +1,10 @@
-/* ================= Veyora Admin — shell: auth, nav, router ================= */
+/* ================= Veyora Admin — shell: auth, nav, router (API-backed) =================
+
+   Batch 1H. Sign-in is a real authenticated call against the API and the panel
+   refuses to render until PostgreSQL data has actually loaded. When the load
+   fails the shell shows a visible, retryable error — it never falls back to a
+   local dataset, because falling back is how staff came to be reading 1,107
+   invented orders in the release candidate.                                   */
 'use strict';
 
 const Auth={
@@ -6,15 +12,25 @@ const Auth={
   current(){
     try{return JSON.parse(sessionStorage.getItem(this.KEY)||localStorage.getItem(this.KEY)||'null');}catch(e){return null;}
   },
-  login(email){
-    const d=DB.load();
-    const u=d.users.find(x=>x.email.toLowerCase()===email.toLowerCase());
-    const sess=u?{id:u.id,name:(u.business==='Veyora HQ'?'Veyora admin':(u.firstName+' '+u.lastName)),role:u.role}
-               :{id:'u2',name:'Veyora admin',role:'admin'};
+  async login(email,password){
+    const res=await fetch('/api/auth/login',{method:'POST',credentials:'same-origin',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password})});
+    const data=await res.json().catch(()=>({}));
+    if(!res.ok)throw new Error(data.message||data.error||'Login failed');
+    /* Admin data is served only to these roles; say so here rather than letting
+       every subsequent request fail with an opaque 403. */
+    if(!['admin','warehouse'].includes(data.user.role))
+      throw new Error('This account has no admin access');
+    const sess={id:data.user.id,
+      name:data.user.business==='Veyora HQ'?'Veyora admin':((data.user.firstName||'')+' '+(data.user.lastName||'')).trim()||data.user.business||data.user.email,
+      role:data.user.role};
     localStorage.setItem(this.KEY,JSON.stringify(sess));
     return sess;
   },
-  logout(){localStorage.removeItem(this.KEY);sessionStorage.removeItem(this.KEY);}
+  logout(){
+    fetch('/api/auth/logout',{method:'POST',credentials:'same-origin'}).catch(()=>{});
+    localStorage.removeItem(this.KEY);sessionStorage.removeItem(this.KEY);
+  }
 };
 
 const NAV=[
@@ -62,18 +78,58 @@ const NAV=[
 
 const App={
   routes:{},
+  ready:false,          /* live data loaded */
+  bootError:null,       /* set when the load failed — shown, never hidden */
   register(route,fn){this.routes[route]=fn;},
 
-  init(){
-    DB.load();
-    /* login form */
-    document.getElementById('login-form').addEventListener('submit',e=>{
-      e.preventDefault();
-      const email=document.getElementById('login-email').value.trim();
-      Auth.login(email);
-      DB.audit('login','—','Signed in','web');
-      location.hash='#/dashboard';
+  async boot(){
+    /* try to resume an existing session (auth cookie + saved session info) */
+    const sess=Auth.current();
+    if(!sess){this.renderShell();return;}
+    await this.loadData();
+  },
+
+  /** Load live data. A 401/403 means the session is genuinely gone, so return
+      to sign-in; anything else (API down, network, 500) is shown as a
+      retryable error rather than silently logging the user out. */
+  async loadData(){
+    this.bootError=null;
+    try{
+      await DB.init();
+      this.ready=true;
       this.renderShell();
+    }catch(e){
+      this.ready=false;
+      if(e&&(e.status===401||e.status===403)){
+        Auth.logout();
+        this.renderShell();
+        return;
+      }
+      this.bootError=e;
+      this.renderShell();
+    }
+  },
+
+  init(){
+    /* login form */
+    document.getElementById('login-form').addEventListener('submit',async e=>{
+      e.preventDefault();
+      const btn=e.target.querySelector('.login-submit');
+      const email=document.getElementById('login-email').value.trim();
+      const password=document.getElementById('login-password').value;
+      btn.disabled=true;btn.textContent='SIGNING IN…';
+      try{
+        await Auth.login(email,password);
+        await DB.init();
+        this.ready=true;this.bootError=null;
+        DB.audit('login','—','Signed in','web');
+        location.hash='#/dashboard';
+        this.renderShell();
+      }catch(ex){
+        toast(ex.message||'Login failed',true);
+      }finally{
+        btn.disabled=false;btn.textContent='SIGN IN';
+      }
     });
     document.getElementById('login-eye').addEventListener('click',()=>{
       const p=document.getElementById('login-password');
@@ -83,19 +139,42 @@ const App={
       e.preventDefault();
       Modal.open({title:'Reset password',
         body:`<div class="field"><label>Email</label><input class="input" id="fp-email" type="email" placeholder="you@example.com"></div>
-              <div class="small muted">We'll email you a link to reset your password.</div>`,
-        foot:`<button class="btn" data-x>Cancel</button><button class="btn btn-dark" data-send>Send reset link</button>`,
+              <div id="fp-step2" class="hidden">
+                <div class="field"><label>6-digit code (check your email)</label><input class="input" id="fp-code" inputmode="numeric"></div>
+                <div class="field"><label>New password (8+ characters)</label><input class="input" id="fp-pass" type="password"></div>
+              </div>
+              <div class="small muted" id="fp-hint">We'll email you a one-time code.</div>`,
+        foot:`<button class="btn" data-x>Cancel</button><button class="btn btn-dark" data-send>Send code</button>`,
         setup(ov,close){
           ov.querySelector('[data-x]').onclick=close;
-          ov.querySelector('[data-send]').onclick=()=>{
+          const btn=ov.querySelector('[data-send]');
+          let stage=1;
+          btn.onclick=async()=>{
             const em=ov.querySelector('#fp-email').value.trim();
             if(!em)return toast('Enter your email',true);
-            close();toast('Reset link sent to '+em);
+            try{
+              if(stage===1){
+                await fetch('/api/auth/forgot-password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:em})});
+                ov.querySelector('#fp-step2').classList.remove('hidden');
+                ov.querySelector('#fp-hint').textContent='Code sent — it expires in 15 minutes.';
+                btn.textContent='Set new password';stage=2;
+              }else{
+                const code=ov.querySelector('#fp-code').value.trim();
+                const pass=ov.querySelector('#fp-pass').value;
+                const v=await fetch('/api/auth/verify-forgot-otp',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:em,code})}).then(r=>r.json());
+                if(!v.token)throw new Error(v.error||'Invalid code');
+                const s=await fetch('/api/auth/reset-password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:v.token,password:pass})}).then(r=>r.json());
+                if(!s.ok)throw new Error(s.error||'Could not set password');
+                close();toast('Password updated — sign in with your new password');
+              }
+            }catch(ex){toast(ex.message,true);}
           };
         }});
     });
     document.getElementById('bell-btn').addEventListener('click',()=>{location.hash='#/tasks';});
     window.addEventListener('hashchange',()=>this.route());
+    /* push any unsent edits before the tab closes */
+    window.addEventListener('beforeunload',()=>{if(this.ready)DB.flush();});
     /* mobile drawer */
     document.getElementById('menu-btn').addEventListener('click',()=>this.toggleDrawer());
     document.getElementById('sidebar-overlay').addEventListener('click',()=>this.toggleDrawer(false));
@@ -103,7 +182,7 @@ const App={
     const mo=new MutationObserver(()=>applyTableLabels(document));
     mo.observe(document.getElementById('content'),{childList:true,subtree:true});
     mo.observe(document.getElementById('modal-root'),{childList:true,subtree:true});
-    this.renderShell();
+    this.boot();
   },
 
   toggleDrawer(force){
@@ -118,7 +197,10 @@ const App={
   renderShell(){
     const sess=Auth.current();
     const login=document.getElementById('login-screen'),app=document.getElementById('app');
-    if(!sess){login.classList.remove('hidden');app.classList.add('hidden');return;}
+    /* The shell is shown once signed in EVEN IF the data load failed, so the
+       failure is visible inside the panel with a retry — not disguised as a
+       sign-in prompt. */
+    if(!sess||(!this.ready&&!this.bootError)){login.classList.remove('hidden');app.classList.add('hidden');return;}
     login.classList.add('hidden');app.classList.remove('hidden');
     document.getElementById('topbar-username').textContent=sess.name;
     document.getElementById('topbar-userrole').textContent=sess.role.charAt(0).toUpperCase()+sess.role.slice(1);
@@ -132,7 +214,7 @@ const App={
   },
 
   updateBell(){
-    const sess=Auth.current();if(!sess)return;
+    const sess=Auth.current();if(!sess||!this.ready)return;
     const n=DB.d.tasks.filter(t=>t.status==='open'&&t.assignedTo===sess.id&&t.unread).length;
     const b=document.getElementById('bell-badge');
     b.textContent=n;b.classList.toggle('hidden',n===0);
@@ -174,16 +256,15 @@ const App={
       };
     });
     document.getElementById('logout-btn').onclick=()=>{
-      Auth.logout();location.hash='';this.renderShell();
+      if(this.ready)DB.flush();
+      Auth.logout();App.ready=false;App.bootError=null;location.hash='';this.renderShell();
     };
   },
 
   route(){
     const sess=Auth.current();
-    if(!sess){this.renderShell();return;}
+    if(!sess||(!this.ready&&!this.bootError)){this.renderShell();return;}
     const {route,args}=this.currentRoute();
-    const fn=this.routes[route]||this.routes['dashboard'];
-    /* navigating to a page opens its group (and closes the rest) */
     const grp=NAV.find(n=>n.group&&n.items.some(i=>i.route===route));
     if(grp)App._openGroup=grp.group;
     this.toggleDrawer(false); /* close the mobile drawer on navigation */
@@ -191,6 +272,14 @@ const App={
     this.updateBell();
     const el=document.getElementById('content');
     el.scrollTop=0;window.scrollTo(0,0);
+    /* Data never loaded: show the failure on EVERY page rather than letting
+       each one render an empty table that reads like "no orders exist". */
+    if(this.bootError){
+      liveDataError(el,this.bootError,()=>this.loadData(),
+        'The admin panel could not load data from the server.');
+      return;
+    }
+    const fn=this.routes[route]||this.routes['dashboard'];
     fn(el,args);
   }
 };

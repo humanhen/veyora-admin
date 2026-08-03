@@ -1,19 +1,48 @@
 /* ================= Pages: Sales — Orders, Collection, Quick Scan, Backorders, Returns, Promotions, Reports ================= */
 'use strict';
 
-/* ---------- stock helpers ---------- */
+/* ---------- controls this release does not support (Batch 1H) ----------
+   Orders and backorders are read from PostgreSQL and written ONLY through
+   dedicated authenticated endpoints. Actions that would move stock or re-point
+   an order at another account have no such endpoint yet: doing them from
+   browser page state is exactly the unsafe path Batch 1C removed for backorder
+   conversion — it invents allocations nobody checked and writes them back over
+   real rows. Those controls are therefore disabled and say so, rather than
+   showing a success toast for a change that never leaves the browser. */
+const NOT_IN_RELEASE='Not available in this release';
+const NOT_IN_RELEASE_WHY='This action changes stock allocation and has no server '
+  +'endpoint yet. It would only change this browser, so it is disabled rather than '
+  +'appearing to succeed.';
+
+function offBtn(label,icon){
+  return `<button class="btn btn-sm" disabled data-off="${esc(label)}"
+    title="${esc(NOT_IN_RELEASE+' — '+NOT_IN_RELEASE_WHY)}">${icon||''} ${esc(label)}</button>`;
+}
+/* Money is admin-only. The API enforces this with a 403 on both the discount
+   patch and invoice generation (FINANCIAL_ROLES in api/src/admin-data.js); this
+   mirrors it so a warehouse login is not shown a control it cannot use. The
+   browser check is the courtesy, the server check is the control. */
+function canChangeMoney(){
+  const s=Auth.current();
+  return !!s&&s.role==='admin';
+}
+
+/** Reports an awaited server write that failed, without pretending it worked. */
+function writeFailed(err,fallback){
+  toast((err&&err.message)||fallback||'The change was not saved',true);
+}
+
+/* ---------- stock helper (returns only) ----------
+   Products ARE still part of the browser row-diff sync, so a product-stock
+   change made here does reach PostgreSQL through /admin/sync, which records an
+   inventory movement for the exact delta. The order-side callers that used to
+   share this helper are gone: they moved stock as a side effect of editing an
+   order line, which is allocation work and belongs on the server. */
 function releaseStock(sku,qty){
   const hit=DB.variationBySku(sku);if(!hit)return;
   const wh=Object.keys(hit.v.stock)[0];
+  if(!wh)return;
   hit.v.stock[wh].qty+=qty;
-}
-function reserveStock(sku,qty){
-  const hit=DB.variationBySku(sku);if(!hit)return;
-  for(const w of Object.keys(hit.v.stock)){
-    const take=Math.min(hit.v.stock[w].qty,qty);
-    hit.v.stock[w].qty-=take;qty-=take;
-    if(qty<=0)break;
-  }
 }
 
 /* ============================================================ ORDERS LIST */
@@ -21,6 +50,8 @@ App.register('orders',function(el){
   const state=App._orders||(App._orders={status:'All',source:'All Sources',country:'',from:'',to:'',sort:'Newest first',q:'',page:1});
 
   function render(){
+    /* Live data or an honest error — never a local dataset. */
+    if(!requireLiveData(el,render,'Orders could not be loaded'))return;
     const d=DB.d;
     let list=d.orders.slice();
     const counts={All:list.length};
@@ -28,14 +59,18 @@ App.register('orders',function(el){
     if(state.status!=='All')list=list.filter(o=>o.status===state.status.toLowerCase());
     if(state.source==='From Customers')list=list.filter(o=>o.source==='customer');
     if(state.source==='From Agents')list=list.filter(o=>o.source==='agent');
-    if(state.country)list=list.filter(o=>{const c=DB.user(o.customerId);return c&&c.country===state.country;});
+    if(state.country)list=list.filter(o=>{
+      const c=DB.user(o.customerId);
+      return (o.customerCountry||(c&&c.country))===state.country;});
     if(state.from)list=list.filter(o=>o.date>=state.from);
     if(state.to)list=list.filter(o=>o.date<=state.to);
     if(state.q){
       const q=state.q.toLowerCase();
       list=list.filter(o=>{
         const c=DB.user(o.customerId)||{};
-        return o.number.toLowerCase().includes(q)||(c.business||'').toLowerCase().includes(q)||(c.email||'').toLowerCase().includes(q);
+        const name=DB.orderCustomerName(o),email=o.customerEmail||c.email||'';
+        return o.number.toLowerCase().includes(q)||name.toLowerCase().includes(q)
+          ||(c.business||'').toLowerCase().includes(q)||email.toLowerCase().includes(q);
       });
     }
     /* Order NUMBERS are not chronological — legacy "VEYORA000629" (2025)
@@ -78,11 +113,10 @@ App.register('orders',function(el){
         <thead><tr><th>Order</th><th>Customer</th><th>Agent</th><th>Date</th><th>Status</th><th>Total</th><th>Source</th><th>Action</th></tr></thead>
         <tbody>
         ${p.slice.length?p.slice.map(o=>{
-          const c=DB.user(o.customerId)||{};
           return `<tr>
             <td class="cell-main">${esc(o.number)}</td>
-            <td>${esc(c.business||'—')}</td>
-            <td>${o.agentId?esc(DB.userName(o.agentId)):'—'}</td>
+            <td>${esc(DB.orderCustomerName(o))}</td>
+            <td>${o.agentId?esc(DB.orderAgentName(o)):'—'}</td>
             <td>${fmtDate(o.date)}</td>
             <td>${statusBadge(o.status)}</td>
             <td>${orderMoney(o.total,o)}</td>
@@ -90,6 +124,7 @@ App.register('orders',function(el){
             <td><button class="icon-btn" data-view="${o.id}" title="Open order">${I.eye}</button></td>
           </tr>`;}).join(''):`<tr><td colspan="8" class="empty-cell">No orders found</td></tr>`}
         </tbody></table></div>
+      ${liveCountNote(DB.liveMeta&&DB.liveMeta.orders)}
       ${pagerHTML(p)}
     </div>`;
 
@@ -109,16 +144,49 @@ App.register('orders',function(el){
 
 /* ============================================================ ORDER COLLECTION (order screen) */
 App.register('order',function(el,args){
-  const o=DB.order(args[0]);
+  if(!requireLiveData(el,()=>App.route(),'This order could not be loaded'))return;
+  let o=DB.order(args[0]);
   if(!o){el.innerHTML='<div class="card card-pad">Order not found. <a class="link" href="#/orders">Back to orders</a></div>';return;}
   const local=App._order||(App._order={});
-  if(local.id!==o.id){local.id=o.id;local.scanning=false;}
+  if(local.id!==o.id){local.id=o.id;local.scanning=false;local.pending={};}
+  if(!local.pending)local.pending={};
 
-  function itemsCollectedAll(){return o.items.every(i=>i.collected>=i.qty);}
-  function saveAudit(action,changes){DB.save();DB.audit(action,o.number,changes);}
+  /* Scans are buffered in page state and flushed to the server when the
+     collection is completed, so the count on screen is "scanned so far", not a
+     saved figure. The screen says which it is. */
+  function scanned(it){return Math.min(it.qty,(it.collected||0)+(local.pending[it.sku]||0));}
+  function hasUnsavedScans(){return Object.values(local.pending).some(n=>n>0);}
+
+  /* Every write on this screen is an AWAITED server call. The panel used to
+     mutate the order in browser state and toast success immediately; with
+     orders no longer part of the row-diff sync that would change nothing at
+     all. `run` performs the call, adopts the order the server returns, and
+     only then reports success. */
+  async function run(btn,patch,okMsg,failMsg){
+    if(btn)btn.disabled=true;
+    try{
+      const res=await DB.patchOrder(o.id,patch);
+      o=(res&&res.order)||DB.order(o.id)||o;
+      render();
+      if(okMsg)toast(okMsg);
+      return true;
+    }catch(err){
+      if(btn)btn.disabled=false;
+      writeFailed(err,failMsg);
+      return false;
+    }
+  }
+  /* NO client-side audit on this screen. Every mutation below goes through
+     PATCH /admin/orders/:id or POST /admin/orders/:id/invoice, and each of
+     those writes an authoritative audit entry after it commits. A second entry
+     posted from the browser — through the row-diff sync, which is debounced and
+     unordered — would duplicate every action in the log and could arrive even
+     when the server write had failed. */
 
   function render(){
     const cust=DB.user(o.customerId)||{};
+    const custName=DB.orderCustomerName(o);
+    const custEmail=o.customerEmail||cust.email||'';
     const agent=o.agentId?DB.user(o.agentId):null;
     const canEdit=!['shipped'].includes(o.status);
     const inv=o.invoiceId?DB.d.invoices.find(i=>i.id===o.invoiceId):null;
@@ -130,9 +198,12 @@ App.register('order',function(el,args){
       <div class="page-title" style="font-size:16px">Order Collection</div>
       <button class="btn btn-sm" id="btn-print" title="Open the browser print view for this order">${I.printer} Print order</button>
       <div class="right flex">
+        ${/* Merge and Change customer rewrite order lines and ownership. Both
+             move reserved stock between orders and neither has a server
+             endpoint yet, so they are disabled rather than faked. */''}
         ${canEdit?`
-        <button class="btn btn-sm" id="btn-merge">${I.merge} Merge orders</button>
-        <button class="btn btn-sm" id="btn-chg-cust">${I.user} Change customer</button>
+        ${offBtn('Merge orders',I.merge)}
+        ${offBtn('Change customer',I.user)}
         <button class="btn btn-sm" id="btn-labels">${I.printer} Print labels</button>`:''}
       </div>
     </div>
@@ -149,17 +220,18 @@ App.register('order',function(el,args){
         <div class="flex">${I.invoice}<b style="font-size:13px">Invoice</b>
           ${inv?`<span class="badge green">Invoice #${inv.number}</span>`:''}</div>
         ${inv?`<button class="btn btn-sm" id="btn-inv-dl">${I.download} Download Invoice</button>`
-             :`<button class="btn btn-dark btn-sm" id="btn-gen-inv">${I.invoice} Generate Invoice</button>`}
+             :canChangeMoney()?`<button class="btn btn-dark btn-sm" id="btn-gen-inv">${I.invoice} Generate Invoice</button>`
+             :`<span class="small muted">Invoicing is an admin action.</span>`}
       </div>
     </div>
 
     <div class="card card-pad" style="margin-top:14px">
       <div class="card-title">Customer Information</div>
       <div class="grid g2">
-        <div><div class="stat-label">CUSTOMER</div><div style="margin-top:5px;font-weight:500">${esc(cust.business||'—')}</div></div>
-        <div><div class="stat-label">EMAIL</div><div style="margin-top:5px">${esc(cust.email||'—')}</div></div>
-        ${agent?`<div><div class="stat-label">AGENT</div><div style="margin-top:5px">${esc(DB.userName(agent.id))}</div></div>
-        <div><div class="stat-label">AGENT EMAIL</div><div style="margin-top:5px">${esc(agent.email)}</div></div>`:''}
+        <div><div class="stat-label">CUSTOMER</div><div style="margin-top:5px;font-weight:500">${esc(custName)}</div></div>
+        <div><div class="stat-label">EMAIL</div><div style="margin-top:5px">${esc(custEmail||'—')}</div></div>
+        ${o.agentId?`<div><div class="stat-label">AGENT</div><div style="margin-top:5px">${esc(DB.orderAgentName(o))}</div></div>
+        <div><div class="stat-label">AGENT EMAIL</div><div style="margin-top:5px">${esc(o.agentEmail||(agent&&agent.email)||'—')}</div></div>`:''}
       </div>
     </div>
 
@@ -183,23 +255,29 @@ App.register('order',function(el,args){
           <thead><tr><th></th><th>Product</th><th>SKU</th><th>Progress</th><th style="width:130px"></th></tr></thead>
           <tbody>
           ${o.items.map((it,ix)=>{
-            const done=it.collected>=it.qty;
+            const n=scanned(it),done=n>=it.qty;
             return `<tr>
               <td><button class="count-circle" data-count="${ix}" title="Count manually (+1)">${done?'✓':'+'}</button></td>
               <td><div class="cell-main">${esc(it.name)} &times; ${it.qty}</div><div class="cell-sub">${
                 it.brand?esc(it.brand)+' | ':''}${it.modelSku?'Model: '+esc(it.modelSku)+' | ':''}Color: ${esc(it.color||'N/A')} | SKU: ${esc(it.sku)}</div></td>
               <td>${esc(it.sku)}</td>
-              <td><div class="progress ${done?'full':''}"><span style="width:${Math.min(100,it.collected/it.qty*100)}%"></span></div></td>
-              <td><b>${it.collected} / ${it.qty}</b> ${done?'<span class="badge green">Done</span>':''}</td>
+              <td><div class="progress ${done?'full':''}"><span style="width:${Math.min(100,n/it.qty*100)}%"></span></div></td>
+              <td><b>${n} / ${it.qty}</b> ${done?'<span class="badge green">Done</span>':''}</td>
             </tr>`;}).join('')}
-          </tbody></table></div>`}
+          </tbody></table></div>
+        ${/* Scans are not saved until the collection is completed. Saying so
+             beats a count that looks persisted and is not. */''}
+        ${hasUnsavedScans()?`<div class="small muted" style="margin-top:10px">
+          Scanned counts are not saved yet — press <b>Complete Order Collection</b> to
+          record them.</div>`:''}`}
     </div>
 
     <div class="card card-pad" style="margin-top:14px">
       <div class="spread"><div class="card-title" style="margin:0">Order Items Summary</div>
         ${canEdit?`<div class="flex">
-          <button class="btn btn-sm" id="btn-add-item">${I.plus} Add item</button>
-          <button class="btn btn-sm" id="btn-discount">${I.tag} Admin discount</button>
+          ${/* Adding a line reserves stock; there is no endpoint for that yet. */''}
+          ${offBtn('Add item',I.plus)}
+          ${canChangeMoney()?`<button class="btn btn-sm" id="btn-discount">${I.tag} Admin discount</button>`:''}
         </div>`:''}</div>
       <div class="table-wrap" style="margin-top:12px"><table class="tbl">
         <thead><tr><th>Product</th><th class="num">Total (${esc(orderCurrencyCode(o))})</th><th style="width:90px"></th></tr></thead>
@@ -207,9 +285,13 @@ App.register('order',function(el,args){
           ${o.items.map((it,ix)=>`<tr>
             <td><div class="cell-main">${esc(it.name)} &times; ${it.qty}</div><div class="cell-sub">Color: ${esc(it.color||'N/A')} | SKU: ${esc(it.sku)}</div></td>
             <td class="num">${orderMoney(it.qty*it.price,o)}</td>
+            ${/* Editing, swapping or deleting a line releases and reserves
+                 stock. No endpoint, so no control — not a control that lies. */''}
             <td><div class="row-actions">
-              ${canEdit?`<button class="icon-btn" data-edit-item="${ix}" title="Edit / swap SKU">${I.pencil}</button>
-              <button class="icon-btn danger" data-del-item="${ix}" title="Delete line">${I.trash}</button>`:''}
+              ${canEdit?`<button class="icon-btn" disabled data-off="Edit item"
+                title="${esc(NOT_IN_RELEASE+' — '+NOT_IN_RELEASE_WHY)}">${I.pencil}</button>
+              <button class="icon-btn" disabled data-off="Delete item"
+                title="${esc(NOT_IN_RELEASE+' — '+NOT_IN_RELEASE_WHY)}">${I.trash}</button>`:''}
             </div></td>
           </tr>`).join('')}
           ${o.discount||o.discountPct?`<tr><td class="cell-sub">Admin discount ${o.discountPct?o.discountPct+'%':''}</td><td class="num" style="color:var(--red)">−${orderMoney(o.discountPct?(o.items.reduce((s,i)=>s+i.qty*i.price,0)*o.discountPct/100):o.discount,o)}</td><td></td></tr>`:''}
@@ -275,7 +357,7 @@ App.register('order',function(el,args){
         <td class="n">${pm(it.qty*it.price)}</td></tr>`).join('');
       w.document.write(`<html><head><title>${o.number}</title><style>body{font-family:sans-serif;padding:40px}table{border-collapse:collapse;width:100%}td,th{border:1px solid #ccc;padding:7px;text-align:left;font-size:12px}th{background:#f4f2ef}.n{text-align:right}h1{letter-spacing:4px}.bc{font-family:monospace;font-size:30px;letter-spacing:2px;border:2px solid #000;display:inline-block;padding:8px 18px;margin:10px 0}</style></head>
       <body><h1>VEYORA</h1><h2>Order ${o.number}</h2><div class="bc">*${o.number}*</div>
-      <p><b>Customer:</b> ${esc(cust.business||'')} &lt;${esc(cust.email||'')}&gt;<br><b>Date:</b> ${fmtDate(o.date)} &middot; <b>Status:</b> ${esc(o.status)} &middot; <b>Currency:</b> ${esc(cur)}${cur!=='USD'?` (rate ${esc(String(rate))} from USD)`:''}</p>
+      <p><b>Customer:</b> ${esc(custName)} &lt;${esc(custEmail)}&gt;<br><b>Date:</b> ${fmtDate(o.date)} &middot; <b>Status:</b> ${esc(o.status)} &middot; <b>Currency:</b> ${esc(cur)}${cur!=='USD'?` (rate ${esc(String(rate))} from USD)`:''}</p>
       <table><tr><th>Brand</th><th>Model</th><th>Product</th><th>Colour</th><th>Variation SKU</th><th class="n">Qty</th><th class="n">Total</th></tr>${rows}
       <tr><td colspan="6"><b>Total (${esc(cur)})</b></td><td class="n"><b>${pm(DB.orderTotal(o))}</b></td></tr></table>
       ${o.comments&&o.comments.length?`<p><b>Notes</b><br>${o.comments.map(c=>esc(c.text)).join('<br>')}</p>`:''}
@@ -283,69 +365,36 @@ App.register('order',function(el,args){
       w.document.close();
     };
 
+    /* Invoicing is a SERVER transaction: it takes the next number from the
+       database sequence, writes the invoice row, links it to the order and
+       moves the customer balance. The browser used to do all of that in page
+       state with its own counter, which produced numbers no database had
+       issued. Idempotent — a second press returns the invoice already on file. */
     const gen=el.querySelector('#btn-gen-inv');
-    if(gen)gen.onclick=()=>{
-      const num=DB.d.nextInvoiceNumber++;
-      const invc={id:uid('inv'),number:num,orderId:o.id,orderNumber:o.number,customerId:o.customerId,
-        amount:DB.orderTotal(o),provider:'Green Invoice',date:todayISO(),status:'paid'};
-      DB.d.invoices.unshift(invc);o.invoiceId=invc.id;
-      const u=DB.user(o.customerId);if(u)u.balance=(u.balance||0)+invc.amount;
-      saveAudit('invoice.generate','#'+num,'Invoice for '+o.number+' — '+orderMoney(invc.amount,o));
-      toast('Invoice #'+num+' generated');render();
+    if(gen)gen.onclick=async()=>{
+      gen.disabled=true;
+      try{
+        const res=await DB.generateInvoice(o.id);
+        o=DB.order(o.id)||o;
+        render();
+        toast(res.alreadyInvoiced
+          ? 'Invoice '+res.invoice.number+' already exists for this order'
+          : 'Invoice '+res.invoice.number+' recorded');
+      }catch(err){
+        gen.disabled=false;
+        writeFailed(err,'Invoice was not generated');
+      }
     };
     const invdl=el.querySelector('#btn-inv-dl');
     /* No document generator exists yet: the invoice is a record, not a file.
        Say so rather than claiming a download that never happened. */
     if(invdl)invdl.onclick=()=>toast('Invoice #'+inv.number+' is recorded. No invoice document is generated yet — use Print order for a printable copy.');
 
-    const mrg=el.querySelector('#btn-merge');
-    if(mrg)mrg.onclick=()=>{
-      const others=DB.d.orders.filter(x=>x.customerId===o.customerId&&x.id!==o.id&&['pending','approved','processing'].includes(x.status));
-      if(!others.length)return toast('No other open orders from this customer',true);
-      Modal.open({title:'Merge orders',
-        body:`<div class="small muted">Combine open orders from ${esc(cust.business)} into ${esc(o.number)}. Promotions are recalculated.</div>
-        ${others.map(x=>`<label class="checkbox-row"><input type="checkbox" value="${x.id}"> ${esc(x.number)} — ${orderMoney(x.total,x)} — ${statusBadge(x.status)}</label>`).join('')}`,
-        foot:`<button class="btn" data-x>Cancel</button><button class="btn btn-dark" data-merge>Merge</button>`,
-        setup(ov,close){
-          ov.querySelector('[data-x]').onclick=close;
-          ov.querySelector('[data-merge]').onclick=()=>{
-            const ids=[...ov.querySelectorAll('input:checked')].map(c=>c.value);
-            if(!ids.length)return toast('Select at least one order',true);
-            for(const id of ids){
-              const src=DB.order(id);
-              for(const it of src.items){
-                const ex=o.items.find(x=>x.sku===it.sku&&x.price===it.price);
-                if(ex)ex.qty+=it.qty;else o.items.push(Object.assign({},it));
-              }
-              DB.d.orders=DB.d.orders.filter(x=>x.id!==id);
-            }
-            o.total=DB.orderTotal(o);
-            saveAudit('order.merge',o.number,'Merged '+ids.length+' order(s) into '+o.number);
-            close();render();toast('Orders merged');
-          };
-        }});
-    };
-
-    const chg=el.querySelector('#btn-chg-cust');
-    if(chg)chg.onclick=()=>{
-      if(o.status!=='pending')return toast('Only pending orders can be reassigned',true);
-      const customers=DB.d.users.filter(u=>['customer','special customer'].includes(u.role));
-      Modal.open({title:'Change customer',
-        body:`<div class="field"><label>Reassign ${esc(o.number)} to</label>
-          <select class="select" id="cc-sel">${customers.map(c=>`<option value="${c.id}" ${c.id===o.customerId?'selected':''}>${esc(c.business)}</option>`).join('')}</select></div>
-          <div class="small muted">Both customers receive an email.</div>`,
-        foot:`<button class="btn" data-x>Cancel</button><button class="btn btn-dark" data-ok>Reassign</button>`,
-        setup(ov,close){
-          ov.querySelector('[data-x]').onclick=close;
-          ov.querySelector('[data-ok]').onclick=()=>{
-            const nid=ov.querySelector('#cc-sel').value;
-            const oldN=DB.userName(o.customerId);
-            o.customerId=nid;
-            saveAudit('order.reassign',o.number,oldN+' → '+DB.userName(nid)+' (both notified by email)');
-            close();render();toast('Order reassigned — both customers emailed');
-          };
-        }});
-    };
+    /* Merge orders and Change customer used to rebuild order lines and
+       ownership in page state. Both move reserved stock between orders, both
+       claimed to email the customer, and neither reached the database. They
+       are disabled above; a disabled control needs no handler, and there is
+       deliberately none here so the behaviour cannot quietly come back. */
 
     const lbl=el.querySelector('#btn-labels');
     if(lbl)lbl.onclick=()=>{
@@ -364,16 +413,28 @@ App.register('order',function(el,args){
         }});
     };
 
-    /* ------- scanning ------- */
+    /* ------- scanning -------
+       Collection counts move NO stock — they record how much of an already
+       reserved line the warehouse has physically picked — so they are safe to
+       write, and the server clamps each count to the ordered quantity. */
     const st=el.querySelector('#btn-start-scan');
-    if(st)st.onclick=()=>{
+    if(st)st.onclick=async()=>{
       if(o.status!=='pending')return;
-      local.scanning=true;o.status='collecting';saveAudit('order.collect.start',o.number,'Scanning started');render();
-      setTimeout(()=>{const si=el.querySelector('#scan-input');if(si)si.focus();},50);
+      if(await run(st,{status:'collecting'},null,'Could not start collection')){
+        local.scanning=true;
+        render();
+        setTimeout(()=>{const s=el.querySelector('#scan-input');if(s)s.focus();},50);
+      }
     };
     const cs=el.querySelector('#btn-cancel-scan');
-    if(cs)cs.onclick=()=>{local.scanning=false;o.status='pending';saveAudit('order.collect.cancel',o.number,'Scanning cancelled');render();};
+    if(cs)cs.onclick=async()=>{
+      if(await run(cs,{status:'pending'},null,'Could not cancel collection')){
+        local.scanning=false;
+        render();
+      }
+    };
 
+    const pending=local.pending;
     const si=el.querySelector('#scan-input');
     if(si)si.addEventListener('keydown',e=>{
       if(e.key!=='Enter')return;
@@ -381,249 +442,168 @@ App.register('order',function(el,args){
       if(!code)return;
       const it=o.items.find(x=>x.sku.toLowerCase()===code.toLowerCase());
       if(!it){toast('SKU '+code+' is not on this order',true);return;}
-      if(it.collected>=it.qty){toast(it.sku+' already fully collected',true);return;}
-      it.collected++;beep();DB.save();render();
+      if(scanned(it)>=it.qty){toast(it.sku+' already fully collected',true);return;}
+      pending[it.sku]=(pending[it.sku]||0)+1;beep();render();
       setTimeout(()=>{const s2=el.querySelector('#scan-input');if(s2)s2.focus();},30);
     });
     const cam=el.querySelector('#btn-camera');
     if(cam)cam.onclick=()=>toast('Camera scanning: point your device camera at the barcode');
     el.querySelectorAll('[data-count]').forEach(b=>b.onclick=()=>{
       const it=o.items[parseInt(b.dataset.count,10)];
-      if(it.collected<it.qty){it.collected++;DB.save();render();}
+      if(scanned(it)<it.qty){pending[it.sku]=(pending[it.sku]||0)+1;render();}
     });
 
     const comp=el.querySelector('#btn-complete');
     if(comp)comp.onclick=()=>{
-      const missing=o.items.filter(i=>i.collected<i.qty);
-      if(!missing.length){finishCollection(false);return;}
+      const missing=o.items.filter(i=>scanned(i)<i.qty);
+      if(!missing.length){finishCollection();return;}
       Modal.open({title:'Missing items',size:'wide',
         body:`<div class="small">Some items weren't scanned (out of stock / not found):</div>
         <div class="table-wrap"><table class="tbl"><thead><tr><th>Product</th><th>SKU</th><th>Ordered</th><th>Collected</th><th>Missing</th></tr></thead>
-        <tbody>${missing.map(i=>`<tr><td>${esc(i.name)}</td><td>${esc(i.sku)}</td><td>${i.qty}</td><td>${i.collected}</td><td style="color:var(--red);font-weight:600">${i.qty-i.collected}</td></tr>`).join('')}</tbody></table></div>`,
+        <tbody>${missing.map(i=>`<tr><td>${esc(i.name)}</td><td>${esc(i.sku)}</td><td>${i.qty}</td><td>${scanned(i)}</td><td style="color:var(--red);font-weight:600">${i.qty-scanned(i)}</td></tr>`).join('')}</tbody></table></div>
+        ${/* The old dialog offered "Complete + send missing to Backorders",
+             which built a backorder in page state with its own BO number and
+             silently rewrote the order's quantities. Nothing reached the
+             database and no stock was released. */''}
+        <div class="small muted" style="margin-top:10px">Raising a backorder for the
+        missing pieces is <b>${esc(NOT_IN_RELEASE.toLowerCase())}</b> — it changes stock
+        allocation and has no server endpoint yet. Complete the order and record the
+        shortfall in the comments.</div>`,
         foot:`<button class="btn" data-x>Cancel</button>
-              <button class="btn" data-anyway>Complete Anyway</button>
-              <button class="btn btn-dark" data-backorder>Complete + send missing to Backorders</button>`,
+              <button class="btn btn-dark" data-anyway>Complete anyway</button>`,
         setup(ov,close){
           ov.querySelector('[data-x]').onclick=close;
-          ov.querySelector('[data-anyway]').onclick=()=>{close();finishCollection(false);toast('Order completed — customer emailed about missing items');};
-          ov.querySelector('[data-backorder]').onclick=()=>{close();finishCollection(true);};
+          ov.querySelector('[data-anyway]').onclick=()=>{close();finishCollection();};
         }});
     };
 
-    function finishCollection(makeBackorder){
-      const missing=o.items.filter(i=>i.collected<i.qty);
-      if(makeBackorder&&missing.length){
-        const num='BO'+(DB.d.nextBackorderNumber++);
-        DB.d.backorders.unshift({id:uid('bo'),number:num,orderId:o.id,orderNumber:o.number,
-          customerId:o.customerId,status:'open',reason:'out_of_stock',eligible:false,
-          items:missing.map(i=>({sku:i.sku,name:i.name,color:i.color,qty:i.qty-i.collected,price:i.price})),
-          createdAt:todayISO(),convertedOrderId:null});
-        /* keep only collected qty on the original order */
-        o.items.forEach(i=>{i.qty=Math.max(i.collected,0)||i.collected;});
-        o.items=o.items.filter(i=>i.qty>0);
-        DB.audit('backorder.create',num,'From '+o.number+' — '+missing.length+' item(s)');
-        toast('Backorder '+num+' created for missing items');
+    async function finishCollection(){
+      const collected=o.items.map(i=>({sku:i.sku,collected:scanned(i)}));
+      if(await run(comp,{status:'collected',collected},'Collection completed',
+                   'Collection was not saved')){
+        local.pending={};local.scanning=false;
+        render();
       }
-      o.status='collected';o.total=DB.orderTotal(o);local.scanning=false;
-      saveAudit('order.collect.complete',o.number,'Collection completed');
-      render();
     }
 
-    /* ------- item editing ------- */
-    el.querySelectorAll('[data-edit-item]').forEach(b=>b.onclick=()=>{
-      const ix=parseInt(b.dataset.editItem,10),it=o.items[ix];
-      Modal.open({title:'Edit item — '+it.sku,
-        body:`
-        <div class="two-col">
-          <div class="field"><label>Quantity</label><input class="input" id="ei-qty" type="number" min="1" value="${it.qty}"></div>
-          <div class="field"><label>Swap to SKU</label><input class="input" id="ei-swap" placeholder="Type a different SKU"></div>
-        </div>
-        <div class="small muted">Swapping releases the old stock and reserves the new one automatically.</div>`,
-        foot:`<button class="btn" data-x>Cancel</button><button class="btn btn-dark" data-ok>Save</button>`,
-        setup(ov,close){
-          ov.querySelector('[data-x]').onclick=close;
-          ov.querySelector('[data-ok]').onclick=()=>{
-            const qty=parseInt(ov.querySelector('#ei-qty').value,10)||it.qty;
-            const swap=ov.querySelector('#ei-swap').value.trim();
-            if(swap){
-              const hit=DB.variationBySku(swap);
-              if(!hit)return toast('SKU '+swap+' not found',true);
-              releaseStock(it.sku,it.qty);reserveStock(hit.v.sku,qty);
-              const cust=DB.user(o.customerId);
-              it.sku=hit.v.sku;it.name=hit.p.name;it.color=hit.v.color;
-              it.price=DB.priceForCustomer(cust,hit.p,hit.v);
-              DB.audit('order.item.swap',o.number,'Swapped to '+hit.v.sku);
-            }
-            it.qty=qty;it.collected=Math.min(it.collected,qty);
-            o.total=DB.orderTotal(o);saveAudit('order.item.edit',o.number,it.sku+' qty → '+qty);
-            close();render();
-          };
-        }});
-    });
-    el.querySelectorAll('[data-del-item]').forEach(b=>b.onclick=()=>{
-      const ix=parseInt(b.dataset.delItem,10),it=o.items[ix];
-      Modal.confirm('Delete item','Remove <b>'+esc(it.name)+'</b> ('+esc(it.sku)+') from the order? The total is recalculated and the stock is released.',()=>{
-        releaseStock(it.sku,it.qty);
-        o.items.splice(ix,1);o.total=DB.orderTotal(o);
-        saveAudit('order.item.delete',o.number,'Removed '+it.sku);
-        render();toast('Item removed — stock released');
-      },'Delete');
-    });
-    const add=el.querySelector('#btn-add-item');
-    if(add)add.onclick=()=>{
-      Modal.open({title:'Add item',
-        body:`<div class="two-col">
-          <div class="field"><label>SKU</label><input class="input" id="ai-sku" placeholder="Type a SKU"></div>
-          <div class="field"><label>Quantity</label><input class="input" id="ai-qty" type="number" min="1" value="1"></div>
-        </div>
-        <div class="small muted">The price is set according to the customer's pricing tier.</div>`,
-        foot:`<button class="btn" data-x>Cancel</button><button class="btn btn-dark" data-ok>Add</button>`,
-        setup(ov,close){
-          ov.querySelector('[data-x]').onclick=close;
-          ov.querySelector('[data-ok]').onclick=()=>{
-            const sku=ov.querySelector('#ai-sku').value.trim(),qty=parseInt(ov.querySelector('#ai-qty').value,10)||1;
-            const hit=DB.variationBySku(sku);
-            if(!hit)return toast('SKU not found',true);
-            const cust=DB.user(o.customerId);
-            const price=DB.priceForCustomer(cust,hit.p,hit.v);
-            const ex=o.items.find(x=>x.sku===hit.v.sku);
-            if(ex)ex.qty+=qty;else o.items.push({sku:hit.v.sku,name:hit.p.name,color:hit.v.color,qty,price,collected:0});
-            reserveStock(hit.v.sku,qty);
-            o.total=DB.orderTotal(o);saveAudit('order.item.add',o.number,hit.v.sku+' × '+qty);
-            close();render();toast('Item added at '+orderMoney(price,o));
-          };
-        }});
-    };
+    /* ------- item editing -------
+       Add / edit / swap / delete all released and reserved stock straight in
+       page state via the old releaseStock()/reserveStock() helpers, which took
+       whatever the browser happened to believe was on the shelf. Those helpers
+       and their controls are gone; the buttons above are disabled and explain
+       why. Restoring them needs a server allocation endpoint, not a handler. */
+
     const disc=el.querySelector('#btn-discount');
     if(disc)disc.onclick=()=>{
-      const sess=Auth.current();
-      if(!['admin','super-agent'].includes(sess.role))return toast('Admin / super-agent only',true);
+      if(!canChangeMoney())return toast('Only an admin can change an order discount.',true);
       Modal.open({title:'Admin discount',
         body:`<div class="two-col">
           <div class="field"><label>Type</label><select class="select" id="ad-type"><option value="pct">Percentage (%)</option><option value="fix">Fixed amount (USD)</option></select></div>
           <div class="field"><label>Value</label><input class="input" id="ad-val" type="number" min="0" value="${o.discountPct||o.discount||0}"></div>
         </div>
-        <div class="small muted">Applied on top of any existing promotion. Admin / super-agent only.</div>`,
+        <div class="small muted">Applied on top of any existing promotion. Admin only.
+        The order total is recalculated on the server.</div>`,
         foot:`<button class="btn" data-x>Cancel</button><button class="btn btn-dark" data-ok>Apply</button>`,
         setup(ov,close){
           ov.querySelector('[data-x]').onclick=close;
-          ov.querySelector('[data-ok]').onclick=()=>{
+          const ok=ov.querySelector('[data-ok]');
+          ok.onclick=async()=>{
             const v=parseFloat(ov.querySelector('#ad-val').value)||0;
-            if(ov.querySelector('#ad-type').value==='pct'){o.discountPct=v;o.discount=0;}
-            else{o.discount=v;o.discountPct=0;}
-            o.total=DB.orderTotal(o);
-            saveAudit('order.discount',o.number,'Admin discount applied');
-            close();render();toast('Discount applied');
+            const patch=ov.querySelector('#ad-type').value==='pct'
+              ? {discountPct:v} : {discount:v};
+            ok.disabled=true;
+            try{
+              const res=await DB.patchOrder(o.id,patch);
+              o=(res&&res.order)||DB.order(o.id)||o;
+              close();render();toast('Discount applied');
+            }catch(err){ok.disabled=false;writeFailed(err,'Discount was not applied');}
           };
         }});
     };
 
     /* ------- status & shipping ------- */
-    el.querySelector('#btn-set-status').onclick=()=>{
+    const stBtn=el.querySelector('#btn-set-status');
+    stBtn.onclick=async()=>{
       const ns=el.querySelector('#sel-status').value;
-      const old=o.status;o.status=ns;
-      if(ns==='pending')o.items.forEach(i=>i.collected=0);
-      saveAudit('order.status',o.number,old+' → '+ns);
-      render();toast('Status updated to '+ns);
+      const old=o.status;
+      if(ns===old)return toast('Order is already '+ns);
+      await run(stBtn,{status:ns},'Status updated to '+ns,'Status was not updated');
     };
-    el.querySelector('#btn-ship').onclick=()=>{
+    const shipBtn=el.querySelector('#btn-ship');
+    shipBtn.onclick=async()=>{
       const num=el.querySelector('#ship-track').value.trim();
       if(!num)return toast('Enter a tracking number',true);
-      o.tracking={company:el.querySelector('#ship-co').value,number:num};
-      o.status='shipped';
-      saveAudit('order.ship',o.number,o.tracking.company+' '+num+' — customer notified');
-      render();toast('Order marked as shipped — customer notified');
+      const company=el.querySelector('#ship-co').value;
+      await run(shipBtn,{tracking:{company,number:num},status:'shipped'},
+               'Order marked as shipped','Order was not marked as shipped');
     };
 
     /* ------- comments ------- */
-    el.querySelector('#btn-comment').onclick=()=>{
+    const cmt=el.querySelector('#btn-comment');
+    cmt.onclick=async()=>{
       const inp=el.querySelector('#comment-input');
       const txt=inp.value.trim();if(!txt)return;
-      o.comments.push({by:Auth.current().name,text:txt,at:new Date().toISOString()});
-      saveAudit('order.comment',o.number,'Comment posted — all admins emailed');
-      render();toast('Comment posted — all admins emailed');
+      await run(cmt,{comment:txt},'Comment posted','Comment was not posted');
     };
+
+    /* A disabled control that is somehow reached still says what it is. */
+    el.querySelectorAll('[data-off]').forEach(b=>{
+      b.onclick=()=>toast(b.dataset.off+': '+NOT_IN_RELEASE,true);
+    });
   }
   render();
 });
 
 /* ============================================================ QUICK SCAN EDIT */
+/* Quick Scan EDIT added and removed order lines and moved stock straight in
+   browser state — the same unsafe path as the order screen's item controls,
+   and with orders no longer syncing from the browser it would now change
+   nothing at all. The scanner is therefore READ-ONLY in this release: it looks
+   an order up from the database and shows exactly what is on it. */
 App.register('quick-scan',function(el){
-  const state=App._qs||(App._qs={order:null,qty:1,scans:[]});
+  const state=App._qs||(App._qs={order:null});
 
   function render(){
+    if(!requireLiveData(el,render,'Orders could not be loaded'))return;
     const o=state.order?DB.order(state.order):null;
     el.innerHTML=`
-    <div class="flex" style="margin-bottom:14px">${I.scan}<div class="page-title" style="font-size:16px">Quick Order Scanner</div></div>
-    <div class="info-banner">${I.eye}<div>Scan SKUs (or EANs) to add, increment, or decrement product lines on an existing <b>pending</b>, <b>approved</b> or <b>collecting</b> order. Promotions re-evaluate automatically after every scan.</div></div>
+    <div class="flex" style="margin-bottom:14px">${I.scan}<div class="page-title" style="font-size:16px">Quick Order Lookup</div></div>
+    <div class="note-banner">${I.eye}<div>Scan or type an order number to see what is on it.
+      Editing order lines by scanner is <b>${esc(NOT_IN_RELEASE.toLowerCase())}</b> — it changes
+      stock allocation and has no server endpoint yet.</div></div>
     <div class="card card-pad" style="margin-top:14px">
       <div class="flex">
-        <input class="input" id="qs-order" placeholder="Order number" style="flex:1" value="${o?esc(o.number):''}">
-        <button class="btn btn-dark" id="qs-load">Load Order</button>
+        <input class="input" id="qs-order" placeholder="Order number" style="flex:1" value="${o?esc(o.number):''}" autofocus>
+        <button class="btn btn-dark" id="qs-load">Load order</button>
       </div>
     </div>
     ${o?`
     <div class="card card-pad" style="margin-top:14px">
       <div class="flex" style="justify-content:space-between">
-        <div><b>${esc(o.number)}</b> &middot; ${esc(DB.userName(o.customerId))}</div>
+        <div><b>${esc(o.number)}</b> &middot; ${esc(DB.orderCustomerName(o))}</div>
         ${statusBadge(o.status)}
         <div class="money-green">${orderMoney(DB.orderTotal(o),o)}</div>
       </div>
-      ${['pending','approved','collecting'].includes(o.status)?`
-      <div class="divider"></div>
-      <div class="flex">
-        <div class="fieldset-outline" style="width:130px"><label>Quantity</label><input type="number" id="qs-qty" value="${state.qty}"></div>
-        <input class="input" id="qs-sku" placeholder="Scan a SKU or barcode (EAN) and press Enter" style="flex:1;font-size:15px" autofocus>
-      </div>
-      <div class="small muted" style="margin-top:8px">A negative quantity removes items.</div>`:
-      `<div class="note-banner" style="margin-top:12px">This order is <b>${o.status}</b> — quick scan works on pending / approved / collecting orders only.</div>`}
-    </div>
-    <div class="card card-pad" style="margin-top:14px">
-      <div class="card-title">Recent scans</div>
-      ${state.scans.length?state.scans.map(s=>`
-        <div class="flex" style="padding:7px 0;border-bottom:1px solid var(--line-2)">
-          <span class="dot" style="background:${s.qty>0?'var(--green)':'var(--red)'}"></span>
-          <b>${esc(s.sku)}</b><span class="muted">${esc(s.name)}</span>
-          <span>${s.qty>0?'+':''}${s.qty}</span>
-          <span class="right">Total: <b>${orderMoney(s.total,o)}</b></span>
-        </div>`).join(''):'<div class="muted small">No scans yet.</div>'}
+      <div class="table-wrap" style="margin-top:12px"><table class="tbl">
+        <thead><tr><th>Product</th><th>SKU</th><th class="num">Qty</th><th class="num">Collected</th><th class="num">Line total (${esc(orderCurrencyCode(o))})</th></tr></thead>
+        <tbody>${o.items.map(it=>`<tr>
+          <td><div class="cell-main">${esc(it.name)}</div><div class="cell-sub">${
+            it.brand?esc(it.brand)+' | ':''}Color: ${esc(it.color||'N/A')}</div></td>
+          <td>${esc(it.sku)}</td><td class="num">${it.qty}</td>
+          <td class="num">${it.collected||0}</td>
+          <td class="num">${orderMoney(it.qty*it.price,o)}</td></tr>`).join('')}
+        </tbody></table></div>
+      <div class="small muted" style="margin-top:10px">To record a collection, open
+        <a class="link" href="#/order/${esc(o.id)}">${esc(o.number)}</a> and use Warehouse Collection.</div>
     </div>`:''}`;
 
     el.querySelector('#qs-load').onclick=()=>{
       const n=el.querySelector('#qs-order').value.trim();
       const ord=DB.order(n)||DB.order('SO'+n);
       if(!ord)return toast('Order not found',true);
-      state.order=ord.id;state.scans=[];render();
+      state.order=ord.id;render();
     };
     el.querySelector('#qs-order').addEventListener('keydown',e=>{if(e.key==='Enter')el.querySelector('#qs-load').click();});
-    const qty=el.querySelector('#qs-qty');
-    if(qty)qty.onchange=()=>{state.qty=parseInt(qty.value,10)||1;};
-    const sku=el.querySelector('#qs-sku');
-    if(sku)sku.addEventListener('keydown',e=>{
-      if(e.key!=='Enter')return;
-      const code=sku.value.trim();sku.value='';if(!code)return;
-      const hit=DB.variationBySku(code);
-      if(!hit)return toast('SKU / EAN not found',true);
-      const o=DB.order(state.order);
-      const q=state.qty;
-      let it=o.items.find(x=>x.sku===hit.v.sku);
-      if(q>0){
-        if(it)it.qty+=q;
-        else{const cust=DB.user(o.customerId);o.items.push({sku:hit.v.sku,name:hit.p.name,color:hit.v.color,qty:q,price:DB.priceForCustomer(cust,hit.p,hit.v),collected:0});}
-        reserveStock(hit.v.sku,q);
-      }else if(it){
-        it.qty=Math.max(0,it.qty+q);
-        releaseStock(hit.v.sku,-q);
-        if(it.qty===0)o.items=o.items.filter(x=>x!==it);
-      }else return toast(hit.v.sku+' is not on the order',true);
-      o.total=DB.orderTotal(o);
-      DB.save();DB.audit('order.quickscan',o.number,hit.v.sku+' '+(q>0?'+':'')+q);
-      beep();
-      state.scans.unshift({sku:hit.v.sku,name:hit.p.name,qty:q,total:o.total});
-      state.scans=state.scans.slice(0,12);
-      render();
-      setTimeout(()=>{const s2=el.querySelector('#qs-sku');if(s2)s2.focus();},30);
-    });
   }
   render();
 });
@@ -642,6 +622,7 @@ App.register('backorders',function(el){
   const state=App._bo||(App._bo={status:'',page:1});
 
   function render(){
+    if(!requireLiveData(el,render,'Backorders could not be loaded'))return;
     let list=DB.d.backorders.slice();
     if(state.status)list=list.filter(b=>b.status===state.status);
     const p=paginate(list,state.page);
@@ -661,8 +642,8 @@ App.register('backorders',function(el){
         <tbody>
         ${p.slice.length?p.slice.map(b=>`<tr>
           <td class="cell-main">${esc(b.number)}</td>
-          <td>${esc(b.orderNumber)}</td>
-          <td>${esc(DB.userName(b.customerId))}</td>
+          <td>${esc(b.orderNumber||'—')}</td>
+          <td>${esc(b.customerName||DB.userName(b.customerId))}</td>
           <td>${statusBadge(b.status)}</td>
           <td><span class="badge ${b.reason==='out_of_stock'?'yellow':'gray'}">${esc(b.reason)}</span></td>
           ${/* Two DIFFERENT facts, deliberately in two columns:
@@ -691,6 +672,7 @@ App.register('backorders',function(el){
           </div></td>
         </tr>`).join(''):`<tr><td colspan="10" class="empty-cell">No backorders found</td></tr>`}
         </tbody></table></div>
+      ${liveCountNote(DB.liveMeta&&DB.liveMeta.backorders)}
       ${pagerHTML(p)}
     </div>`;
 
@@ -701,11 +683,11 @@ App.register('backorders',function(el){
        snapshot, so it could otherwise write a stale `open`/`eligible` over a
        backorder the conversion endpoint had just marked converted. */
     el.querySelectorAll('[data-el]').forEach(b=>b.onclick=async()=>{
-      const bo=DB.d.backorders.find(x=>x.id===b.dataset.el);
+      const bo=DB.backorder(b.dataset.el);
       b.disabled=true;
       try{
         await DB.setBackorderEligibility(bo.id,true);
-        await DB.init();                       // re-pull; the server is the truth
+        await DB.refreshLive();                // re-pull; the server is the truth
         render();toast(bo.number+' marked stock-cleared');
       }catch(err){
         b.disabled=false;toast(err.message||'Could not update eligibility',true);
@@ -719,9 +701,9 @@ App.register('backorders',function(el){
        notes, locked prices) and records the inventory movements — all in one
        transaction. Insufficient stock returns 409 and changes nothing. */
     el.querySelectorAll('[data-cv]').forEach(b=>b.onclick=()=>{
-      const bo=DB.d.backorders.find(x=>x.id===b.dataset.cv);
+      const bo=DB.backorder(b.dataset.cv);
       Modal.confirm('Convert Backorder',
-        'Convert <b>'+esc(bo.number)+'</b> into a fulfillment order for '+esc(DB.userName(bo.customerId))+'?'
+        'Convert <b>'+esc(bo.number)+'</b> into a fulfillment order for '+esc(bo.customerName||DB.userName(bo.customerId))+'?'
         +'<div class="small muted" style="margin-top:8px">Prices are locked from the backorder and the original order context is reused. '
         +'Every line must be fully in stock — if any is short, nothing is changed and you will be told what is missing.</div>',
         async ()=>{
@@ -736,7 +718,7 @@ App.register('backorders',function(el){
             /* Re-pull the snapshot: stock, the new order and the backorder's
                status all changed on the server, and page state must not be
                allowed to drift from it. */
-            await DB.init();
+            await DB.refreshLive();
             if(r.orderId) location.hash='#/order/'+r.orderId; else render();
           }catch(err){
             b.disabled=false;
@@ -757,7 +739,7 @@ App.register('backorders',function(el){
         },'Convert');
     });
     el.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>{
-      const bo=DB.d.backorders.find(x=>x.id===b.dataset.view);
+      const bo=DB.backorder(b.dataset.view);
       Modal.open({title:'Backorder '+bo.number,size:'wide',
         body:`
         ${/* Operational context staff need to process it. A fully backordered
@@ -765,8 +747,8 @@ App.register('backorders',function(el){
              placed it, and the currency/rate/addresses/notes it was struck with.
              Deliberately excludes pricing profiles, balances and tax ids. */''}
         <div class="kv">
-          <dt>Customer</dt><dd>${esc(DB.userName(bo.customerId))}</dd>
-          <dt>Placed by</dt><dd>${bo.agentId?esc(DB.userName(bo.agentId)):'Customer'} <span class="badge gray">${esc(bo.source||'customer')}</span></dd>
+          <dt>Customer</dt><dd>${esc(bo.customerName||DB.userName(bo.customerId))}</dd>
+          <dt>Placed by</dt><dd>${bo.agentId?esc(bo.agentName||DB.userName(bo.agentId)):'Customer'} <span class="badge gray">${esc(bo.source||'customer')}</span></dd>
           <dt>Source order</dt><dd>${bo.orderNumber?esc(bo.orderNumber):'— (fully backordered)'}</dd>
           <dt>New order</dt><dd>${bo.convertedOrderNumber?esc(bo.convertedOrderNumber):'—'}</dd>
           <dt>Status / reason</dt><dd>${statusBadge(bo.status)} <span class="badge gray">${esc(bo.reason)}</span></dd>
@@ -1203,6 +1185,9 @@ App.register('reports',function(el){
   }
 
   function render(){
+    /* Order-based aggregates. No live orders means no report — not a report of
+       zero, which would read as a real trading figure. */
+    if(!requireLiveData(el,render,'Reports could not be generated'))return;
     el.innerHTML=`
     <div class="page-head"><div class="page-title">Reports</div></div>
     <div class="card card-pad">

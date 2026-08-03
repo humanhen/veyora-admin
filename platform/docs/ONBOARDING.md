@@ -70,10 +70,15 @@ platform/server/
     js/  api.js  ui.js  app.js  pages_home.js  pages_auth.js  pages_catalog.js
          pages_cart.js  pages_orders.js  pages_account.js  pages_agent.js
     assets/             logos, hero images, login-hero.jpg
-  admin-overrides/      API-backed data.js/app.js that OVERLAY the repo-root admin at deploy
 platform/docs/          ONBOARDING.md (this), SESSION-HANDOFF.md, RUNBOOK.md, OLD-API-MAP.md
-<repo root>  index.html, js/, css/   the ADMIN panel UI (demo look; deploy overlays the real data layer)
+<repo root>  index.html, js/, css/   the ADMIN panel UI (API-backed; deployed as-is)
 ```
+
+Batch 1H removed `platform/server/admin-overrides/`. It held API-backed forks of
+`js/app.js` and `js/data.js` that the deploy overlaid on top of the repo-root admin,
+which itself kept a seeded demo store. Whenever the overlay was missed the panel
+silently served 1,107 invented orders. There is now ONE admin — the repo root — and
+it is API-backed itself.
 
 The storefront SPA is **hash-routed** (`#/products`, `#/cart`, …). `Routes[hash]` objects with a
 `render(el, args)`; `route()` in `app.js` is the dispatcher (runs on `hashchange`/`DOMContentLoaded`).
