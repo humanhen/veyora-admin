@@ -638,7 +638,11 @@ App.register('backorders',function(el){
     </div>
     <div class="card">
       <div class="table-wrap"><table class="tbl">
-        <thead><tr><th>Backorder #</th><th>Original Order</th><th>Customer</th><th>Status</th><th>Reason</th><th>Customer authorised</th><th>Stock cleared</th><th>Items</th><th>Created</th><th>Actions</th></tr></thead>
+        ${/* The four longest headings wrap onto a second line and the actions
+             column shrinks to fit. Ten nowrap headings plus a one-line action
+             row made the table wider than its card, which cut off Convert and
+             the details control at 1366px. */''}
+        <thead><tr><th class="wrap">Backorder #</th><th class="wrap">Original Order</th><th>Customer</th><th>Status</th><th>Reason</th><th class="wrap">Customer authorised</th><th class="wrap">Stock cleared</th><th>Items</th><th>Created</th><th class="col-actions">Actions</th></tr></thead>
         <tbody>
         ${p.slice.length?p.slice.map(b=>`<tr>
           <td class="cell-main">${esc(b.number)}</td>
@@ -661,7 +665,7 @@ App.register('backorders',function(el){
           <td>${b.items.reduce((s,i)=>s+i.qty,0)}<br/><span class="cell-sub">${
             moneyIn(b.items.reduce((s,i)=>s+i.qty*i.price,0),b)}</span></td>
           <td>${fmtDateShort(b.createdAt)}</td>
-          <td><div class="row-actions">
+          <td class="col-actions"><div class="row-actions">
             ${/* Convert is always offered on a processable record: the SERVER
                  decides on real, locked stock and refuses with exact shortages
                  if any line is short. 'approved' is accepted alongside 'open'

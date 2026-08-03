@@ -225,22 +225,27 @@ test('the search matches number, customer and email — now against live data', 
 
 /* ============ TASKS 4 & 5 — backorder headings and terminal state ============ */
 
+/* Batch 1I gave four of these headings a `wrap` class and the last one a
+   `col-actions` class so the table stops forcing its buttons past the card
+   edge. The heading TEXT and the column COUNT are what these tests police, so
+   they now tolerate attributes without loosening either check. */
 const boHeader = () => {
-  const m = codeOf('js/pages_sales.js').match(/<thead><tr><th>Backorder #[\s\S]*?<\/tr><\/thead>/);
+  const m = codeOf('js/pages_sales.js').match(/<thead><tr><th[^>]*>Backorder #[\s\S]*?<\/tr><\/thead>/);
   assert.ok(m, 'the backorder table header must exist');
   return m[0];
 };
 
 test('the two "Customer" columns are disambiguated', () => {
   const h = boHeader();
-  assert.match(h, /<th>Customer<\/th>/);
-  assert.match(h, /<th>Customer authorised<\/th>/);
-  assert.equal((h.match(/<th>Customer<\/th>/g) || []).length, 1,
+  assert.match(h, /<th[^>]*>Customer<\/th>/);
+  assert.match(h, /<th[^>]*>Customer authorised<\/th>/);
+  assert.equal((h.match(/<th[^>]*>Customer<\/th>/g) || []).length, 1,
     'only ONE column may be labelled plain "Customer"');
 });
 
 test('the backorder table colspan matches its column count', () => {
-  const cols = (boHeader().match(/<th>/g) || []).length;
+  // `<th(?=[\s>])` so the enclosing `<thead>` is not counted as an 11th column.
+  const cols = (boHeader().match(/<th(?=[\s>])[^>]*>/g) || []).length;
   assert.equal(cols, 10);
   const src = codeOf('js/pages_sales.js');
   assert.match(src, /colspan="10" class="empty-cell">No backorders found/);

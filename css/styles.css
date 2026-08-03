@@ -183,7 +183,17 @@ table.tbl{width:100%;border-collapse:collapse;font-size:12.5px;background:#fff}
 .tbl .num{text-align:right}
 .cell-main{font-weight:500}
 .cell-sub{font-size:11px;color:var(--muted);margin-top:2px}
-.row-actions{display:flex;gap:2px;align-items:center}
+/* Row actions must never be clipped (Batch 1I).
+   The Backorders row carries three controls — "Mark stock cleared", "Convert"
+   and the details eye — and a nowrap flex container forced them onto one
+   ~224px line. That pushed the ten-column table past the width of its card, so
+   Convert and the eye were cut off at 1366px. Wrapping drops the column's
+   minimum to the widest single button and keeps every control reachable.
+   Column-gap stays at 2px so no existing table's spacing changes; the 6px
+   row-gap only applies once something has actually wrapped. */
+.row-actions{display:flex;gap:6px 2px;align-items:center;flex-wrap:wrap}
+/* A long heading may use two lines rather than widen the whole table. */
+.tbl thead th.wrap{white-space:normal;min-width:74px}
 
 /* ================= Badges ================= */
 .badge{display:inline-flex;align-items:center;gap:5px;border-radius:999px;padding:3px 11px;font-size:11px;font-weight:500;white-space:nowrap}
@@ -259,7 +269,10 @@ pre.payload{background:#faf7f0;border:1px solid var(--line);border-radius:10px;p
 .dash .range-bar .chip{padding:6px 13px;font-size:12px}
 .dash .grid{gap:10px}
 .dash .stat-card{padding:12px 14px}
-.dash .stat-label{font-size:9px}
+/* Two of the six pulse labels now carry "(USD)" and run to two lines. A shared
+   minimum keeps every stat value on the same baseline instead of leaving the
+   row ragged. */
+.dash .stat-label{font-size:9px;align-items:flex-start;min-height:2.4em}
 .dash .stat-value{font-size:19px;margin-top:5px}
 .dash .stat-note{font-size:9.5px;margin-top:3px}
 .dash .section-label{margin:14px 0 8px}
@@ -408,6 +421,15 @@ pre.payload{background:#faf7f0;border:1px solid var(--line);border-radius:10px;p
   .range-bar{overflow-x:auto;flex-wrap:nowrap;-webkit-overflow-scrolling:touch}
   .range-bar .chip{flex-shrink:0}
   .dash .grid[style*="2fr 1fr"]{grid-template-columns:1fr!important}
+}
+
+/* Desktop only: the actions column shrinks to fit but never below the widest
+   control, so a wrapped button is never cut off by its own cell. Scoped above
+   820px because below that every row becomes a card and a 1% cell would
+   collapse. */
+@media(min-width:821px){
+  .tbl th.col-actions,.tbl td.col-actions{width:1%}
+  .tbl td.col-actions .row-actions{min-width:132px}
 }
 
 /* --- card-style tables on small screens --- */

@@ -81,9 +81,13 @@ App.register('dashboard',function(el){
 
     <div class="section-label">PULSE &middot; LAST 24H <span style="font-weight:400;letter-spacing:0">&nbsp; ${fmtR(cut24)} &rarr; ${fmtR(end)} &middot; deltas vs prior 24h</span></div>
     <div class="grid g6">
-      <div class="stat-card"><div class="stat-label">REVENUE &middot; LAST 24H ${I.money}</div><div class="stat-value">${p24.length?money(rev24):'—'}</div><div class="stat-note">${p24.length?'vs prior 24h':'no prior 24h data to compare'}</div></div>
+      ${/* Both figures are sums across orders that may be in different
+           currencies, so they can only honestly be shown in the base currency
+           — same reasoning as the REVENUE (USD) tile below. The calculations
+           are unchanged; only the labels say which money this is. */''}
+      <div class="stat-card"><div class="stat-label">REVENUE (USD) &middot; LAST 24H ${I.money}</div><div class="stat-value">${p24.length?money(rev24):'—'}</div><div class="stat-note">${p24.length?'vs prior 24h':'no prior 24h data to compare'}</div></div>
       <div class="stat-card"><div class="stat-label">ORDERS &middot; LAST 24H ${I.cart}</div><div class="stat-value">${p24.length}</div><div class="stat-note">vs prior 24h (0)</div></div>
-      <div class="stat-card"><div class="stat-label">AVG ORDER VALUE &middot; L… ${I.chart}</div><div class="stat-value">${aov24!=null?money(aov24):'—'}</div><div class="stat-note">no prior 24h data</div></div>
+      <div class="stat-card"><div class="stat-label">AVG ORDER VALUE (USD) &middot; LAST 24H ${I.chart}</div><div class="stat-value">${aov24!=null?money(aov24):'—'}</div><div class="stat-note">no prior 24h data</div></div>
       <div class="stat-card"><div class="stat-label">ACTIVE CARTS &middot; N… ${I.cart}</div><div class="stat-value">0</div><div class="stat-note">click to show abandoned-ca…</div></div>
       <div class="stat-card"><div class="stat-label">AGENTS ACTIVE &middot; 7D ${I.user}</div><div class="stat-value">${activeAgents} / ${agents.length}</div><div class="stat-note">placed at least one order</div></div>
       <div class="stat-card"><div class="stat-label">CUSTOMERS ORDERIN… ${I.users}</div><div class="stat-value">${orderedCust} / ${customers.length}</div><div class="stat-note">of total customer base</div></div>
