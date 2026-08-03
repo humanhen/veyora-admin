@@ -72,7 +72,16 @@ Routes['#/'] = Routes['#/home'] = {
       <section class="hm-sec hm-map-sec">
         <div class="hm-label hm-center">Worldwide reach</div>
         <h2 class="hm-h2">Global Distribution</h2>
-        <img class="hm-map" src="assets/global-distribution-map-B9WDMC-2.webp" alt="Veyora global distribution map" loading="lazy"/>
+        ${/* The approved artwork, carrying no wordmark of its own. It is used
+             exactly as supplied — nothing is overlaid on it: no logo, no
+             avatar, no Products control, and no repeat of the "Worldwide reach"
+             label or the "Global Distribution" heading above, which stay in the
+             markup where they belong. width/height are the intrinsic pixel
+             size, so the browser reserves the right box before the file arrives
+             and the section never jumps. */''}
+        <img class="hm-map" src="assets/landing/veyora-global-distribution-map.webp"
+             width="1672" height="941" loading="lazy" decoding="async"
+             alt="Veyora global distribution across Canada, USA, Europe, Morocco and the UAE"/>
       </section>
 
       <!-- ============ collections ============ -->
