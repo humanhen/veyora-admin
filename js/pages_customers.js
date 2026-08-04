@@ -774,3 +774,111 @@ App.register('email-templates',function(el){
   }
   render();
 });
+
+/* ============================================================ PASSWORD IMPORT
+   One-time migration: the old site's customer passwords, which the July data
+   import couldn't carry (the old admin API never exposed them). Until this
+   runs, every migrated customer is `pending` and cannot sign in — on the web
+   or in the app.
+
+   The file goes straight to the server and is processed in memory; nothing is
+   parsed, cached or stored in the browser. */
+App.register('password-import',function(el){
+  el.innerHTML=`
+  <div class="flex" style="margin-bottom:14px">${I.lock}<div class="page-title" style="font-size:16px">Customer Password Import</div></div>
+  <div class="info-banner">${I.eye}<div>
+    Upload the password export from the old site to give migrated customers their
+    logins back. Columns: <b>email, password</b> (<b>external_id</b> optional, used
+    when a row has no email).<br>
+    Accounts that already have a password are <b>left alone</b> — someone who has
+    already set their own is never overwritten.<br>
+    Matched accounts still marked <span class="badge gray">pending</span> become
+    <span class="badge gray">active</span> and can sign in immediately.</div></div>
+
+  <div class="card card-pad" style="margin-top:14px;border-color:#e6b800;background:#fffdf5">
+    <div class="small"><b>Handle this file carefully.</b> It contains real passwords in
+    plain text. Upload it here, then delete your copy — don't email it, don't put it in
+    shared storage, and don't keep it in Downloads. The server processes it in memory and
+    never writes it to disk.</div>
+  </div>
+
+  <div class="card card-pad" style="margin-top:14px">
+    <input type="file" id="pw-file" accept=".csv,text/csv" style="display:none">
+    <div class="flex">
+      <button class="btn" id="pw-tpl">${I.download} Download Template</button>
+      <button class="btn" id="pw-choose">📎 Choose CSV</button>
+      <button class="btn" id="pw-check" disabled>${I.search} Check first (no changes)</button>
+      <button class="btn btn-dark" id="pw-apply" disabled>${I.lock} Import Passwords</button>
+    </div>
+    <label class="small flex" style="margin-top:12px;gap:6px;align-items:center">
+      <input type="checkbox" id="pw-overwrite">
+      Also overwrite passwords for accounts that already have one
+    </label>
+    <div id="pw-out" style="margin-top:14px"></div>
+  </div>`;
+
+  const out=el.querySelector('#pw-out');
+  const fileInput=el.querySelector('#pw-file');
+  let chosen=null;
+
+  el.querySelector('#pw-tpl').onclick=()=>downloadCSV('password-import-template.csv',
+    [['external_id','business_name','email','password'],
+     ['416','ActualEyes','office@actualeyesoptical.com','Fdbiq8M6Hn']]);
+
+  el.querySelector('#pw-choose').onclick=()=>fileInput.click();
+  fileInput.onchange=()=>{
+    chosen=fileInput.files&&fileInput.files[0];
+    if(!chosen)return;
+    el.querySelector('#pw-check').disabled=false;
+    el.querySelector('#pw-apply').disabled=false;
+    out.innerHTML=`<div class="small"><b>${esc(chosen.name)}</b> — ${(chosen.size/1024).toFixed(1)} KB ready.</div>`;
+  };
+
+  async function send(dryRun){
+    if(!chosen)return;
+    const fd=new FormData();
+    fd.append('file',chosen);
+    fd.append('dryRun',dryRun?'true':'false');
+    fd.append('overwrite',el.querySelector('#pw-overwrite').checked?'true':'false');
+    out.innerHTML='<div class="small muted">Working…</div>';
+    try{
+      const res=await fetch('/api/admin/import-passwords',
+        {method:'POST',credentials:'same-origin',body:fd});
+      let data=null; try{data=await res.json();}catch(e){}
+      if(!res.ok)throw new Error((data&&(data.error||data.message))||('HTTP '+res.status));
+      renderResult(data);
+      toast(dryRun?'Check complete — nothing changed':(data.updated+' password(s) imported'));
+    }catch(e){
+      out.innerHTML=`<div class="small" style="color:var(--red)">${esc(e.message)}</div>`;
+      toast(e.message,true);
+    }
+  }
+
+  function renderResult(d){
+    const unmatched=d.unmatched||[];
+    out.innerHTML=`
+      <div class="small ${d.dryRun?'muted':'money-green'}" style="margin-bottom:8px">
+        ${d.dryRun?'<b>Dry run — nothing was saved.</b>':'<b>Imported.</b>'}
+      </div>
+      <table class="table"><tbody>
+        <tr><td>Rows in file</td><td><b>${d.rows}</b></td></tr>
+        <tr><td>${d.dryRun?'Would set':'Passwords set'}</td><td><b>${d.updated}</b></td></tr>
+        <tr><td>${d.dryRun?'Would activate':'Accounts activated'}</td><td><b>${d.activated}</b></td></tr>
+        <tr><td>Left alone (already had a password)</td><td>${d.skippedAlreadySet}</td></tr>
+        <tr><td>Rows with no password</td><td>${d.skippedNoPassword}</td></tr>
+        <tr><td>Duplicate rows skipped</td><td>${d.duplicates}</td></tr>
+        <tr><td>No matching account</td><td>${unmatched.length}</td></tr>
+      </tbody></table>
+      ${unmatched.length?`<div class="small muted" style="margin-top:10px">
+        <b>Not matched</b> — these need the account created, or the email corrected, first:
+        <div style="max-height:220px;overflow:auto;margin-top:6px">${unmatched.map(u=>esc(u)).join('<br>')}</div>
+      </div>`:''}`;
+  }
+
+  el.querySelector('#pw-check').onclick=()=>send(true);
+  el.querySelector('#pw-apply').onclick=()=>{
+    Modal.confirm('Import passwords',
+      'This sets real login passwords for matched customers. Continue?',
+      ()=>send(false),'Import');
+  };
+});

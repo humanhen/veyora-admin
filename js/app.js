@@ -35,6 +35,7 @@ const NAV=[
     {route:'chains',label:'Chains',icon:'chain'},
     {route:'suitcases',label:'Suitcases',icon:'suitcase'},
     {route:'email-templates',label:'Email Templates',icon:'mailTpl'},
+    {route:'password-import',label:'Password Import',icon:'lock'},
   ]},
   {group:'Catalog',icon:'box',items:[
     {route:'products',label:'Products',icon:'box'},

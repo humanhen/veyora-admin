@@ -365,3 +365,32 @@ against the same API. Full runbook in `platform/docs/TESTFLIGHT.md`.
 - Server changes are committed but **not deployed** — run
   `sh platform/server/deploy.sh` to put the mobile auth routes and the gate on
   the VPS. Until then the app has nothing to log into.
+
+## UPDATE 2026-08-04 (later) — customer passwords CAN be imported
+The old-site passwords turned out to exist in a spreadsheet (plaintext,
+columns id / external_id / business_name / email / password). That unblocks
+the 157 `pending` accounts from the July migration — they could not sign in
+on the web or in the app until now.
+- **Admin → Customers → Password Import** (`password-import`). Upload the
+  sheet as CSV; the server hashes with bcrypt, sets `password_hash`, and
+  flips `pending` → `active`. Matches on lower(email), falling back to
+  `external_id` → `customer_number` for rows with no email.
+- **Accounts that already have a password are left alone** by default, so a
+  customer who activated via OTP and chose their own is never reset. An
+  explicit "overwrite" checkbox exists for deliberate re-runs.
+- **Dry run first** ("Check first") reports exactly what would happen and
+  writes nothing.
+- Handling: `multer.memoryStorage` (never touches disk or the uploads
+  volume), 2 MB cap, buffer zeroed after hashing, audit log records counts
+  only. Verified by grep that no password reaches the audit table or the API
+  log. Excel workbooks are detected by magic bytes and rejected with a
+  "Save As → CSV UTF-8" message rather than a parse error.
+- Verified end-to-end on a throwaway DB: mixed-case sheet emails match
+  lowercase DB rows, external_id fallback works, duplicate rows counted once,
+  BOM+CRLF Excel output parses, unmatched emails are listed back, and both
+  `/auth/login` and `/auth/mobile/login` accept the imported passwords.
+- NOTE: nav lives in BOTH `js/app.js` and `admin-overrides/js/app.js` — the
+  new item was added to both, per the existing deploy-overlay caveat.
+- ⚠️ The sheet's passwords are uniform 10-char generated strings, which
+  suggests they were auto-assigned rather than customer-chosen. Worth a
+  forced password change later; not a blocker for getting people signed in.

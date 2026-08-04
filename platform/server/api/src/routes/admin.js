@@ -4,6 +4,7 @@ import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
+import { parse as parseCsv } from 'csv-parse/sync';
 import { q, tx, audit } from '../db.js';
 import { requireAuth } from '../authmw.js';
 import { SIMPLE_COLLECTIONS, rowToJs, jsToRow } from '../shape.js';
@@ -473,6 +474,145 @@ r.post('/send-activation-bulk', async (req, res) => {
     catch { /* skip failures */ }
   }
   res.json({ ok: true, sent, total: rows.length });
+});
+
+/* ==================== password import (old-site migration) ====================
+
+   The July migration brought customers across without passwords — the old
+   admin API never exposed them — so all 157 landed as `pending` and none of
+   them can sign in. This takes the plaintext export from the old system and
+   turns it into real logins.
+
+   The file is the most sensitive thing that will ever hit this server, so it
+   is handled accordingly:
+     - memoryStorage, never written to disk, never into the uploads volume
+     - 2 MB cap, one file
+     - the audit log records counts only; no password, no per-row detail
+     - nothing is echoed back except which emails did NOT match
+     - dryRun lets you see the outcome before anything is written
+
+   By default an account that already has a password is left alone: someone who
+   activated via OTP and chose their own password must not be reset to whatever
+   the old sheet says. Pass overwrite=true only to deliberately re-run. */
+
+const passwordUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 2 * 1024 * 1024, files: 1 },
+});
+
+r.post('/import-passwords', passwordUpload.single('file'), async (req, res, next) => {
+  try {
+    if (req.user.role !== 'admin') return res.status(403).json({ error: 'forbidden' });
+    if (!req.file) return res.status(400).json({ error: 'no file' });
+
+    const dryRun = req.body?.dryRun === 'true' || req.body?.dryRun === true;
+    const overwrite = req.body?.overwrite === 'true' || req.body?.overwrite === true;
+
+    // An actual spreadsheet is the likeliest mistake here — the source of this
+    // data is an Excel file — and a binary blob parsed as CSV produces a
+    // baffling error. Detect it by magic bytes and say the useful thing.
+    const magic = req.file.buffer.subarray(0, 4);
+    if (magic[0] === 0x50 && magic[1] === 0x4b) {
+      return res.status(400).json({
+        error: 'That looks like an .xlsx workbook. In Excel use File → Save As → CSV UTF-8, then upload the .csv.',
+      });
+    }
+    if (magic[0] === 0xd0 && magic[1] === 0xcf) {
+      return res.status(400).json({
+        error: 'That looks like an old .xls workbook. In Excel use File → Save As → CSV UTF-8, then upload the .csv.',
+      });
+    }
+
+    const text = req.file.buffer.toString('utf8');
+    // Excel commonly exports UTF-8 with a BOM and CRLF endings; both would
+    // otherwise corrupt the first header name and the last column's value.
+    let records;
+    try {
+      records = parseCsv(text.replace(/^﻿/, ''), {
+        columns: h => h.map(c => String(c).trim().toLowerCase()),
+        skip_empty_lines: true,
+        trim: true,
+        relax_column_count: true,
+        bom: true,
+      });
+    } catch (e) {
+      return res.status(400).json({
+        error: 'Could not read that file as CSV. In Excel use File → Save As → CSV UTF-8.',
+      });
+    }
+
+    if (!records.length) return res.status(400).json({ error: 'The file has no rows.' });
+    if (!('password' in records[0])) {
+      return res.status(400).json({
+        error: 'No "password" column found. Expected columns: email, password (external_id optional).',
+      });
+    }
+
+    const summary = {
+      rows: records.length,
+      updated: 0,
+      activated: 0,
+      skippedAlreadySet: 0,
+      skippedNoPassword: 0,
+      duplicates: 0,
+      unmatched: [],
+      dryRun,
+    };
+
+    const seen = new Set();
+
+    for (const row of records) {
+      const email = String(row.email || '').trim().toLowerCase();
+      const password = String(row.password ?? '');
+      // external_id is the old system's customer number; used only when the
+      // row has no usable email.
+      const externalId = String(row.external_id || '').trim();
+
+      if (!password) { summary.skippedNoPassword++; continue; }
+
+      const key = email || `ext:${externalId}`;
+      if (!key || key === 'ext:') { summary.skippedNoPassword++; continue; }
+      if (seen.has(key)) { summary.duplicates++; continue; }
+      seen.add(key);
+
+      const { rows: found } = await q(
+        `select id, status, password_hash from users
+          where ($1 <> '' and lower(email) = $1)
+             or ($2 <> '' and customer_number = $2)
+          limit 1`, [email, externalId]);
+      const user = found[0];
+      if (!user) { summary.unmatched.push(email || `external_id ${externalId}`); continue; }
+
+      if (user.password_hash && !overwrite) { summary.skippedAlreadySet++; continue; }
+
+      if (!dryRun) {
+        const hash = await bcrypt.hash(password, 10);
+        await q(
+          `update users set password_hash = $2,
+                  status = case when status = 'pending' then 'active' else status end
+             where id = $1`, [user.id, hash]);
+      }
+      summary.updated++;
+      if (user.status === 'pending') summary.activated++;
+    }
+
+    // Counts only — the file's contents must never reach the audit log.
+    if (!dryRun) {
+      await audit(
+        { id: req.user.id, name: req.user.business || req.user.email, role: req.user.role },
+        'users.import-passwords',
+        `${summary.updated} accounts`,
+        `${summary.activated} activated, ${summary.skippedAlreadySet} left alone, ` +
+        `${summary.unmatched.length} unmatched${overwrite ? ' (overwrite)' : ''}`,
+        'admin');
+    }
+
+    // Don't leave the plaintext sitting in this process's heap any longer than
+    // it takes to hash. GC would get there eventually; this doesn't wait.
+    req.file.buffer.fill(0);
+
+    res.json(summary);
+  } catch (e) { next(e); }
 });
 
 /** Directly set a user's password (admin action, e.g. for staff accounts). */
