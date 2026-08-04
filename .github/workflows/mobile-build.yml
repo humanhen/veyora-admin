@@ -1,0 +1,72 @@
+# Build a real iOS binary and push it to TestFlight.
+#
+# Deliberately manual. Every run consumes an EAS build and produces a build
+# testers have to install, so reach for it only when an OTA update genuinely
+# can't carry the change: a new native module, an Expo SDK bump, a change to
+# app.json's native config (permissions, bundle id, icons, splash).
+#
+# Everything else goes through mobile-ota.yml.
+
+name: Mobile build → TestFlight
+
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: 'EAS build profile'
+        type: choice
+        options: [production, preview]
+        default: production
+      submit:
+        description: 'Submit the finished build to TestFlight'
+        type: boolean
+        default: true
+
+concurrency:
+  group: mobile-build
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: platform/mobile
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: platform/mobile/package-lock.json
+
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      # The compile itself happens on EAS's macOS workers — this runner only
+      # drives it, which is why it can be ubuntu.
+      - name: Build
+        run: eas build --platform ios --profile "${{ inputs.profile }}" --non-interactive --wait
+
+      - name: Submit to TestFlight
+        if: ${{ inputs.submit }}
+        run: eas submit --platform ios --profile production --latest --non-interactive
+
+      - name: Next steps
+        if: ${{ inputs.submit }}
+        run: |
+          echo "Build submitted. Apple processes it for 5-15 minutes before it"
+          echo "appears in TestFlight."
+          echo
+          echo "Once testers are on this build, raise the floor so older ones"
+          echo "stop being used:"
+          echo '  POST /api/app/config {"ios":{"minBuild":<this build number>}}'

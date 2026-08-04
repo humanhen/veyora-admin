@@ -325,3 +325,43 @@ Zoho remains active/authoritative — nothing flipped.
    bottom nav on mobile.
 Note: Sam has been testing with the Claude Test Optics login — today's
 orders in Zoho are under that contact name (deletable in Zoho later).
+
+## UPDATE 2026-08-04 — iOS app scaffolded (NOT yet on TestFlight)
+New `platform/mobile/` — Expo SDK 57 / React Native / expo-router, running
+against the same API. Full runbook in `platform/docs/TESTFLIGHT.md`.
+- **Why native auth was needed**: the storefront uses same-origin cookies,
+  which a native client has no jar for. `requireAuth` already accepted
+  `Authorization: Bearer` but nothing minted a token for a non-browser, so
+  `/auth/mobile/{login,refresh,logout}` was added — same credential check as
+  the web login, tokens in the body, refresh rotated on every use. The web
+  cookie login was refactored onto the shared `authenticate()` helper and
+  re-verified unchanged.
+- **Screens**: login (+ activate / forgot), dashboard, catalogue with search
+  and brand chips, product detail with the colourway gallery, cart with
+  place-order, orders + detail, account. Follows existing storefront rules —
+  no quantities anywhere, hide-prices respected, FX applied at display.
+- **Two release paths, deliberately**: JS changes ship over-the-air via EAS
+  Update (no build, no review); only native changes need a binary.
+  `runtimeVersion` uses the `fingerprint` policy so an OTA update can never
+  reach a build whose native layer doesn't match it.
+- **Version gate**: `GET /api/app/config` (public, so it works pre-login)
+  serves a server-owned `minBuild` floor from `settings.data.appConfig` —
+  hard-blocks builds below it, softly flags newer ones. Admin-writable via
+  POST, no deploy needed to raise the floor.
+- Also added `GET /user/product/:id` (the web modal reuses the grid's copy;
+  the app's detail screen is a real route that can be opened cold).
+- **Verified** against a throwaway Postgres with the real migrations: login,
+  bearer auth, refresh rotation (old token dead after use), logout revocation,
+  the gate's three states, product endpoint, cart round-trip, and the web
+  cookie login as a regression check. The Expo bundle exports clean and
+  typechecks.
+- **NOT done — needs the Veyora Apple account** (see TESTFLIGHT.md): Apple
+  Developer Program enrolment ($99/yr, org enrolment needs a D-U-N-S number),
+  the App Store Connect app record for `com.veyora.app`, an App Store Connect
+  API key, and an `EXPO_TOKEN` GitHub secret. `eas init` +
+  `eas update:configure` must be run once to write the project id and update
+  URL into `app.json`; `eas.json` has two placeholders (`ascAppId`,
+  `appleTeamId`) to fill.
+- Server changes are committed but **not deployed** — run
+  `sh platform/server/deploy.sh` to put the mobile auth routes and the gate on
+  the VPS. Until then the app has nothing to log into.

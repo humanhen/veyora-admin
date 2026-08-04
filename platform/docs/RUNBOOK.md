@@ -138,6 +138,20 @@ Cutover checklist (do in this order, any day):
 Rollback at any point = flip the switch back (Zoho re-imposes its
 numbers on the next sync).
 
+## iOS app (TestFlight)
+
+The app in `platform/mobile/` runs against this same API. Two things about it
+touch server operations:
+
+- **Mobile sessions** are bearer tokens from `/auth/mobile/*`, not cookies.
+  They're backed by the same `refresh_tokens` table, so revoking a row kills
+  that device.
+- **The version gate** lives in `settings.data.appConfig` and is served by
+  `GET /api/app/config`. Raising `ios.minBuild` blocks older app builds
+  immediately, with no deploy. Full detail — including the Apple-side steps and
+  when to ship over-the-air instead of a new build — is in
+  `platform/docs/TESTFLIGHT.md`.
+
 ## Backups
 
 - Nightly at 03:20 server time: `pg_dump` gzip into `/opt/veyora/backups/`,

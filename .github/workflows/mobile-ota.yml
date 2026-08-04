@@ -1,0 +1,71 @@
+# Ship a JS-only change to everyone already running the app.
+#
+# This is the default path and it should stay that way: no binary, no Apple
+# review, no build queue. Testers pick it up the next time they foreground the
+# app. Use the build workflow only when this one can't do the job — see
+# platform/docs/TESTFLIGHT.md for which changes are which.
+
+name: Mobile OTA update
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'platform/mobile/**'
+      - '.github/workflows/mobile-ota.yml'
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: 'EAS Update channel to publish to'
+        type: choice
+        options: [preview, production]
+        default: preview
+      message:
+        description: 'Update message shown in the EAS dashboard'
+        type: string
+        required: false
+
+concurrency:
+  group: mobile-ota-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: platform/mobile
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: platform/mobile/package-lock.json
+
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      # `npm ci` would be stricter, but the tree has a peer-dependency conflict
+      # between expo's pinned react and react-dom's requirement that npm can't
+      # resolve on its own.
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      # A publish that fails to bundle would push a broken update to every
+      # device on the channel, so prove it bundles first.
+      - name: Verify the bundle builds
+        run: npx expo export --platform ios
+
+      - name: Publish update
+        run: |
+          eas update \
+            --channel "${{ inputs.channel || 'preview' }}" \
+            --message "${{ inputs.message || github.event.head_commit.message || 'Manual update' }}" \
+            --non-interactive
