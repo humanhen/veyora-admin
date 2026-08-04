@@ -207,6 +207,17 @@ async function getProducts(req, res) {
 r.get('/get-products', getProducts);
 r.post('/get-products', getProducts);
 
+/* Single product by id. The web storefront never needs this — it opens the
+   modal from the copy it already has in the grid — but the app's detail screen
+   is a real route that can be opened cold (deep link, back-navigation after the
+   list was dropped from memory). Shaped exactly like a get-products entry. */
+r.get('/product/:id', async (req, res) => {
+  const [product] = await loadProducts(req.user, { ids: [req.params.id], activeOnly: false });
+  if (!product) return res.status(404).json({ error: 'Product not found' });
+  const favs = await favouriteIds(req.user.id);
+  res.json({ product: { ...product, isFavourite: favs.has(product.id) } });
+});
+
 r.get('/product-filter-data', async (req, res) => {
   const guest = req.user.role === 'guest';
   const { rows: brandRows } = await q(

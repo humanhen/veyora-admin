@@ -9,6 +9,7 @@ import orderRoutes from './routes/orders.js';
 import accountRoutes from './routes/account.js';
 import agentRoutes from './routes/agent.js';
 import adminRoutes from './routes/admin.js';
+import appRoutes from './routes/app.js';
 import { ensureSchema } from './migrate.js';
 import { startZohoSchedule } from './zoho.js';
 
@@ -27,6 +28,9 @@ app.get('/health', async (req, res) => {
 });
 
 app.use('/auth', authRoutes);
+
+// Native app support (version gate). Public by design — see routes/app.js.
+app.use('/app', appRoutes);
 
 // The storefront's user/* surface is served by several focused routers;
 // they all mount on /user and each ignores paths it doesn't define.

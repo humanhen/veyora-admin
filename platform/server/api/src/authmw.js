@@ -19,16 +19,43 @@ export function hashToken(t) {
   return crypto.createHash('sha256').update(t).digest('hex');
 }
 
-export async function issueSession(res, user) {
-  const access = signAccess(user);
-  const refresh = crypto.randomBytes(32).toString('hex');
-  const expires = new Date(Date.now() + REFRESH_DAYS * 864e5);
+/** Mint an access/refresh pair and record the refresh token. The browser gets
+    these as cookies (issueSession); native clients get them in the response
+    body, because a mobile app has no cookie jar we can rely on. */
+export async function issueTokens(user) {
+  const accessToken = signAccess(user);
+  const refreshToken = crypto.randomBytes(32).toString('hex');
+  const expiresAt = new Date(Date.now() + REFRESH_DAYS * 864e5);
   await q(
     `insert into refresh_tokens (token_hash, user_id, expires_at) values ($1,$2,$3)`,
-    [hashToken(refresh), user.id, expires]
+    [hashToken(refreshToken), user.id, expiresAt]
   );
-  res.cookie('veyora_access', access, { ...COOKIE_OPTS, maxAge: 30 * 60 * 1000 });
-  res.cookie('veyora_refresh', refresh, { ...COOKIE_OPTS, maxAge: REFRESH_DAYS * 864e5 });
+  return { accessToken, refreshToken, expiresIn: 30 * 60, refreshExpiresAt: expiresAt.toISOString() };
+}
+
+/** Consume a refresh token and hand back a fresh pair (rotation: the old token
+    is deleted, so a stolen one stops working the moment the real device uses
+    its successor). Returns null when the token is unknown/expired. */
+export async function rotateRefresh(refreshToken) {
+  if (!refreshToken) return null;
+  const { rows } = await q(
+    `delete from refresh_tokens where token_hash=$1 and expires_at > now() returning user_id`,
+    [hashToken(refreshToken)]);
+  if (!rows[0]) return null;
+  const user = await loadUser(rows[0].user_id);
+  if (!user || user.status !== 'active') return null;
+  return { user, tokens: await issueTokens(user) };
+}
+
+export async function revokeRefresh(refreshToken) {
+  if (!refreshToken) return;
+  await q(`delete from refresh_tokens where token_hash=$1`, [hashToken(refreshToken)]).catch(() => {});
+}
+
+export async function issueSession(res, user) {
+  const { accessToken, refreshToken } = await issueTokens(user);
+  res.cookie('veyora_access', accessToken, { ...COOKIE_OPTS, maxAge: 30 * 60 * 1000 });
+  res.cookie('veyora_refresh', refreshToken, { ...COOKIE_OPTS, maxAge: REFRESH_DAYS * 864e5 });
 }
 
 export async function clearSession(req, res) {

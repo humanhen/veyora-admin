@@ -1,0 +1,54 @@
+{
+  "expo": {
+    "name": "Veyora",
+    "slug": "veyora",
+    "scheme": "veyora",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#221F20"
+    },
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.veyora.app",
+      "buildNumber": "1",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSCameraUsageDescription": "Veyora uses the camera to photograph handwritten order lists so they can be added to your cart.",
+        "NSPhotoLibraryUsageDescription": "Veyora uses your photo library to attach photos to order lists and spare-part requests."
+      }
+    },
+    "android": {
+      "package": "com.veyora.app",
+      "versionCode": 1,
+      "adaptiveIcon": {
+        "backgroundColor": "#221F20",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": ["expo-router", "expo-secure-store", "expo-image", "expo-updates"],
+    "updates": {
+      "enabled": true,
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0
+    },
+    "runtimeVersion": {
+      "policy": "fingerprint"
+    },
+    "extra": {
+      "apiBaseUrl": "https://veyora.design"
+    }
+  }
+}

@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import { q, audit } from '../db.js';
-import { issueSession, clearSession } from '../authmw.js';
+import { issueSession, clearSession, issueTokens, rotateRefresh, revokeRefresh } from '../authmw.js';
 import { sendMail } from '../mail.js';
 import { activationCode, passwordReset } from '../emails.js';
 
@@ -20,26 +20,60 @@ function publicUser(u) {
   };
 }
 
-r.post('/login', async (req, res) => {
-  const { email, username, password } = req.body || {};
+/** Shared by the browser and mobile login routes. Resolves credentials to a
+    user row, or to an {status, error} rejection the caller can send as-is. */
+async function authenticate({ email, username, password }) {
   const ident = (email || username || '').trim().toLowerCase();
-  if (!ident || !password) return res.status(400).json({ error: 'missing credentials' });
+  if (!ident || !password) return { reject: { status: 400, body: { error: 'missing credentials' } } };
   const { rows } = await q(
     `select * from users where lower(email)=$1 or lower(username)=$1 limit 1`, [ident]);
   const u = rows[0];
   if (!u || !u.password_hash || !(await bcrypt.compare(password, u.password_hash))) {
-    return res.status(401).json({ error: 'Invalid email or password' });
+    return { reject: { status: 401, body: { error: 'Invalid email or password' } } };
   }
-  if (u.status === 'pending') return res.status(403).json({ error: 'account_pending', message: 'Account not activated yet' });
-  if (u.status !== 'active') return res.status(403).json({ error: 'account_disabled', message: 'Account disabled' });
+  if (u.status === 'pending') {
+    return { reject: { status: 403, body: { error: 'account_pending', message: 'Account not activated yet' } } };
+  }
+  if (u.status !== 'active') {
+    return { reject: { status: 403, body: { error: 'account_disabled', message: 'Account disabled' } } };
+  }
   await q(`update users set prev_login_at = last_login_at, last_login_at = now() where id=$1`, [u.id]);
-  await issueSession(res, u);
   await audit({ id: u.id, name: u.business || u.email, role: u.role }, 'login', u.email);
-  res.json({ user: publicUser(u) });
+  return { user: u };
+}
+
+r.post('/login', async (req, res) => {
+  const { reject, user } = await authenticate(req.body || {});
+  if (reject) return res.status(reject.status).json(reject.body);
+  await issueSession(res, user);
+  res.json({ user: publicUser(user) });
 });
 
 r.post('/logout', async (req, res) => {
   await clearSession(req, res);
+  res.json({ ok: true });
+});
+
+/* ---------- native app sessions (tokens in the body, not cookies) ----------
+   The iOS/Android app has no same-origin cookie jar, so it carries the access
+   token in `Authorization: Bearer` (which requireAuth already accepts) and
+   trades a long-lived refresh token for new ones. Rotation is enforced: every
+   refresh invalidates the token that was used. */
+
+r.post('/mobile/login', async (req, res) => {
+  const { reject, user } = await authenticate(req.body || {});
+  if (reject) return res.status(reject.status).json(reject.body);
+  res.json({ user: publicUser(user), ...(await issueTokens(user)) });
+});
+
+r.post('/mobile/refresh', async (req, res) => {
+  const rotated = await rotateRefresh(req.body?.refreshToken);
+  if (!rotated) return res.status(401).json({ error: 'invalid_refresh_token' });
+  res.json({ user: publicUser(rotated.user), ...rotated.tokens });
+});
+
+r.post('/mobile/logout', async (req, res) => {
+  await revokeRefresh(req.body?.refreshToken);
   res.json({ ok: true });
 });
 
