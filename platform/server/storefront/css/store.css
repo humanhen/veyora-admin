@@ -741,6 +741,11 @@ body.hm-dark .hm-wa{width:48px;height:48px;bottom:calc(22px + env(safe-area-inse
    .imgbox2 so the thumbnail-click image swap never removes it. */
 .pcard2 .hover-img{position:absolute;top:0;left:0;width:100%;aspect-ratio:1/1;object-fit:contain;background:#f4f3f1;opacity:0;transition:opacity .18s ease;pointer-events:none}
 @media (hover:hover){.pcard2:hover .hover-img{opacity:1}}
+/* Only while a thumb click just happened under an active hover — clear on
+   mouseleave so the second-angle hover effect keeps working as normal. */
+.pcard2.thumb-swapping .hover-img,
+.pcard2.thumb-swapping:hover .hover-img{opacity:0}
+.pcard2 .photo-wrap{cursor:zoom-in}
 .pcard2 .attrline{text-align:center;color:rgba(0,0,0,.55);font-size:12px;padding:2px 10px 12px;letter-spacing:1px}
 .lens-chip{display:inline-block;background:#efe9f5;color:#56416d;font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:4px;margin-left:6px;vertical-align:1px}
 .pcard2 .rowname{display:flex;justify-content:space-between;align-items:center;padding:8px 14px 4px}

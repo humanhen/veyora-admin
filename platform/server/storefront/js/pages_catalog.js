@@ -272,6 +272,9 @@ function productCard(p) {
   const hoverImg = p.images?.[1]
     || p.variations.map(v => v.image).filter(Boolean).find(img => img && img !== mainImg)
     || null;
+  const { gallery, colorAt } = productGallery(p);
+  // Which photo is currently shown (thumb pick or default). Lightbox opens here.
+  let selectedSrc = mainImg || thumbs[0]?.image || gallery[0] || null;
 
   const card = h(`<div class="pcard2">
     ${sellerBadge(p)}
@@ -295,9 +298,20 @@ function productCard(p) {
     ${u.guest ? `<button class="orderbtn">Log in to order</button>` : orderButton(p, hide)}
   </div>`);
 
+  const imgBox = card.querySelector('.imgbox2');
+  const setMainPhoto = (src) => {
+    selectedSrc = src;
+    imgBox.innerHTML = imgOr(src);
+    // If the cursor is still over the card, the hover overlay would hide this
+    // swap. Suppress it only until the pointer leaves — then normal hover
+    // resumes (including after picking another colour and going back).
+    card.classList.add('thumb-swapping');
+  };
+  card.addEventListener('mouseleave', () => card.classList.remove('thumb-swapping'));
+
   card.querySelectorAll('.vthumbs img').forEach(t => t.onclick = (e) => {
     e.stopPropagation();
-    card.querySelector('.imgbox2').innerHTML = imgOr(t.dataset.src);
+    setMainPhoto(t.dataset.src);
     card.querySelectorAll('.vthumbs img').forEach(x => x.classList.toggle('sel', x === t));
   });
   card.querySelector('.share').onclick = (e) => {
@@ -315,15 +329,22 @@ function productCard(p) {
   card.querySelector('.orderbtn').onclick = (e) => {
     e.stopPropagation();
     if (catalogUser().guest) { location.hash = '#/login'; return; }
-    productModal(p);
+    productModal(p, selectedSrc);
   };
-  // Old-site behavior: guests clicking the card get the image viewer directly
-  // (arrows through the photos); customers get the ordering modal.
+  // Main photo → fullscreen of the currently selected thumb/image.
+  card.querySelector('.photo-wrap').onclick = (e) => {
+    e.stopPropagation();
+    if (!gallery.length) return;
+    const start = Math.max(0, gallery.indexOf(selectedSrc));
+    imageLightbox(gallery, start < 0 ? 0 : start, p.name, colorAt);
+  };
+  // Name / empty areas: guests still get the viewer; customers get the order modal
+  // opened on the colour they already picked on the card.
   card.onclick = () => {
     if (catalogUser().guest) {
-      const { gallery, colorAt } = productGallery(p);
-      imageLightbox(gallery, 0, p.name, colorAt);
-    } else productModal(p);
+      const start = Math.max(0, gallery.indexOf(selectedSrc));
+      imageLightbox(gallery, start < 0 ? 0 : start, p.name, colorAt);
+    } else productModal(p, selectedSrc);
   };
   return card;
 }
@@ -365,7 +386,7 @@ function variationOrderControls(v) {
   return `<span class="vactions">${qtyBox(0, 0, max)}${v.qty === 0 ? notify : ''}</span>`;
 }
 
-function productModal(p) {
+function productModal(p, startSrc = null) {
   const u = catalogUser();
   const hide = u.hidePrices;
   const guest = !!u.guest;
@@ -377,15 +398,17 @@ function productModal(p) {
   ].filter(x => x[1]);
   // gallery = product images + any per-variation images (deduped)
   const { gallery, colorAt } = productGallery(p);
+  // Honour the colour the customer already picked on the product card.
+  const startIdx = Math.max(0, startSrc ? gallery.indexOf(startSrc) : 0);
   const m = modal(`
     <div class="pdetail">
       <div class="pdetail-img">
         <div class="imgbox big" id="mainImg" title="Click to enlarge">
-          ${imgOr(gallery[0])}
+          ${imgOr(gallery[startIdx] || gallery[0])}
           <span class="zoom-hint">⤢</span>
         </div>
         ${gallery.length > 1 ? `<div class="thumbstrip">
-          ${gallery.map((src, i) => `<img src="${esc(src)}" data-i="${i}" class="${i === 0 ? 'sel' : ''}"/>`).join('')}
+          ${gallery.map((src, i) => `<img src="${esc(src)}" data-i="${i}" class="${i === startIdx ? 'sel' : ''}"/>`).join('')}
         </div>` : ''}
       </div>
       <div class="pdetail-info">
@@ -428,7 +451,7 @@ function productModal(p) {
     </div>`);
 
   const mainBox = m.querySelector('#mainImg');
-  let curIdx = 0;
+  let curIdx = startIdx;
   function setMain(i) {
     curIdx = i;
     mainBox.innerHTML = imgOr(gallery[i]) + '<span class="zoom-hint">⤢</span>';
