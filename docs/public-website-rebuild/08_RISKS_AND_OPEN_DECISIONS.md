@@ -96,6 +96,33 @@ object and never spreads a row. A forbidden-key test over `/public/*` responses,
 inline JSON and JSON-LD, wired as a merge gate. Recommend not exposing an availability boolean at
 all — across 4,000 SKUs it is competitive intelligence.
 
+**Implementation update — 2026-08-05 (B2.2).** The original entry above is retained as written.
+The core of this mitigation is now built, and the residual risk is materially lower than L3 × I4,
+though **not yet fully retired**:
+
+- *Built:* `platform/server/api/src/public-serialize.js` — eight pure serializers, each constructing
+  a fresh object literal from named fields. It never spreads a row (enforced by test), never returns
+  a row unchanged, and never attaches a jsonb blob wholesale. A contributor adding a field to a
+  database row now gets nothing new in public output by default — the failure mode the original
+  entry described (silent leakage through an unnoticed field) is inverted: a new field is invisible
+  until someone deliberately adds it to a serializer.
+- *Built:* `platform/server/api/src/public-forbidden-keys.js` — one central forbidden-key authority
+  with a recursive scanner reporting exact violation paths, run over every serializer output and
+  every endpoint response fixture in 68 new tests. Adversarial-row tests hand the serializers a
+  product/variation row carrying *every* forbidden field and assert none survives.
+- *Adopted:* the recommendation not to expose availability at all. No `/public/*` response contains
+  availability in any form — not a count, not the collapsed 0/1 boolean the authenticated guest
+  catalogue uses.
+
+**Why the risk is not closed.** The original mitigation specified a forbidden-key test over
+"`/public/*` responses, rendered HTML, inline JSON and JSON-LD, wired as a merge gate." B2.2
+delivered the first of those four surfaces. Rendered HTML and JSON-LD do not exist yet (the Astro
+site does not consume these endpoints until B2.3, and JSON-LD is B7), and nothing is wired as a CI
+merge gate — the scan runs as part of the test suite, which is not the same control. Additionally,
+no live database was contacted, so the boundary has been proven against fixtures and fake database
+clients rather than real rows. **Score unchanged pending those items**; revisit at B9, when the
+crawl/QA suite can run the same scanner across rendered output and the gate can be wired.
+
 ---
 
 ### R-07 · Visual drift from the approved design · L3 × I4 = **12**

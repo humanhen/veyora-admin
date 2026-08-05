@@ -549,3 +549,78 @@ see `14_B2_SCHEMA_REFERENCE.md` §9). No production, VPS, or live database was c
 `platform/server/storefront/**`, `platform/server/web/**`, the root admin application,
 `docker-compose.yml`, `Caddyfile`, `deploy.sh`, all `.env` files, and every existing API test file
 are unchanged.
+
+---
+
+## 13. B2.2 implementation result — 2026-08-05
+
+**Scope executed:** the unauthenticated, read-only public API boundary described in §4 ("The public
+data surface") — the new `/public` router, the pure allowlist serializer, and the forbidden-key
+authority. Starting commit `343421e` (completed B2.1). No public-site page integration, database
+backfill, publication of any record, admin editing surface, form/CRM work, write endpoint, or
+authentication change — all explicitly out of scope and deferred to B2.3+.
+
+### 13.1 §4.1's principle is now implemented, not merely stated
+
+§4.1 said the enforcement must move "to one allowlist serializer with a test that cannot be
+satisfied by a leak," because scattered conditionals give a future contributor no warning.
+`platform/server/api/src/public-serialize.js` is that serializer: eight functions
+(`serializeMedia`, `serializeVariation`, `serializeModelCard`, `serializeModelDetail`,
+`serializeBrandSummary`, `serializeBrandDetail`, `serializeLocation`, `serializeSitemapRecord`),
+each constructing a **fresh object literal** from named fields. It never spreads a database row,
+never returns a row unchanged, and never attaches a jsonb blob wholesale — `best_for` and
+`component_origins` are validated into string arrays, and only a validated `lensType` is extracted
+from the existing `products.attributes` bag.
+
+### 13.2 §4.3's forbidden-key test exists
+
+`platform/server/api/src/public-forbidden-keys.js` is the single forbidden-key authority: a
+normalised (lowercase, separators stripped), **exact-match** key set plus a recursive scanner that
+reports the exact object path of any violation, and a `label:*` value check. Exact-match rather
+than substring is deliberate — a naive `.includes()` rule would reject harmless public fields like
+`isDiscontinued` or `sortOrder`, which is precisely the false-positive trap the B2.2 brief warned
+about. Every serializer output and every endpoint response fixture is run through it in tests.
+
+### 13.3 Endpoints delivered, against §4.2's table
+
+All seven endpoints §4.2 specified are implemented as GET-only routes:
+`/public/brands`, `/public/brands/:slug`, `/public/models`, `/public/models/:brand/:slug`,
+`/public/facets`, `/public/locations`, `/public/sitemap-data`. Mounted at `/public` in `index.js`
+after `/admin` and before the terminal 404 handler, with no authentication middleware (verified:
+the router has zero non-route middleware layers) and no write handler of any kind (verified: every
+registered method is `get`).
+
+**One deliberate divergence from §4.2, and its reason.** §4.2 listed `GET /public/models` as
+returning "paginated published models with facets" and the `sitemap-data` endpoint as returning
+"slugs + `content_updated_at`" — both implemented. But `/public/models` deliberately returns
+`hasMore` and **no total count**, per the B2.2 brief's instruction to avoid "a commercially useful
+full-count disclosure." This matches the existing guest-catalogue behaviour in `routes/catalog.js`
+(which already withholds `total` from guests) rather than contradicting it.
+
+**Availability is exposed nowhere**, honouring §4.3's "Note on availability" ruling: the public
+site does not expose availability at all, not even the collapsed 0/1 boolean the authenticated
+guest catalogue uses.
+
+### 13.4 Publication boundary
+
+Every query filters explicitly on published state — `publication_state = 'published'` for brands,
+locations and content pages; `products.is_published = true` and `variations.is_published = true`
+for catalogue records; `locations.is_public = true` in addition to publication state. `is_active`
+(the portal's ordering flag) is referenced **nowhere** in the public boundary — confirmed by an
+automated test, because conflating the two would be exactly the "is_active as the publication
+authority" mistake §7.2 of the B2.1 schema work warned against.
+
+Every query lists its columns explicitly (no `select *`, no `p.*`) and is fully parameterised. The
+one SQL string interpolation is `${MODEL_SORTS[sort]}`, where `sort` has already passed an
+allowlist check against a fixed two-key object — verified at runtime to reject `__proto__`,
+`constructor`, `toString`, `hasOwnProperty` and injection payloads with a 400 before any query runs.
+
+### 13.5 Confirmed untouched
+
+No live database was contacted — every test uses an injected fake `db` or a monkey-patched
+`pool.query` restored after each test. No production system, VPS or DNS was accessed. The only
+change to a pre-existing tracked file is `index.js`: one import line and one `app.use('/public', …)`
+mount, purely additive. `platform/server/storefront/**`, `platform/server/web/**`,
+`platform/server/db/**`, the root admin application, `docker-compose.yml`, `Caddyfile`,
+`deploy.sh`, all `.env` files, and every existing API test are unchanged. Full endpoint contract:
+`docs/public-website-rebuild/15_B2_PUBLIC_API_CONTRACT.md`.

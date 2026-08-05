@@ -444,3 +444,36 @@ now partially complete (schema only).
 
 Full detail: `docs/public-website-rebuild/14_B2_SCHEMA_REFERENCE.md`;
 `04_TARGET_ARCHITECTURE.md` §12; `09_FIRST_BUILD_PACKAGE.md`'s B2.1 section.
+
+---
+
+## 11. B2.2 implementation result — 2026-08-05
+
+**Scope executed: WP-07 — `routes/public.js` + allowlist serializer + cache.** Its stated exit
+condition in §5 is "forbidden-key suite green," and that suite now exists and is green:
+`api/test/public-serialize.test.js` (15 tests, adversarial rows carrying every forbidden field),
+`api/test/public-forbidden-keys.test.js` (9), `api/test/public-cache.test.js` (9) and
+`api/test/public-router.test.js` (35) — **68 new tests, 634/634 total API suite passing, zero
+regressions**.
+
+**One qualification on that exit condition, stated plainly.** §6's gate table describes the
+public-data-boundary gate as a "forbidden-key scan of `/public/*`, HTML, JSON, JSON-LD" running
+"against live fixtures." What B2.2 delivered is the scan against *serializer outputs and endpoint
+response fixtures produced through the real handlers with an injected fake database* — there is no
+live database or rendered HTML to scan yet (no data has been published; the Astro site does not
+consume these endpoints until B2.3). The mechanism is built and enforcing; extending it across
+rendered HTML and JSON-LD remains part of B9's crawl/QA work, exactly where §2 places it.
+
+**Still not started, unchanged from the B2.1 note above:** WP-08 (slug generation + backfill
+scripts + data-quality report) and WP-09 (admin editing surfaces). WP-06 remains partially complete
+(schema landed in B2.1; its "publication gate test green" exit condition is application-level work
+that B2.2 did not take on either — the serializer enforces *what may be exposed*, not *what may be
+promoted to published*, which is still a B2.4-era editorial concern).
+
+**The cache-invalidation hook is deliberately unwired.** `invalidatePublicCache()` is exported and
+unit-tested but is called by no admin or Zoho module — wiring it (mirroring
+`invalidateCatalogCache()`'s existing hook points) belongs to WP-09/B2.4, and doing it in B2.2
+would have required modifying admin/Zoho modules the brief placed out of scope.
+
+Full detail: `docs/public-website-rebuild/15_B2_PUBLIC_API_CONTRACT.md`;
+`04_TARGET_ARCHITECTURE.md` §13; `09_FIRST_BUILD_PACKAGE.md`'s B2.2 section.

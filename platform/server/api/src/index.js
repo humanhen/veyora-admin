@@ -9,6 +9,7 @@ import orderRoutes from './routes/orders.js';
 import accountRoutes from './routes/account.js';
 import agentRoutes from './routes/agent.js';
 import adminRoutes from './routes/admin.js';
+import publicRoutes from './routes/public.js';
 import { ensureSchema } from './migrate.js';
 import { startZohoSchedule } from './zoho.js';
 import { startServer } from './startup.js';
@@ -45,6 +46,11 @@ app.get('/admin/country-list', requireAuth(), (req, res) => {
 });
 
 app.use('/admin', adminRoutes);
+
+// Unauthenticated, read-only public API boundary for the future Astro
+// public website (B2.2) — no auth middleware, no write methods. See
+// routes/public.js and public-serialize.js for the allowlist boundary.
+app.use('/public', publicRoutes);
 
 app.use((req, res) => res.status(404).json({ error: 'not found' }));
 

@@ -1216,3 +1216,157 @@ API test file are unchanged — confirmed by `git status --short` showing change
 `platform/server/api/test/**`, and the permitted documentation files. The other developer's
 concurrent branch was never inspected, referenced or merged. No commit was made, nothing was
 pushed, and no deploy, VPS, production or DNS access occurred at any point in this session.
+
+---
+
+## 13. B2.2 implementation result — 2026-08-05
+
+**Scope executed:** the unauthenticated, read-only public API boundary — one `/public` router, one
+pure allowlist serializer layer, one forbidden-key authority, a bounded ~60s read cache, strict
+query validation, and comprehensive boundary tests. Starting commit `343421e` (completed B2.1).
+
+**Session note:** this batch spanned two sessions. The first completed Tasks 1–10 and stopped at a
+usage-limit checkpoint, recording state in `16_B2_2_SESSION_HANDOFF.md`; the second verified that
+handoff against the working tree, formally closed validation, and wrote this documentation. No work
+was reimplemented, and the working tree was confirmed to match the handoff exactly (same branch,
+same HEAD `343421e`, same eleven files, clean `git diff --check`, all files syntactically complete
+with no merge markers or TODO/FIXME).
+
+### Files created
+
+```
+platform/server/api/src/public-forbidden-keys.js   forbidden-key authority + recursive scanner
+platform/server/api/src/public-serialize.js         8 pure allowlist serializers
+platform/server/api/src/public-cache.js             bounded ~60s in-process read cache
+platform/server/api/src/routes/public.js            the /public router — 7 GET endpoints
+platform/server/api/test/public-serialize.test.js      15 tests
+platform/server/api/test/public-forbidden-keys.test.js   9 tests
+platform/server/api/test/public-cache.test.js            9 tests
+platform/server/api/test/public-router.test.js          35 tests
+docs/public-website-rebuild/15_B2_PUBLIC_API_CONTRACT.md   full endpoint contract
+docs/public-website-rebuild/16_B2_2_SESSION_HANDOFF.md     mid-batch handoff (retained as history)
+```
+
+### Files modified
+
+`platform/server/api/src/index.js` — **the only pre-existing tracked file touched**: one import and
+one `app.use('/public', publicRoutes)` mount (after `/admin`, before the terminal 404 handler).
+Purely additive; no existing route, handler, response shape or authentication path changed. Plus
+this document and `04`/`07`/`08` (documentation).
+
+### Endpoints implemented
+
+`GET /public/brands`, `/public/brands/:slug`, `/public/models`, `/public/models/:brand/:slug`,
+`/public/facets`, `/public/locations`, `/public/sitemap-data` — all GET-only, all unauthenticated,
+all read-only. Verified at runtime: the router registers **zero** non-GET methods and **zero**
+non-route middleware layers (i.e. no auth middleware was added anywhere), and contains no
+`insert`/`update`/`delete from`/`drop`/`truncate`/`alter` SQL of any kind.
+
+### Serializer architecture
+
+Eight pure functions in `public-serialize.js`, each returning a **fresh object literal** built from
+named fields. It never spreads a database row (`{ ...row }` appears nowhere — enforced by test),
+never returns a row unchanged, and never attaches a jsonb blob wholesale: `best_for` and
+`component_origins` are validated into arrays of short strings (objects, nested arrays, non-strings
+and over-long values are dropped), and only a validated `lensType` string is extracted from the
+existing `products.attributes` bag. Internal `label:*` tags are stripped in the one place a
+category array reaches public output. No internal database id is exposed anywhere — every response
+identifies records by slug.
+
+### Forbidden-key scanner
+
+`public-forbidden-keys.js` — a normalised (lowercased, separators stripped) **exact-match** key set
+plus `scanForForbiddenKeys()`, which walks objects and arrays recursively and reports the exact
+dotted/bracketed path of every violation, plus an `isForbiddenLabelValue()` check for `label:*`
+values. Exact-match rather than substring is deliberate: a naive `.includes()` rule would flag
+harmless public fields such as `isDiscontinued`, `sortOrder` and `orderIndex`, which is the exact
+false-positive trap the B2.2 brief called out. Used throughout the tests and importable for any
+future dev-mode assertion; it is **not** a production response filter and never runs at request
+time — the serializer's allowlist is the actual boundary.
+
+### SQL and publication boundary
+
+Every query lists its columns explicitly (no `select *`, no `p.*`), is fully parameterised, and
+carries an explicit publication filter: `publication_state = 'published'` for brands/locations/
+content pages, `products.is_published = true` and `variations.is_published = true` for catalogue
+records, and `locations.is_public = true` in addition to publication state. `is_active` appears
+**nowhere** in the public boundary — it is the portal's ordering flag, never the publication
+authority. The router imports no pricing, ordering, cart, auth, account, agent, admin or inventory
+module, and queries no `users`/`orders`/`order_items`/`invoices`/`payments`/`credit_notes` table.
+
+The single SQL interpolation is `${MODEL_SORTS[sort]}`, reached only after `sort` passes an
+allowlist check against a fixed two-key object. Verified at runtime that `__proto__`, `constructor`,
+`toString`, `hasOwnProperty` and `newest; drop table products--` are each rejected with a 400
+**before any query is issued**, and that no `drop table` text ever reaches the SQL.
+
+### Cache design
+
+`public-cache.js`: in-process `Map`, ~60s TTL, bounded at 500 entries with oldest-first eviction.
+Keys are the endpoint name plus every query parameter, sorted and normalised, so `?brand=a&shape=b`
+and `?shape=b&brand=a` share one entry — and **no user or session identity is ever part of a key**,
+because this router has no identity to key on. Caches only successful reads of the collection,
+facet, location and sitemap endpoints. Validation errors (400), 404s and server errors are never
+cached — tested explicitly, including that a transient database failure is retried rather than
+remembered, and that a `400` fails before any query runs. `invalidatePublicCache()` is exported and
+tested but deliberately wired to nothing (see deferrals).
+
+### Validation and test result
+
+**634/634 API tests passing** (566 pre-existing + 68 new), zero regressions — the exact baseline the
+handoff recorded, re-run and re-confirmed in the resuming session. `git diff --check` clean. A
+targeted grep sweep across the B2.2 source found no `select *`, no table-star selection, no row
+spreading, no forbidden table access, no write-verb route registration, no hard-coded production
+hostname, no secret, no merge marker and no TODO/FIXME. (Two `.delete(` hits in `public-cache.js`
+are `Map.prototype.delete` for TTL and bounded-size eviction, not HTTP handlers; write-verb strings
+in the test files are negative assertions and comments.)
+
+### Known limitations
+
+- **No live database was contacted** — every test uses an injected fake `db` object or a
+  monkey-patched `pool.query` restored after each test. The SQL has been carefully reviewed but not
+  executed against a real PostgreSQL instance (no executable available, none installed per the
+  low-storage rules).
+- **No data exists to exercise these endpoints against.** B2.1 left every new table empty and every
+  existing product `is_published = false`; B2.2 published nothing. Every example in
+  `15_B2_PUBLIC_API_CONTRACT.md` is a fixture, not a live response.
+- **`audience` and `material` query parameters are accepted and validated but are currently
+  no-ops** — no backing column exists in the B2.1 schema. Accepted now for forward compatibility
+  with the route matrix's documented facet set.
+- **`locations.address`, `.contact` and `.coordinates` are never returned** — the schema has only a
+  row-level publication signal, with no per-field marker confirming an address or contact block was
+  individually reviewed for public disclosure.
+- **Single-record endpoints are not cached** (`/brands/:slug`, `/models/:brand/:slug`) — a
+  deliberate simplification, trivially addable later with the same cache mechanism.
+- **The forbidden-key scan covers serializer output and endpoint fixtures, not rendered HTML or
+  JSON-LD** — extending it across those surfaces is B9 crawl/QA work.
+
+### Deferred to B2.3 / B2.4
+
+**B2.3:** Astro-side consumption of these endpoints (typed client, page integration, the catalogue
+and brand templates that call them). **B2.4:** product `public_slug`/`brand_id` backfill and slug
+generation (WP-08), admin editing surfaces for brand/location/policy/publication (WP-09), the
+application-level publication gate (approval-required-before-publish; the variation/product
+visibility cross-check), and wiring `invalidatePublicCache()` to admin publish/unpublish actions and
+the Zoho sync — none of which could be done in B2.2 without modifying admin/Zoho modules the brief
+placed out of scope.
+
+### Final storage
+
+| Checkpoint | Free space |
+|---|---|
+| B2.1 end (best available prior reference) | 7.859 GB |
+| Mid-batch handoff checkpoint | 7.831 GB |
+| After full suite + validation (resuming session) | 8.374 GB |
+
+Never approached the 4 GB floor. No new dependency was installed in this batch — zero, as the brief
+required.
+
+### Confirmation
+
+No live database, production system, VPS or DNS was contacted at any point in either session.
+`platform/server/storefront/**`, `platform/server/web/**`, `platform/server/db/**`, the root admin
+application, `docker-compose.yml`, `Caddyfile`, `deploy.sh`, all `.env` files, every existing API
+test, and every authenticated `/user` route shape are unchanged — confirmed by `git status --short`
+showing changes confined to `platform/server/api/src/**`, `platform/server/api/test/**` and
+`docs/public-website-rebuild/**`. The other developer's concurrent branch was never inspected,
+referenced or merged. No commit was made and nothing was pushed.
