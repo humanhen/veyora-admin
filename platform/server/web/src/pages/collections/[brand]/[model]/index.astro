@@ -18,6 +18,8 @@ import {
 import { NOT_FOUND_ROBOTS } from '../../../../lib/indexing.ts';
 import { breadcrumbsWithHome } from '../../../../lib/routes.ts';
 import { getModel, PUBLIC_API_FAILURE_STATUS } from '../../../../lib/public-api.ts';
+import { buildProduct } from '../../../../lib/structured-data.ts';
+import { env } from '../../../../env.ts';
 
 const brandSlug = Astro.params.brand ?? '';
 const modelSlug = Astro.params.model ?? '';
@@ -63,6 +65,7 @@ const attributes = model
 <Page
   meta={meta}
   breadcrumbs={breadcrumbs}
+  jsonLd={model ? buildProduct(model, env.siteOrigin) : undefined}
   fixedRobots={!model && !result.ok && result.kind === 'not-found' ? NOT_FOUND_ROBOTS : undefined}
 >
   {!result.ok && result.kind === 'not-found' && <NotFound subject="model" />}

@@ -19,7 +19,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { startMockApi, type MockApi } from './helpers/mock-public-api.ts';
+import { startMockApi, PLANTED_SECRETS, type MockApi } from './helpers/mock-public-api.ts';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const TEST_PORT = 4320; // distinct from other suites' ports and dev defaults
@@ -322,6 +322,106 @@ test('a cross-origin POST is rejected outright by the CSRF origin check', async 
 
   const before = mockApi!.submissions.length;
   assert.equal(mockApi!.submissions.length, before, 'a rejected POST must reach no API');
+});
+
+/* Fast-Track Phase 4: robots.txt, the XML sitemap, JSON-LD, and a scan of
+   real rendered output for planted private values. The mock API's fixtures
+   deliberately carry price, cost, stock, warehouse, Zoho and fact-owner
+   fields the real API would never send — so anything that survives into HTML
+   or JSON-LD here would survive a compromised or version-skewed upstream. */
+
+test('robots.txt disallows everything on a non-production origin and advertises no sitemap', async () => {
+  /* The harness serves on a loopback origin, which is exactly what
+     looksNonProduction() is for. A staging copy inviting indexing is how it
+     ends up outranking the real site, so this is the important branch to
+     pin at HTTP level; the production branch is asserted at unit level in
+     seo-controls.test.ts. */
+  const response = await get('/robots.txt');
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get('content-type') ?? '', /text\/plain/);
+
+  const body = await response.text();
+  assert.match(body, /^User-agent: \*/m);
+  assert.match(body, /^Disallow: \/$/m);
+  assert.match(body, /Non-production origin/);
+  assert.doesNotMatch(body, /Sitemap:/, 'a non-production origin must not advertise a sitemap');
+  assert.doesNotMatch(body, /veyora\.(design|com)/i);
+});
+
+test('the XML sitemap is well-formed, absolute, and free of non-canonical states', async () => {
+  const response = await get('/sitemap.xml');
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get('content-type') ?? '', /application\/xml/);
+
+  const body = await response.text();
+  assert.match(body, /^<\?xml version="1\.0" encoding="UTF-8"\?>/);
+  assert.match(body, /<urlset xmlns="http:\/\/www\.sitemaps\.org\/schemas\/sitemap\/0\.9">/);
+  assert.match(body, /<\/urlset>/);
+
+  const locs = [...body.matchAll(/<loc>([^<]*)<\/loc>/g)].map((m) => m[1]);
+  assert.ok(locs.length > 5, 'the sitemap should carry the static routes at minimum');
+  for (const loc of locs) {
+    assert.ok(loc.startsWith(`${SITE_ORIGIN}/`), `not absolute: ${loc}`);
+    assert.ok(!loc.includes('?'), `query state in sitemap: ${loc}`);
+    assert.ok(!loc.includes('#'), `fragment in sitemap: ${loc}`);
+    assert.ok(!/\/(404|500)\//.test(loc), `error route in sitemap: ${loc}`);
+    assert.ok(!/\/(admin|api|s3)\//.test(loc), `private namespace in sitemap: ${loc}`);
+  }
+  // Published records from the mock appear alongside the static routes.
+  assert.ok(locs.some((l) => l.includes('/brands/example-brand/')), 'no published brand in the sitemap');
+});
+
+test('JSON-LD is valid JSON, and breadcrumbs match the visible trail', async () => {
+  const body = await (await get('/brands/example-brand/')).text();
+  const blocks = [...body.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)].map((m) => m[1]);
+  assert.ok(blocks.length >= 2, 'expected at least WebSite and BreadcrumbList');
+
+  const nodes = blocks.map((raw) => JSON.parse(raw.replace(/\\u003c/g, '<')));
+  for (const node of nodes) assert.equal(node['@context'], 'https://schema.org');
+
+  const crumbs = nodes.find((n) => n['@type'] === 'BreadcrumbList');
+  assert.ok(crumbs, 'no BreadcrumbList emitted');
+  const names: string[] = crumbs.itemListElement.map((i: { name: string }) => i.name);
+  // Every structured crumb label also appears in the rendered breadcrumb nav.
+  const nav = body.slice(body.indexOf('<nav'), body.indexOf('</nav>') + 6);
+  for (const name of names) assert.ok(body.includes(name), `crumb "${name}" is not visible on the page`);
+  assert.ok(nav.length > 0);
+});
+
+test('product JSON-LD carries no offer, price or availability', async () => {
+  const body = await (await get('/collections/example-brand/example-model/')).text();
+  const blocks = [...body.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)].map((m) => m[1]);
+  const nodes = blocks.map((raw) => JSON.parse(raw.replace(/\\u003c/g, '<')));
+
+  const product = nodes.find((n) => n['@type'] === 'Product');
+  assert.ok(product, 'no Product node emitted');
+  assert.equal(product.name, 'Example Model');
+  for (const key of ['offers', 'price', 'priceCurrency', 'availability', 'aggregateRating', 'review']) {
+    assert.ok(!(key in product), `Product JSON-LD emitted "${key}"`);
+  }
+});
+
+test('a noindex page emits no structured data', async () => {
+  const body = await (await get('/collections/?brand=example-brand')).text();
+  assert.match(body, /<meta name="robots" content="noindex, follow"/);
+  assert.doesNotMatch(body, /application\/ld\+json/, 'a noindex page must not assert structured data');
+});
+
+test('no planted private value reaches rendered HTML or JSON-LD on any public route', async () => {
+  const routes = [
+    '/', '/brands/', '/brands/example-brand/', '/collections/',
+    '/collections/sun/', '/collections/example-brand/example-model/',
+    '/global-presence/', '/sitemap.xml',
+  ];
+  for (const route of routes) {
+    const body = await (await get(route)).text();
+    for (const [name, planted] of Object.entries(PLANTED_SECRETS)) {
+      assert.ok(!body.includes(planted), `${route} leaked ${name} (${planted})`);
+    }
+    // The nested private object in the fixture must not survive either.
+    assert.ok(!body.includes('"internal"'), `${route} rendered the nested internal object`);
+    assert.doesNotMatch(body, /label:internal/, `${route} rendered an internal label tag`);
+  }
 });
 
 test('/healthz remains 200, application/json, X-Robots-Tag noindex nofollow, unaffected by the new middleware', async () => {

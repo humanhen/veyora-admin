@@ -11,6 +11,8 @@ import { brandDetailMetadata, brandDetailMetadataFromRecord, NOT_FOUND_METADATA 
 import { NOT_FOUND_ROBOTS } from '../../../lib/indexing.ts';
 import { breadcrumbsWithHome } from '../../../lib/routes.ts';
 import { getBrand, PUBLIC_API_FAILURE_STATUS } from '../../../lib/public-api.ts';
+import { buildBrand } from '../../../lib/structured-data.ts';
+import { env } from '../../../env.ts';
 
 const slug = Astro.params.brand ?? '';
 const result = await getBrand(slug);
@@ -53,6 +55,7 @@ const facts = brand
 <Page
   meta={meta}
   breadcrumbs={breadcrumbs}
+  jsonLd={brand ? buildBrand(brand, env.siteOrigin) : undefined}
   fixedRobots={!brand && result.ok === false && result.kind === 'not-found' ? NOT_FOUND_ROBOTS : undefined}
 >
   {!result.ok && result.kind === 'not-found' && <NotFound subject="brand" />}

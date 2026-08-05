@@ -48,7 +48,7 @@ unimplemented in a syntactically clean state, and the run continues to later pha
 | 1 — Catalogue export preparation | complete | `checkpoint: add safe catalogue export preparation` |
 | 2 — Public catalogue filters | complete | `checkpoint: add public catalogue filter interface` |
 | 3 — Durable enquiry forms | complete (one test gap) | `checkpoint: add durable public enquiry forms` |
-| 4 — Production SEO controls | pending | |
+| 4 — Production SEO controls | complete | `checkpoint: complete public SEO controls` |
 | 5 — Integration validation | pending | |
 
 ---
@@ -249,3 +249,60 @@ server-side and that a cross-origin POST is refused.
 still unbuilt; see `24_PUBLIC_ENQUIRY_FORMS.md` §8.
 
 **Next:** Phase 4 — production SEO controls.
+
+### Phase 4 — complete
+
+**Files changed**
+
+| Path | Change |
+|---|---|
+| `platform/server/web/src/pages/robots.txt.ts` | new — dynamic, environment-derived |
+| `platform/server/web/src/pages/sitemap.xml.ts` | new — non-200 on upstream failure |
+| `platform/server/web/src/lib/sitemap-xml.ts` | new — pure inclusion/escaping/ordering rules |
+| `platform/server/web/src/lib/structured-data.ts` | new — JSON-LD builders |
+| `platform/server/web/src/layouts/Page.astro` | emits WebSite + BreadcrumbList; suppressed on noindex |
+| `platform/server/web/src/pages/{brands/[brand],collections/[brand]/[model]}/index.astro` | supply Brand / Product nodes |
+| `platform/server/web/test/seo-controls.test.ts` | new — 25 tests |
+| `platform/server/web/test/http-routes.test.ts` | +6 live tests incl. the planted-secret scan |
+| `platform/server/web/test/helpers/mock-public-api.ts` | `/public/sitemap-data` fixture |
+| `platform/server/web/test/public-api.test.ts` | sitemap-data test rewritten (see below) |
+| `docs/public-website-rebuild/25_SEO_AND_STRUCTURED_DATA.md` | new |
+| `docs/public-website-rebuild/08_RISKS_AND_OPEN_DECISIONS.md` | R-06 updated, **score unchanged** |
+
+**Tests:** web **412 passing** (379 + 33). Astro build succeeds.
+
+**Decisions**
+
+- **An upstream failure returns non-200, never a short sitemap.** A sitemap missing most of its URLs
+  looks authoritative and invites de-indexing of everything absent.
+- **`noindex` states are excluded from the sitemap** — listing one contradicts the page's own robots
+  directive, and search engines read that as a quality signal against the site.
+- **No `offers`, `price`, `availability` or `aggregateRating` in JSON-LD.** This is a wholesale
+  catalogue with no public price and no review corpus; emitting them would be false structured data.
+- **A `noindex` page emits no structured data at all.**
+- **`<` is escaped as `<`** on serialisation so a value cannot close the script block.
+- **robots.txt disallows everything on a non-production origin** and advertises no sitemap there.
+
+**Two behaviours confirmed by tests that initially looked like failures**
+
+Both turned out to be the code being right and the assertion being wrong:
+
+- robots.txt returned the non-production body in the harness — correct, because the test origin is
+  loopback. The HTTP test now pins that branch; production shape is asserted at unit level.
+- `/sitemap.xml` answered 404 — correct, because the mock had no `/public/sitemap-data`. The mock
+  gained the fixture, and an existing `public-api` test whose title asserted the *absence* of that
+  endpoint was rewritten into three tests covering the valid, malformed and unavailable paths.
+
+**R-06 — closed the last surface, score deliberately unchanged**
+
+JSON-LD and inline JSON were the fourth and final surface the original mitigation named. The score
+stays at **L3 × I4 = 12** because two original conditions remain unmet: nothing is **wired as a merge
+gate** (the scan is a test, not a control), and **no real row has ever been checked** — every scan
+runs against fixtures. Marking it closed on four green surfaces would be the false confidence the
+entry exists to prevent.
+
+**Limitations:** single sitemap file (fine at ~1,300 models); no `changefreq`/`priority`/image
+sitemap; no `lastmod` for static routes; the rendered scan covers only routes the mock can serve; no
+Rich Results Test validation (needs a public URL).
+
+**Next:** Phase 5 — full integration validation and handoff.

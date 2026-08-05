@@ -5,6 +5,8 @@ import Footer from '../components/nav/Footer.astro';
 import Breadcrumbs from '../components/nav/Breadcrumbs.astro';
 import MobileMenu from '../components/nav/MobileMenu.astro';
 import { buildSeoHead } from '../lib/seo.ts';
+import { buildWebSite, buildBreadcrumbs, serialiseJsonLd, type JsonLd } from '../lib/structured-data.ts';
+import { env } from '../env.ts';
 import type { RouteMetadata } from '../lib/metadata.ts';
 import type { BreadcrumbItem } from '../lib/routes.ts';
 
@@ -17,9 +19,13 @@ interface Props {
   breadcrumbs?: BreadcrumbItem[];
   /** Set only by the 404/500 pages — see src/lib/seo.ts. */
   fixedRobots?: string;
+  /* Page-specific JSON-LD (Fast-Track Phase 4). WebSite and BreadcrumbList
+     are added here for every page; a route passes only what is specific to
+     it — a Product, a Brand, a CollectionPage. */
+  jsonLd?: JsonLd | JsonLd[];
 }
 
-const { meta, breadcrumbs, fixedRobots } = Astro.props;
+const { meta, breadcrumbs, fixedRobots, jsonLd } = Astro.props;
 const currentPath = Astro.url.pathname;
 const seo = buildSeoHead({
   meta,
@@ -27,6 +33,16 @@ const seo = buildSeoHead({
   searchParams: Astro.url.searchParams,
   fixedRobots,
 });
+
+/* Structured data is suppressed on any page the site tells crawlers not to
+   index. Describing a noindex page in JSON-LD is a contradiction: it asks a
+   crawler to both ignore the page and treat its claims as authoritative. */
+const indexable = !seo.robots.startsWith('noindex');
+const breadcrumbNode = breadcrumbs ? buildBreadcrumbs(breadcrumbs, env.siteOrigin) : null;
+const structuredData: JsonLd[] = indexable
+  ? [buildWebSite(env.siteOrigin), breadcrumbNode, ...(Array.isArray(jsonLd) ? jsonLd : jsonLd ? [jsonLd] : [])]
+      .filter((node): node is JsonLd => node !== null)
+  : [];
 ---
 
 <Base seo={seo}>
@@ -47,4 +63,15 @@ const seo = buildSeoHead({
     <Footer />
   </div>
   <MobileMenu currentPath={currentPath} />
+
+  {
+    structuredData.map((node) => (
+      <script
+        slot="structured-data"
+        type="application/ld+json"
+        is:inline
+        set:html={serialiseJsonLd(node)}
+      />
+    ))
+  }
 </Base>

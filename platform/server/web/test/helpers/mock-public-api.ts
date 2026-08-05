@@ -170,6 +170,12 @@ export const FIXTURES = {
     ],
   },
   locationsEmpty: { locations: [] },
+  sitemapData: {
+    brands: [{ path: '/brands/example-brand/', contentUpdatedAt: '2026-08-01T00:00:00.000Z' }],
+    models: [{ path: '/collections/example-brand/example-model/', contentUpdatedAt: '2026-08-01T00:00:00.000Z' }],
+    pages: [{ path: '/resources/fitting-guide/', contentUpdatedAt: null }],
+  },
+  sitemapDataEmpty: { brands: [], models: [], pages: [] },
   facets: {
     shapes: ['aviator', 'round'],
     sizes: ['Medium'],
@@ -301,7 +307,9 @@ export async function startMockApi(options: MockApiOptions = {}): Promise<MockAp
         }
         body = FIXTURES.modelDetail;
       } else if (path === '/public/facets') body = FIXTURES.facets;
-      else if (path === '/public/locations') {
+      else if (path === '/public/sitemap-data') {
+        body = options.empty ? FIXTURES.sitemapDataEmpty : FIXTURES.sitemapData;
+      } else if (path === '/public/locations') {
         body = options.empty ? FIXTURES.locationsEmpty : FIXTURES.locations;
       } else {
         res.writeHead(404, { 'content-type': 'application/json' });

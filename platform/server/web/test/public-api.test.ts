@@ -302,15 +302,46 @@ test('validated client output contains none of the adversarial fields the mock p
   }
 });
 
-test('getSitemapData validates its own shape (mock returns 404 for it, proving no silent empty success)', async () => {
+test('getSitemapData validates its own shape and returns the three record groups', async () => {
+  /* Fast-Track Phase 4 gave the mock a real /public/sitemap-data (the XML
+     sitemap needs it), so this now asserts the validated shape rather than
+     the previous not-found path. The "no silent empty success" property is
+     covered by the malformed and failure cases below. */
   const mock = await startMockApi();
   try {
     _setApiOriginForTesting(mock.origin);
     const result = await getSitemapData();
-    // The mock does not implement /public/sitemap-data, so this must be a
-    // clean not-found rather than an empty-but-ok result.
+    assert.equal(result.ok, true);
+    if (result.ok) {
+      assert.ok(Array.isArray(result.data.brands));
+      assert.ok(Array.isArray(result.data.models));
+      assert.ok(Array.isArray(result.data.pages));
+      assert.equal(result.data.brands[0].path, '/brands/example-brand/');
+    }
+  } finally {
+    await mock.close();
+  }
+});
+
+test('getSitemapData reports a malformed payload rather than an empty success', async () => {
+  const mock = await startMockApi({ malformedShape: true });
+  try {
+    _setApiOriginForTesting(mock.origin);
+    const result = await getSitemapData();
     assert.equal(result.ok, false);
-    if (!result.ok) assert.equal(result.kind, 'not-found');
+    if (!result.ok) assert.equal(result.kind, 'malformed');
+  } finally {
+    await mock.close();
+  }
+});
+
+test('getSitemapData reports an upstream failure rather than an empty success', async () => {
+  const mock = await startMockApi({ failWith: { status: 503 } });
+  try {
+    _setApiOriginForTesting(mock.origin);
+    const result = await getSitemapData();
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.equal(result.kind, 'unavailable');
   } finally {
     await mock.close();
   }

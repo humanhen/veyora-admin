@@ -166,6 +166,42 @@ adversarial fixtures, not against a real row that could carry a field nobody ant
 unchanged**; the B9 revisit condition stated above is unchanged, now with rendered HTML already
 demonstrated.
 
+
+**Implementation update — 2026-08-06 (Fast-Track Phase 4). Score unchanged: L3 × I4 = 12.**
+
+All previous entries are retained as written. This phase closed the **fourth and last** of the four
+surfaces the original mitigation named — but the entry is deliberately **not** closed, and the score
+is deliberately **not** reduced. What changed and what did not:
+
+- *Now covered:* **JSON-LD**. `src/lib/structured-data.ts` builds every node from already-validated
+  public API records, and `test/seo-controls.test.ts` hands a builder a record poisoned with the
+  full `PLANTED_SECRETS` set and asserts none survives serialisation. A `FORBIDDEN_JSONLD_KEYS` list
+  (`offers`, `price`, `availability`, `aggregateRating`, `address`, `sameAs`, …) is asserted absent
+  from every emitted node.
+- *Now covered:* **inline JSON**, which is the same surface — the only inline JSON this site emits is
+  the JSON-LD block.
+- *Extended:* the rendered-HTML scan now also runs over `/robots.txt` and `/sitemap.xml`, and over
+  the JSON-LD blocks inside every scanned page, using the same planted literals rather than generic
+  substring matching.
+
+**Why the score does not move.** Two of the original mitigation's conditions remain unmet, and both
+are the kind that only look satisfied from a distance:
+
+1. **Nothing is wired as a merge gate.** The scan runs inside `npm test`. That is a test, not a
+   control: a contributor can merge a change without running it, and nothing blocks them. The
+   original entry named "wired as a merge gate" explicitly, and it is still absent.
+2. **No real row has ever been checked.** Every scan runs against fixtures and mock responses.
+   The boundary is proven against what we *think* the database contains, not against what it does.
+   A field that exists in production but in no fixture is invisible to all four surfaces.
+
+There is also a third, newer gap: the rendered scan covers the routes the mock can serve. Routes
+whose data does not exist yet — content pages, resources detail — are not exercised, so the scan's
+coverage grows as the catalogue does rather than being complete today.
+
+**Closes when:** the scanner runs against real (or realistically seeded) rows, and the scan is wired
+as a gate that can actually block a merge. Revisit at B9 with the crawl/QA suite, as previously
+planned.
+
 ---
 
 ### R-07 · Visual drift from the approved design · L3 × I4 = **12**
