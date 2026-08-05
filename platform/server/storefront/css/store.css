@@ -20,7 +20,7 @@
 html{-webkit-text-size-adjust:100%}
 /* interactive controls: no text-selection / long-press copy callout on touch */
 button,.vrow,.fchip,.chip,.qtybox,.nav a,.pcard2,.thumbstrip img,.vthumbs img,
-.lb-stage,.lb-dots,.imgbox.big,.density,.pager,.stockpill{
+.lb-stage,.lb-dots,.imgbox.big,.pager,.stockpill{
   -webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
 /* never allow the page itself to pan sideways (inner scrollers unaffected) */
 html,body{overflow-x:clip}
@@ -37,6 +37,7 @@ img{max-width:100%}
 .topbar .logo span{color:#bda0d3}
 .topbar .spacer{flex:1}
 .topbar .icon-btn{position:relative;background:none;border:none;color:#fff;font-size:20px;padding:8px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
+.topbar .icon-btn svg{width:20px;height:20px;display:block}
 .topbar .icon-btn:hover{background:rgba(255,255,255,.12)}
 .topbar .present-toggle svg{display:block}
 .topbar .present-toggle.on{background:#8f6db3;color:#fff}
@@ -183,9 +184,12 @@ table.list tr.click:hover td{background:var(--soft-blue)}
 .pcard .fav{position:absolute;top:8px;right:8px;background:rgba(255,255,255,.9);border:1px solid var(--line);border-radius:999px;width:32px;height:32px;font-size:16px;line-height:1;color:#94a3b8}
 .pcard .fav.on{color:#e11d48}
 .pcard .tagnew{position:absolute;top:10px;left:10px;background:var(--ink-3);color:#fff;font-size:10px;font-weight:700;padding:3px 8px;border-radius:5px;letter-spacing:.08em}
-.pager{display:flex;gap:8px;justify-content:center;align-items:center;margin-top:20px}
-.pager button{background:#fff;border:1px solid var(--line);border-radius:8px;padding:8px 14px;font-weight:600}
-.pager button:disabled{opacity:.4}
+.pager{display:flex;gap:6px;justify-content:center;align-items:center;margin-top:20px;flex-wrap:wrap}
+.pager button{background:#fff;border:1px solid var(--line);border-radius:8px;padding:8px 12px;font-weight:600;min-width:40px;color:var(--ink-2)}
+.pager button:disabled{opacity:.45;color:var(--muted);cursor:default}
+.pager button.pg.on{background:#221F20;color:#fff;border-color:#221F20}
+.pager-gap{color:var(--muted);padding:0 2px;font-weight:600}
+.pager-meta{margin-left:6px}
 
 /* ---------- product modal ---------- */
 .modal-back{position:fixed;inset:0;background:rgba(19,30,66,.5);z-index:60;display:flex;align-items:center;justify-content:center;padding:16px}
@@ -431,6 +435,8 @@ body.hm-dark{
 .hm-head-right{display:flex;align-items:center;gap:16px}
 .hm-pill{display:inline-flex;align-items:center;gap:10px;background:rgba(25,23,22,.85);border:1px solid rgba(255,255,255,.12);color:#fff;border-radius:999px;padding:11px 22px;font-weight:600;font-size:15px;backdrop-filter:blur(6px)}
 .hm-pill:hover{background:rgba(45,41,39,.9)}
+.hm-pill.ghost{background:transparent;border-color:rgba(255,255,255,.28)}
+.hm-pill.ghost:hover{background:rgba(255,255,255,.08)}
 .hm-pill svg{width:21px;height:21px}
 .hm-account{color:#fff;opacity:.9;display:flex;padding:6px}
 .hm-account svg{width:26px;height:26px}
@@ -534,21 +540,18 @@ body.hm-dark{
 .hm-state-copy{position:relative;width:100%;max-width:1320px;margin:0 auto;padding:clamp(64px,8vw,120px) clamp(20px,4vw,40px) clamp(34px,4vw,60px)}
 .hm-state-copy h2{font-family:var(--hm-serif);font-weight:400;font-size:clamp(26px,4.2vw,50px);line-height:1.14;letter-spacing:-.012em;color:#fff;max-width:19ch;margin:0;overflow-wrap:break-word}
 
-/* ---------- 5. product portfolio: one feature + supporting details ----------
-   The product shots are 4:5 studio frames with the product between 28% and 90%
-   of the height, so the box matches the file and nothing is cropped away — the
-   whole product, and the brand mark above it, stay visible at every size. The
-   feature is width-capped rather than column-filled so it does not tower over
-   the copy beside it. The middle detail shot used to be nudged down 24px; the
-   stagger read as a mistake, so all three now share one line. */
+/* ---------- 5. product portfolio ----------
+   Left feature vertically centered against the right stack. object-fit:contain
+   keeps CHARLETT branding in frame (cover was cropping logos at top/bottom). */
 .hm-port{background:var(--hm-stone)}
-.hm-port-in{max-width:1320px;margin:0 auto;padding:clamp(52px,6vw,92px) clamp(20px,4vw,40px);display:grid;grid-template-columns:minmax(0,.85fr) minmax(0,1.15fr);gap:clamp(32px,4.4vw,64px);align-items:center}
-.hm-port-feature{margin:0;min-width:0;max-width:500px}
-.hm-port-feature img{display:block;width:100%;aspect-ratio:4/5;object-fit:cover;object-position:50% 50%;background:#111}
-.hm-port-side{min-width:0}
-.hm-port-side .hm-textlink{margin-top:26px}
-.hm-port-row{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:clamp(8px,1.2vw,16px);margin-top:clamp(28px,3vw,42px)}
-.hm-port-row img{display:block;width:100%;aspect-ratio:4/5;object-fit:cover;object-position:50% 50%;background:#111}
+.hm-port-in{max-width:1200px;margin:0 auto;padding:clamp(36px,4.5vw,64px) clamp(20px,4vw,40px);display:grid;grid-template-columns:minmax(0,0.95fr) minmax(0,1.15fr);gap:clamp(24px,3.2vw,44px);align-items:center}
+.hm-port-feature{margin:0;width:100%;max-width:420px;aspect-ratio:1/1;overflow:hidden;background:var(--hm-stone)}
+.hm-port-feature img{display:block;width:100%;height:100%;object-fit:contain;object-position:center}
+.hm-port-side{min-width:0;display:flex;flex-direction:column}
+.hm-port-side .hm-textlink{margin-top:14px;margin-bottom:0}
+.hm-port-row{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:clamp(8px,1.2vw,14px);margin-top:clamp(18px,2.4vw,28px)}
+.hm-port-row figure{margin:0;aspect-ratio:1/1;overflow:hidden;background:var(--hm-stone)}
+.hm-port-row img{display:block;width:100%;height:100%;object-fit:contain;object-position:center}
 
 /* ---------- 6. veyora in motion — framed, not full-bleed ---------- */
 .hm-motion{background:var(--hm-canvas)}
@@ -568,9 +571,12 @@ body.hm-dark{
 .hm-foot-in{max-width:1320px;margin:0 auto;padding:clamp(34px,3.6vw,48px) clamp(20px,4vw,40px) clamp(52px,5vw,76px);display:grid;grid-template-columns:auto minmax(0,1fr);gap:20px 40px;align-items:center}
 .hm-foot-logo{grid-column:1;justify-self:start}
 .hm-foot-logo img{display:block;width:auto;height:19px}
-.hm-foot-links{grid-column:2;display:flex;flex-wrap:wrap;gap:4px 26px;justify-content:flex-end}
+.hm-foot-links{grid-column:2;display:flex;flex-wrap:wrap;gap:4px 26px;justify-content:flex-end;align-items:center}
 .hm-foot-links a{display:inline-flex;align-items:center;min-height:36px;color:rgba(255,255,255,.72);font-size:12.5px}
 .hm-foot-links a:hover{color:#fff}
+.hm-foot-social{display:inline-flex;align-items:center;gap:8px;margin-left:4px}
+.hm-soc{width:36px;height:36px;border-radius:999px;border:1px solid rgba(255,255,255,.18);color:rgba(255,255,255,.82);display:inline-flex;align-items:center;justify-content:center;min-height:0 !important}
+.hm-soc:hover{color:#fff;border-color:rgba(255,255,255,.45);background:rgba(255,255,255,.06)}
 .hm-foot-legal{grid-column:1/-1;padding-top:20px;border-top:1px solid rgba(255,255,255,.08);font-size:12px;color:rgba(255,255,255,.42)}
 
 /* The WhatsApp float, shared by the marketing homepage (`.hm-wa`) and the
@@ -612,8 +618,8 @@ body.hm-dark .hm-wa{width:48px;height:48px;bottom:calc(22px + env(safe-area-inse
   .hm-focus-pair img{height:auto}
   .hm-focus-a img{aspect-ratio:4/5}
   .hm-focus-b img{aspect-ratio:3/2}
-  .hm-port-in{grid-template-columns:minmax(0,1fr);gap:30px}
-  .hm-port-feature{max-width:none}
+  .hm-port-in{grid-template-columns:minmax(0,1fr);gap:24px}
+  .hm-port-feature{max-width:min(420px,100%);margin-inline:auto}
   .hm-motion-in{grid-template-columns:minmax(0,1fr);gap:26px;align-items:start}
   .hm-close-in{grid-template-columns:minmax(0,1fr);gap:24px;align-items:start}
 }
@@ -647,11 +653,8 @@ body.hm-dark .hm-wa{width:48px;height:48px;bottom:calc(22px + env(safe-area-inse
 }
 
 /* ==================== products page (old veyora.com card design) ==================== */
-.prod-head{display:flex;justify-content:space-between;align-items:center;margin:6px 0 14px}
-.prod-head h1{font-size:22px;font-weight:600;letter-spacing:.5px;color:#000}
-.density{display:flex;gap:4px;background:#eceae6;border-radius:8px;padding:3px}
-.density button{border:none;background:transparent;border-radius:6px;padding:4px 10px;font-size:14px;letter-spacing:1px;color:#8a857f;cursor:pointer}
-.density button.on{background:#221F20;color:#fff}
+.prod-head{display:flex;justify-content:space-between;align-items:center;margin:6px 0 14px;gap:10px}
+.prod-head h1{font-size:22px;font-weight:600;letter-spacing:.5px;color:#000;margin-right:auto}
 .bigsearch{position:relative;margin-bottom:14px}
 .bigsearch input{width:100%;height:42px;padding:0 14px 0 46px;border:none;border-radius:10px;background:#f5efe4;font-size:16px;font-weight:500;outline:none;color:var(--ink)}
 .bigsearch input::placeholder{color:#a89f90;font-weight:400}
@@ -703,16 +706,14 @@ body.hm-dark .hm-wa{width:48px;height:48px;bottom:calc(22px + env(safe-area-inse
   .fbar{display:none}
   .fsheet .fbar{display:block}
   .fbtn{display:inline-flex}
-  .density{display:none}
 }
 @media(max-width:760px){
   .prod-head h1{font-size:16px}
 }
 .pgrid2{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
-.pgrid2.cols3{grid-template-columns:repeat(3,1fr)}
-@media(max-width:1100px){.pgrid2,.pgrid2.cols3{grid-template-columns:repeat(3,1fr)}}
-@media(max-width:840px){.pgrid2,.pgrid2.cols3{grid-template-columns:repeat(2,1fr)}}
-@media(max-width:480px){.pgrid2,.pgrid2.cols3{grid-template-columns:1fr 1fr}}
+@media(max-width:1100px){.pgrid2{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:840px){.pgrid2{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:480px){.pgrid2{grid-template-columns:1fr 1fr}}
 /* mobile fixes: readable/tappable order button; cart line must wrap so the
    remove + total stay on-screen; bigger qty steppers for touch */
 @media(max-width:480px){
@@ -741,6 +742,11 @@ body.hm-dark .hm-wa{width:48px;height:48px;bottom:calc(22px + env(safe-area-inse
    .imgbox2 so the thumbnail-click image swap never removes it. */
 .pcard2 .hover-img{position:absolute;top:0;left:0;width:100%;aspect-ratio:1/1;object-fit:contain;background:#f4f3f1;opacity:0;transition:opacity .18s ease;pointer-events:none}
 @media (hover:hover){.pcard2:hover .hover-img{opacity:1}}
+/* Only while a thumb click just happened under an active hover — clear on
+   mouseleave so the second-angle hover effect keeps working as normal. */
+.pcard2.thumb-swapping .hover-img,
+.pcard2.thumb-swapping:hover .hover-img{opacity:0}
+.pcard2 .photo-wrap{cursor:zoom-in}
 .pcard2 .attrline{text-align:center;color:rgba(0,0,0,.55);font-size:12px;padding:2px 10px 12px;letter-spacing:1px}
 .lens-chip{display:inline-block;background:#efe9f5;color:#56416d;font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:4px;margin-left:6px;vertical-align:1px}
 .pcard2 .rowname{display:flex;justify-content:space-between;align-items:center;padding:8px 14px 4px}
