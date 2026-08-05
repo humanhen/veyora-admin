@@ -787,3 +787,62 @@ Full detail: `docs/public-website-rebuild/22_PUBLICATION_WORKFLOW_INTERFACE.md`;
 `04_TARGET_ARCHITECTURE.md` §19; `18_B2_ADMIN_PUBLICATION_API.md` §15;
 `19_ACCOUNT_PERMISSION_SYSTEM.md` §13; `21_PUBLIC_CONTENT_EDITOR.md` §15;
 `09_FIRST_BUILD_PACKAGE.md`'s B2.4B2B section.
+
+---
+
+## 18. B2.4C1 implementation result — catalogue readiness audit and dry-run planner — 2026-08-06
+
+First of three C-batches. It answers a question the plan has been carrying implicitly since B2.1:
+**how much of the existing catalogue is actually ready, and what would a backfill involve?**
+
+### 18.1 Delivered
+
+`src/catalogue-audit/` (input contract, normalisation, brand mapping, readiness, integrity, plan,
+reports) plus a read-only CLI at `scripts/audit-public-catalogue.js`, 78 tests, and
+`23_CATALOGUE_BACKFILL_PLAN.md`.
+
+**API suite: 923 passing, 0 failing** (845 baseline + 78). No existing file was modified — the batch
+is additive only.
+
+### 18.2 Why the tool is deliberately weak
+
+It cannot connect to a database, cannot read the environment, cannot fetch a URL, and cannot generate
+SQL. Those are not omissions to be filled in later; they are the reason the tool can be run and
+re-run without ceremony, and the reason its output can be trusted as evidence rather than treated as
+an action.
+
+The same discipline governs what it will decide. Exact and normalised brand matches are mechanical
+and get proposed. Everything else — ambiguous names, new brands, missing values — becomes a review
+item. There is no fuzzy matching anywhere: on a public site a mis-attached model is a wrong logo
+nobody notices, whereas a failed lookup is noticed immediately, so the tool is built to fail the
+noticeable way.
+
+### 18.3 Estimate impact
+
+The 660–820 hour estimate is **unchanged**. This batch quantifies existing work rather than adding
+any: backfill was always in scope, and the audit replaces a guess about its size with a measurement —
+once a real export exists.
+
+What the audit will change is *sequencing confidence*. Until it has been run against a real export,
+the number of models needing brand decisions, new brand records, descriptions and media is unknown,
+and any backfill schedule is speculation.
+
+### 18.4 Sequencing consequence
+
+**Two prerequisites now gate the C-sequence, and neither is built:**
+
+1. **A safe catalogue export.** The tool reads a fixture, and producing that fixture from the live
+   database — without prices, stock, customer data or the unrestricted attributes blob — is itself
+   unbuilt work. B2.4C2.
+2. **The permission bootstrap.** Applying anything must go through the governed administrative API
+   under `public_content.edit`, which no account holds. `19_ACCOUNT_PERMISSION_SYSTEM.md` §8 remains
+   the only way in, and it still has not been performed.
+
+B2.4C3 must apply an approved plan **through the admin API**, never by direct `UPDATE`: a direct
+write would bypass the publication boundary guard, the gate, the capability check and the approval
+record simultaneously. That is the single most important constraint on the batch after this one.
+
+R-17 is unchanged by this batch.
+
+Full detail: `docs/public-website-rebuild/23_CATALOGUE_BACKFILL_PLAN.md`;
+`04_TARGET_ARCHITECTURE.md` §20; `09_FIRST_BUILD_PACKAGE.md`'s B2.4C1 section.

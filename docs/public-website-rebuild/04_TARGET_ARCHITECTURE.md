@@ -1000,3 +1000,64 @@ change, no new route, no changed response shape. `platform/server/db/**`, `platf
 unchanged, as are all public API response shapes and all pricing, inventory, ordering and Zoho
 behaviour. Full contract:
 `docs/public-website-rebuild/22_PUBLICATION_WORKFLOW_INTERFACE.md`.
+
+---
+
+## 20. B2.4C1 implementation result — catalogue readiness audit and dry-run planner — 2026-08-06
+
+A read-only planning tool, added because the governed editing and publication machinery
+(B2.4A–B2.4B2B) says nothing about how much of the existing ~1,300-model catalogue is anywhere near
+ready, or what a backfill would actually involve.
+
+### 20.1 Position in the architecture
+
+```
+catalogue export (JSON fixture)
+        │  closed allowlist — unknown/forbidden fields REJECTED
+        ▼
+src/catalogue-audit/   ── pure, deterministic, no pg, no env, no network ──▶ JSON + CSV reports
+        │                                                                        │
+        │                                                                        ▼
+        └── proposals only ─────────────────────────────────────────▶  human review (B2.4C2)
+                                                                                 │
+                                          applied ONLY through the governed admin API (B2.4C3)
+```
+
+The tool sits entirely outside the request path. It imports no database driver, reads no environment
+variable, performs no network access and generates no SQL — all asserted by test rather than assumed.
+
+### 20.2 What it decides, and what it refuses to decide
+
+**Decides deterministically:** brand links where the name matches exactly or differs only by case,
+accents or punctuation; public slugs; whitespace normalisation; colour-code normalisation.
+
+**Refuses to decide:** anything requiring judgement. There is no fuzzy brand matching — no edit
+distance, no token overlap — so two names differing by one character stay two review items rather
+than being silently merged. A slug that cannot be derived meaningfully is a review item, never an
+internal id pressed into a public URL.
+
+**Cannot decide, structurally:** `is_published`, `publication_state`, `verification_status`,
+`source_reference`, `last_reviewed_at`, descriptions, media and replacement relations are on a
+forbidden-proposal list that the plan builder throws on. They appear only as *missing* — named so a
+reviewer knows what to supply, never filled in.
+
+### 20.3 Readiness is not publishability
+
+`READY_FOR_EDITORIAL_REVIEW` means only that the deterministic structural prerequisites are present.
+The publication gate remains the sole authority on publishability, runs server-side against stored
+data at the moment of publication, and is neither consulted nor simulated as a verdict here.
+`publicationsProposed` is `0` in every report, by construction.
+
+This is the same separation the rest of B2.4 enforces, one step earlier in the pipeline: the machine
+prepares, the human decides, the governed API applies.
+
+### 20.4 Confirmed untouched
+
+No live database, production system, VPS or DNS was contacted, and **no real catalogue data was
+processed** — every run used synthetic fixtures. No schema change, no API route, no response shape,
+no admin frontend change. `platform/server/db/**`, `platform/server/web/**`,
+`platform/server/storefront/**`, the root admin frontend, `api/src/index.js`, `api/src/migrate.js`,
+`api/src/routes/public.js`, `api/src/routes/admin-public-content.js`, `docker-compose.yml`,
+`Caddyfile`, `deploy.sh` and every `.env` file are unchanged, as are all pricing, inventory, ordering
+and Zoho behaviour. Nothing existing was modified at all — this batch adds files only. Full contract:
+`docs/public-website-rebuild/23_CATALOGUE_BACKFILL_PLAN.md`.

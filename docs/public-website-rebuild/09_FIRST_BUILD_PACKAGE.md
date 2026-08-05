@@ -1962,3 +1962,100 @@ schema change, no new API route and no changed response shape. `platform/server/
 unchanged, as are all public API response shapes and all pricing, inventory, ordering and Zoho
 behaviour. The other developer's branch was never inspected, referenced or merged. No commit was made
 and nothing was pushed.
+
+---
+
+## 20. B2.4C1 implementation result — catalogue readiness audit and dry-run planner — 2026-08-06
+
+### Files
+
+**Added — nothing existing was modified.**
+
+| Path | Purpose |
+|---|---|
+| `platform/server/api/src/catalogue-audit/input-schema.js` | Closed-allowlist input contract; rejects unknown and forbidden fields. |
+| `platform/server/api/src/catalogue-audit/normalise.js` | Pure deterministic text, slug, brand, category and colour-code helpers. |
+| `platform/server/api/src/catalogue-audit/brand-mapping.js` | Free-text brand classification. No fuzzy matching. |
+| `platform/server/api/src/catalogue-audit/readiness.js` | Readiness outcomes and catalogue-wide integrity findings. |
+| `platform/server/api/src/catalogue-audit/plan.js` | Dry-run proposals, with a forbidden-proposal guard. |
+| `platform/server/api/src/catalogue-audit/report.js` | JSON and CSV generation; CSV/formula-injection safety; overwrite refusal. |
+| `platform/server/api/src/catalogue-audit/index.js` | Orchestrator and summary. |
+| `platform/server/api/scripts/audit-public-catalogue.js` | Read-only CLI with `--help`. |
+| `platform/server/api/test/catalogue-audit.test.js` | 78 tests. |
+| `docs/public-website-rebuild/23_CATALOGUE_BACKFILL_PLAN.md` | Full contract. |
+
+### Safe input contract
+
+Top level: `exportedAt`, `source`, `brands`, `products`, `variations`, `media`. Closed allowlist —
+**unknown fields are rejected, not ignored**, as are `price`, `salePrice`, `purchasePrice`, `cost`,
+`margin`, `stock`, `stockStatus`, `qty`, `warehouse`, `zohoItemId`, `factOwner`, `rightsHolder`,
+`tags`, `images`, `ean` and the unrestricted `attributes` blob. Rejection reuses the existing
+`public-forbidden-keys.js` authority rather than a second divergent list. Description and source text
+are carried as presence booleans, because the planner never proposes copy.
+
+### Classifications
+
+**Brand:** `EXACT_MATCH` · `NORMALISED_MATCH` (auto-applicable) · `PROPOSED_NEW_BRAND` · `AMBIGUOUS`
+· `MISSING` · `UNUSABLE` (all review items). **No fuzzy matching** — asserted by test.
+
+**Readiness (one per model, plus all secondary reasons):** `INACTIVE_OR_EXCLUDED` ·
+`DUPLICATE_OR_COLLISION` · `MANUAL_REVIEW_REQUIRED` · `NEEDS_BRAND_MAPPING` · `NEEDS_SLUG_REVIEW` ·
+`NEEDS_VARIATION_REVIEW` · `NEEDS_MEDIA` · `NEEDS_DESCRIPTION` · `NEEDS_GOVERNANCE` ·
+`READY_FOR_EDITORIAL_REVIEW`.
+
+**"Ready" means only that the structural prerequisites are present.** It is not a publication
+verdict, and `publicationsProposed` is `0` in every report.
+
+### Integrity checks
+
+Duplicate model/colourway SKU, duplicate existing and proposed slug, brand slug collision,
+self-replacement, missing replacement target, orphaned colourway, duplicate colour within a model,
+missing colour name, malformed colour code, inactive-but-published, and published state inconsistent
+with governance. Nothing is silently repaired.
+
+### Plan guarantees
+
+Proposals carry `currentValue`, `proposedValue`, `reasonCode`, `confidence`
+(`deterministic`/`review_required`), `dependsOn` and `requiresHumanApproval`. **`is_published`,
+`publication_state`, `verification_status`, `source_reference`, `last_reviewed_at`,
+`public_description`, `fact_owner`, `approver_id`, `approved_at`, `replacement_product_id` and
+pricing cannot be proposed** — the plan builder throws on any attempt. They appear only as *missing*.
+No SQL is ever generated. Excluded models generate no proposals.
+
+### Outputs
+
+`summary.json`, `audit-detail.json`, `product-readiness.csv`, `proposed-changes.csv`,
+`brand-mapping-review.csv`, `integrity-findings.csv`. CSV is RFC 4180 with CRLF; commas, quotes and
+line breaks are escaped, and a leading `=`, `+`, `-`, `@`, tab or CR is neutralised so a catalogue
+value cannot execute as a spreadsheet formula. The output directory is required, never defaulted, and
+existing files are not overwritten without `--overwrite` — every target is checked before any file is
+written.
+
+### Verification
+
+- **API suite: 923 passing, 0 failing** (845 baseline + 78).
+- `node --check` on every new file: clean.
+- **Two synthetic dry runs produced byte-identical output** (`diff -r`, no differences).
+- Output inspection: no pricing, cost, margin, stock, qty, warehouse, customer, invoice or Zoho term;
+  no SQL keyword; no publication proposal; no secret. Temporary outputs deleted after validation.
+- Diff sweep: no database or network import, no `process.env` read, no SQL construction, no hard-coded
+  host or id, no `TODO`/`FIXME`, no merge markers. `git diff --check` clean.
+
+### Required before this is useful
+
+1. **A safe catalogue export** from the live database, excluding everything the contract rejects. Not
+   built — B2.4C2.
+2. **The permission bootstrap** (`19_ACCOUNT_PERMISSION_SYSTEM.md` §8), still not performed, before
+   any approved plan can be applied through the governed API under `public_content.edit`.
+
+### Confirmation
+
+No live database, production system, VPS or DNS was contacted. **No real catalogue data was
+processed — every run used synthetic fixtures.** No schema change, no API route, no response shape,
+no admin frontend change, no permission granted, no bootstrap SQL, nothing published.
+`platform/server/db/**`, `platform/server/web/**`, `platform/server/storefront/**`, the root admin
+frontend, `api/src/index.js`, `api/src/migrate.js`, `api/src/routes/public.js`,
+`api/src/routes/admin-public-content.js`, `docker-compose.yml`, `Caddyfile`, `deploy.sh` and every
+`.env` file are unchanged, as are all pricing, inventory, ordering and Zoho behaviour. The other
+developer's branch was never inspected, referenced or merged. No commit was made and nothing was
+pushed.
