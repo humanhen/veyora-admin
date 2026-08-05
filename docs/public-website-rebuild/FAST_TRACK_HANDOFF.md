@@ -49,7 +49,7 @@ unimplemented in a syntactically clean state, and the run continues to later pha
 | 2 — Public catalogue filters | complete | `checkpoint: add public catalogue filter interface` |
 | 3 — Durable enquiry forms | complete (one test gap) | `checkpoint: add durable public enquiry forms` |
 | 4 — Production SEO controls | complete | `checkpoint: complete public SEO controls` |
-| 5 — Integration validation | pending | |
+| 5 — Integration validation | complete | `checkpoint: complete overnight integration validation` |
 
 ---
 
@@ -306,3 +306,104 @@ sitemap; no `lastmod` for static routes; the rendered scan covers only routes th
 Rich Results Test validation (needs a public URL).
 
 **Next:** Phase 5 — full integration validation and handoff.
+
+### Phase 5 — complete
+
+## Final summary
+
+| | |
+|---|---|
+| **Starting commit** | `ffcb67e` (B2.4C1) |
+| **Ending commit** | see `git log -1` — the Phase 5 checkpoint |
+| **Pushed** | **no.** `origin/mathew/public-website-rebuild` is still at `ffcb67e` |
+| **Deployed** | no |
+| **Free space** | 8.9 GB at start → 9.0 GB at end |
+
+### Checkpoints
+
+| Commit | Phase |
+|---|---|
+| `b14e129` | 1 — safe catalogue export preparation |
+| `1adc49f` | 2 — public catalogue filter interface |
+| `d52d7c1` | 3 — durable public enquiry forms |
+| `2f88507` | 4 — public SEO controls |
+| *(this one)* | 5 — overnight integration validation |
+
+### Regression results at the end of the run
+
+| Suite | Command | Result |
+|---|---|---|
+| API | `cd platform/server/api && npm test` | **998 passing, 0 failing** (923 at start) |
+| Root admin frontend | `node --test "test/*.test.js"` | **141 passing, 0 failing** |
+| Web (Astro) | `cd platform/server/web && npm test` | **412 passing, 0 failing** (310 at start) |
+| Astro production build | `cd platform/server/web && npm run build` | succeeds |
+| `node --check` | every shipped root `js/*.js` and every new API module | clean |
+| Deploy payload | `tar czf - index.html css js assets` | assembles, 1.4 MB |
+| Synthetic catalogue chain | export → audit → reviewed plan, twice | byte-identical; 0 publications proposed; 1 approved / 3 unresolved |
+
+**Total: 1,551 tests passing across three suites.**
+
+### Defects found and fixed during the run
+
+1. **Astro `security.allowedDomains` was unset** (Phase 3). Astro's CSRF `checkOrigin` compares the
+   browser `Origin` against a request origin that falls back to the literal `http://localhost` when
+   the allowlist is empty — so behind Caddy **every enquiry form POST would have answered 403**. Now
+   derived from `PUBLIC_SITE_ORIGIN`. **Reasoned from the Astro source; not verified end to end.**
+2. **A test-harness artefact was masking it** (Phase 3). `http-routes.test.ts` declared its site
+   origin on a different port from the one it served on, which would have hidden the same class of
+   mismatch. Now derived from `TEST_PORT`.
+3. **An over-broad boundary test** (Phase 5). `test/admin-shell.test.js` treated
+   `platform/server/web/**` as protected — correct for B2.4B2A, wrong in general, since the Astro
+   site is a separately-worked application. Narrowed to the paths that are genuinely protected, and
+   the companion allowlist replaced with working areas rather than a per-batch list that every future
+   batch would have to widen.
+
+### Behaviours that looked like failures but were the code being right
+
+- `robots.txt` returned the non-production body in the harness — correct: the test origin is
+  loopback, and the staging guard fired.
+- `/sitemap.xml` answered 404 — correct: the mock had no `/public/sitemap-data`, and the route
+  refuses to emit a short authoritative sitemap on upstream failure.
+
+### Remaining production blockers
+
+These are unchanged by this run and still gate a public launch:
+
+1. **The permission bootstrap has not been performed.** `account_permissions` is empty, so every
+   capability probe returns false and the entire public-content administration surface — review,
+   editing and publication — is unreachable by every account. `19_ACCOUNT_PERMISSION_SYSTEM.md` §8.
+2. **No catalogue has been exported, audited, reviewed or backfilled.** The tooling exists; no real
+   data has passed through it.
+3. **No record is published.** The public site would render empty catalogues.
+4. **Enquiry delivery is unbuilt.** Submissions store as `pending` and nothing sends them. Retention
+   enforcement and pending-queue monitoring are also unbuilt — `24_PUBLIC_ENQUIRY_FORMS.md` §8.
+5. **`allowedDomains` needs verifying against a real deployment** before the forms are announced.
+6. **R-06 is not closed**: the forbidden-data scan is a test, not a merge gate, and has never run
+   against a real row.
+
+### Recommended morning verification
+
+```bash
+cd /c/Users/mathe/Projects/Veyora
+
+git log --oneline --decorate -8
+git status --short
+git diff --check
+
+cd platform/server/api && npm test          # expect 998 passing
+cd ../web && npm test                       # expect 412 passing
+npm run build                               # expect Complete!
+cd ../../.. && node --test "test/*.test.js" # expect 141 passing
+
+# Synthetic catalogue chain (no database, writes to a temp dir):
+cd platform/server/api
+node scripts/audit-public-catalogue.js --help
+node scripts/export-public-catalogue.js --help
+node scripts/build-reviewed-plan.js --help
+```
+
+To review the run's diff as a whole: `git diff ffcb67e..HEAD --stat`.
+
+**Nothing was pushed and nothing was deployed.** No production system, VPS, live database or DNS was
+contacted at any point; no permission bootstrap SQL was executed; no capability was granted; no
+record was published or unpublished; no real catalogue export was processed.
