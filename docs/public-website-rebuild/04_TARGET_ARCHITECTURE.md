@@ -455,3 +455,52 @@ Every undecided value is an environment variable with no hard-coded fallback to 
 A startup assertion refuses to boot the `web` container in production when
 `PUBLIC_SITE_ORIGIN` or `PORTAL_ORIGIN` is unset, mirroring the API's existing fail-closed
 `startServer()` pattern.
+
+---
+
+## 11. Programme correction — legacy hash bridge location (2026-08-05, B1.3)
+
+Sections 1–10 are retained as written. This section corrects §5.4's original placement of the
+legacy-hash bridge and takes precedence where the two disagree. Nothing here revises the
+recommendation itself (§1) — see §11.4.
+
+### 11.1 Why a 404-only bridge cannot catch root hash URLs
+
+§5.4 originally proposed the bridge as "a tiny inline script on the public 404 page (and only
+there)". That is insufficient, and the reason is structural, not a matter of degree: a URL such as
+`{ORIGIN}/#/login` sends only `/` to the server. Everything after `#` is a URL fragment, and a
+fragment is **never transmitted in an HTTP request** — the browser keeps it client-side. The
+server sees a plain request for `/`, which is a real, existing, 200-status route. It never reaches
+404, so a bridge that only lives on the 404 page never runs for the single most common shape of
+legacy link: a bookmark or old inbound link to the bare origin with a root-level fragment.
+
+### 11.2 The correction
+
+The bridge now runs from the shared `Base.astro` layout (`platform/server/web/src/layouts/
+Base.astro`), which every page — including `/` — renders through. This is not a new mechanism, it
+is the same script relocated to the one place guaranteed to load regardless of which path a
+fragment happens to be attached to. Implementation: `platform/server/web/src/lib/
+legacy-hash-bridge.ts` (the pure, unit-tested decision function) plus a bundled `<script>` in
+`Base.astro` that reads `location.hash` and a server-rendered `<meta name="portal-origin">` tag.
+
+### 11.3 It remains allowlisted
+
+The security model is unchanged in substance, only in location: a fixed list of known portal route
+prefixes (`products`, `login`, `set-password`, `list`, `cart`, `orders`, `dashboard`, `account`,
+`backorders`, `returns`, `favourites`, `replenishment`, `spare-parts`, `customers`, `lists`,
+`home`), matched with strict, case-sensitive, non-decoded equality against the first path segment
+after `#/`. No decoding and no case-folding is deliberate: either transform would itself be a new
+surface for a bypass, so the implementation trades leniency for safety. Unknown prefixes,
+protocol-relative fragments (`#//evil.example`), and absolute-URL injection (`#/http://evil.
+example`) all fail the allowlist check by construction and receive no redirect. Covered by
+`platform/server/web/test/legacy-hash-bridge.test.ts`.
+
+### 11.4 Caddy still cannot process fragments; the portal-subdomain recommendation is unaffected
+
+This correction is about *where the bridge runs*, not a re-litigation of §5.1–§5.2. Fragments are
+invisible to any server — Caddy, the `web` container, or the API — so no amount of Caddy
+configuration could ever substitute for a client-side script; that constraint is exactly why the
+bridge exists in the first place and is unchanged by this correction. The recommendation to use a
+separate portal host (§5.2, "Why a subdomain rather than a `/portal/` path prefix") stands as
+written: this correction concerns the public `web` application's own layout, not the Caddy
+host/handler design.

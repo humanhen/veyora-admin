@@ -842,3 +842,261 @@ worked exclusively from `mathew/public-website-rebuild` at commit `6cc73e0` forw
 storefront interaction of any kind was copying (not moving or modifying) two static SVG logo files
 already present on disk. No commit was made, nothing was pushed, no deploy or production/VPS/DNS
 access occurred.
+
+---
+
+## 11. B1.3 implementation result and B1 exit review — 2026-08-05
+
+**Scope executed:** central route metadata, canonical generation, the indexing-policy authority,
+real 404/500 pages, static legacy-path redirects, trailing-slash normalisation, and the corrected
+legacy portal hash bridge (relocated from the 404-only page to the shared `Base.astro` layout).
+Starting commit `5180718` (completed B1.2) on `mathew/public-website-rebuild`. Per the task brief,
+the other developer's concurrent storefront branch was never inspected, referenced or merged.
+
+### Files created
+
+```
+platform/server/web/src/
+├── lib/
+│   ├── metadata.ts             central registry — 21 static entries + 3 dynamic builders (25 routes)
+│   ├── indexing.ts             THE indexing authority — resolveIndexing(), NOT_FOUND/SERVER_ERROR robots
+│   ├── seo.ts                  buildSeoHead() — title/description/canonical/OG/Twitter
+│   ├── redirects.ts            resolveRedirect() — known legacy paths + trailing-slash normalisation
+│   └── legacy-hash-bridge.ts   resolveLegacyHashRedirect() — the allowlist decision function
+├── middleware.ts                thin Astro wrapper around resolveRedirect()
+└── pages/
+    ├── 404.astro                 real 404, NOT_FOUND_METADATA, NOT_FOUND_ROBOTS
+    └── 500.astro                 real 500, SERVER_ERROR_METADATA, SERVER_ERROR_ROBOTS
+
+platform/server/web/test/
+├── metadata.test.ts
+├── indexing.test.ts
+├── seo.test.ts
+├── redirects.test.ts
+├── legacy-hash-bridge.test.ts
+├── error-pages.test.ts
+└── route-contract.test.ts
+```
+
+### Files modified
+
+- `astro.config.mjs` — two changes. Added a Dockerfile-note-worthy build-time comment fix (none
+  needed here) and **removed `trailingSlash: 'always'`**, added in B1.2 with trailing-slash
+  redirection itself deferred to "B1's WP-05, not yet built." Now that WP-05 exists
+  (`middleware.ts` + `redirects.ts`), the config-level setting turned out to be actively harmful —
+  see "Known limitations" below.
+- `package.json` — added `--test-concurrency=1` to the `test` script.
+- `src/layouts/Base.astro` — now renders the full SEO head (title, description, robots, canonical,
+  OG, Twitter) from a `seo: SeoHead` prop instead of `title`/`description` strings, and loads the
+  legacy hash-bridge script plus a `<meta name="portal-origin">` tag.
+- `src/layouts/Page.astro` — now accepts `meta: RouteMetadata` (plus optional `fixedRobots` for the
+  error pages), calls `buildSeoHead()` itself, and renders the page's one `<h1>` from `meta.h1`
+  directly — no route file writes its own `<h1>` any more.
+- All 24 route page files — updated to pass `meta={...}` (a `STATIC_ROUTE_METADATA` entry or a
+  dynamic builder call) instead of a literal `title` string, and no longer contain their own
+  `<h1>` literal.
+- `test/routes.test.ts` (B1.2) — the "exactly one H1 per file" assertion was rewritten: since B1.3
+  moved `<h1>` rendering into `Page.astro`, the stronger, correct check is now that `Page.astro`
+  itself renders exactly one `<h1>` (structurally impossible to duplicate or omit per route) and
+  that every route file supplies a `meta` prop. The category-landing label assertion was similarly
+  updated to check the page file references the correct metadata key, with the actual text
+  verified in the new `metadata.test.ts`. Neither change weakens the original requirement; both
+  adapt the check to how B1.3 now satisfies it. No other B1.1/B1.2 test file needed changes.
+- `test/http-routes.test.ts` (B1.2) — extended with metadata/canonical/robots assertions on the
+  existing representative routes, plus new cases: the three `/collections/` query-state variants,
+  `/healthz`, an unknown path, `/500/`, the four static redirects, trailing-slash normalisation,
+  and the legacy bridge's presence on `/`.
+
+### Metadata implementation
+
+`src/lib/metadata.ts` is the single central registry. 21 fully static routes are plain records
+keyed by path; the 3 dynamic routes (`/brands/{brand}/`, `/collections/{brand}/{model}/`,
+`/resources/{slug}/`) are builder functions that safely interpolate a humanised slug into title, H1
+and description — never a lookup, never an invented fact, and (after a bug caught by testing) never
+a fixed generic string that would collide across two different real slugs. Every field the B1.3
+brief required is present: route/pattern, title, description, H1, indexing category (a descriptive
+label — `home`, `catalogue-index`, `policy`, etc. — informational; the actual robots/canonical
+computation in `indexing.ts` is uniform across all categories, deliberately, since the query-state
+rules apply the same way regardless of route type), breadcrumb label, `sitemapEligible` (structural
+intent, true for all 25), and `pendingContent`. Titles/H1s are the specification's own documented
+text (05_ROUTE_TEMPLATE_MATRIX.md §3) for the 9 routes it supplies them for; every other route
+(three category landings, all six policy routes, the enquiry route, the HTML sitemap, and all
+dynamic routes) uses a neutral structural label and is marked `pendingContent: true`.
+`/global-presence/`'s title is the specification's own text but is *also* marked pending, since it
+carries a country list the specification itself flags as unresolved (DECISION-12).
+
+### Indexing states
+
+`src/lib/indexing.ts`'s `resolveIndexing()` implements all five states from
+`05_ROUTE_TEMPLATE_MATRIX.md` §2/§9 exactly, plus a documented precedence rule for combinations the
+specification only names in isolation: **filter > sort > page > clean**. An explicit
+`SUPPORTED_FILTER_PARAMS` allowlist (`brand`, `shape`, `material`, `gender`, `size`, `lens_type`)
+means an unrecognised query parameter — including `utm_*`, `gclid`, `fbclid` — never triggers
+filter behaviour, never enters a canonical URL, and never makes a clean page noindex, satisfying
+the brief's explicit requirement. `/search/`, 404 and 500 are handled as fixed cases outside the
+query-state logic. Verified live against the running server (see below) across all 6 combinations
+tested plus every isolated state.
+
+### 404 result
+
+`src/pages/404.astro` sets `Astro.response.status = 404` explicitly, uses `Page.astro` (real
+header/footer/navigation, links to Brands/Collections/Contact), carries `NOT_FOUND_METADATA` and
+the fixed `NOT_FOUND_ROBOTS` (`noindex, follow`), and has no API or database dependency. Verified
+live: an unknown path returns real `404` status with exactly one H1 and the three required links,
+not a 200 skeleton or the homepage. The B1.2 dynamic-route limitation is unchanged and documented
+again here: `/brands/{brand}/`, `/collections/{brand}/{model}/` and `/resources/{slug}/` still
+accept **any** slug and return 200, because no data source exists yet to know a slug is unpublished
+or nonexistent — this file only covers paths matching no route at all. Real unpublished/unknown-
+entity 404 behaviour remains B2/B4/B5 work.
+
+### 500 implementation and test limitation
+
+`src/pages/500.astro` sets `Astro.response.status = 500` explicitly, carries
+`SERVER_ERROR_METADATA` and the fixed `SERVER_ERROR_ROBOTS` (`noindex, nofollow`), has no API,
+database or catalogue dependency, and offers a reload suggestion plus Home/Contact links — no stack
+trace, error object, or secret-shaped content anywhere in the file (asserted in
+`error-pages.test.ts`). **Validation approach and its limitation:** rather than fabricating a
+public test-only route to force a real server error, this page is directly reachable at `/500/`
+and — because it explicitly sets its own status — genuinely, deterministically returns HTTP 500
+when requested there, with no mock or hack involved. `test/http-routes.test.ts` requests `/500/`
+directly against the real running server and asserts on the real response. What this does **not**
+prove is Astro's own automatic dispatch to this file when *another* route throws an unhandled
+error during rendering — that specific trigger path was not exercised, since deliberately breaking
+another route to observe the fallback would itself be the kind of fragile, non-reliable test the
+brief asked to avoid. The page's correctness when reached (status, headers, content, no
+dependencies) is fully verified; the framework's own error-dispatch wiring to it is not.
+
+### Redirects
+
+`src/lib/redirects.ts`'s `resolveRedirect()` implements exactly the four specification-named legacy
+paths (`/about-us/` → `/why-veyora/`, `/contact-us/` → `/contact/`, `/shop/` → `/collections/`,
+`/index.php` → `/`) plus trailing-slash normalisation for public HTML routes, both as pure,
+unit-tested logic wrapped by a thin `src/middleware.ts`. `/healthz` and static assets (by extension
+allowlist) are explicitly excluded and never redirected; every redirect destination is a fixed
+internal path, so the function cannot become an open redirect by construction; every known-path
+destination was verified (by test and live request) to resolve in exactly one hop. **Canonical-host
+enforcement was explicitly optional in the brief ("may be prepared") and was deliberately not
+implemented** — this application is validated exclusively against localhost/127.0.0.1 origins, and
+a host-enforcing redirect risks breaking that validation the moment a request's Host header and the
+configured origin's hostname differ for an entirely benign reason. Left for Caddy (B10) or a later,
+carefully-tested batch. Database-backed redirects and product-slug mappings are explicitly B7/B2
+and were not started.
+
+### Legacy bridge correction
+
+Recorded in full in `04_TARGET_ARCHITECTURE.md` §11, `05_ROUTE_TEMPLATE_MATRIX.md` §10 and
+`08_RISKS_AND_OPEN_DECISIONS.md` §7 (all dated corrections, original text retained). Summary: the
+original plan placed the bridge on the 404 page only, which cannot work because a fragment
+(`#/login`) is never transmitted to the server, and `/` — where root-level legacy links land — is a
+real 200 route, not 404. The bridge (`src/lib/legacy-hash-bridge.ts`, a pure allowlist-matching
+function, plus a bundled script in `src/layouts/Base.astro`) now loads on every one of the 25
+routes. Security properties, verified by `test/legacy-hash-bridge.test.ts` (17 tests): every one of
+the 16 allowed prefixes redirects with the fragment preserved verbatim, including a deeper
+token/slug (`#/set-password/<token>`) and a trailing empty segment (`#/list/`); an unknown prefix,
+an empty prefix, and a hash not starting with `#/` all perform no redirect; protocol-relative
+injection (`#//evil.example`) and absolute-URL injection (`#/http://evil.example`,
+`#/https://evil.example/login`) perform no redirect; mixed-case (`#/LOGIN`) and percent-encoded
+(`#/%6c%6fgin`) bypass attempts are rejected because matching is strict, case-sensitive and never
+decodes anything; every non-null result begins with exactly the configured `PORTAL_ORIGIN`; no
+redirect occurs when `PORTAL_ORIGIN` is absent. Verified live: the bridge's compiled logic and the
+`<meta name="portal-origin">` tag are present in the served HTML of `/`.
+
+### Test counts
+
+`platform/server/web`: **221/221 tests passing** (`node --test`) — 107 carried over from B1.1/
+B1.1A/B1.2 (all still green, confirming no regression), 114 new in B1.3. One real, general-purpose
+bug was found and fixed while getting to green: `package.json`'s `test` script now runs with
+`--test-concurrency=1`, because two test files (`command-paths.test.ts` from B1.1A and
+`http-routes.test.ts`) each run a real `npm run build` against the same shared `dist/` output, and
+Node's test runner executes separate test *files* concurrently by default — the two builds raced,
+one corrupting the other's content-hashed Vite chunk output. Sequential file execution eliminates
+this and any similar future cross-file resource collision, at the cost of a somewhat longer total
+run.
+
+### Build result
+
+`astro build` (production mode, explicit `PUBLIC_SITE_ORIGIN=http://127.0.0.1:4321` /
+`PORTAL_ORIGIN=http://127.0.0.1:4322`) completed successfully across all 25 routes plus 404/500.
+
+### Representative HTTP results
+
+Verified against the running standalone server (`npm run start`, direct `node
+./dist/server/entry.mjs`, no shell wrapper):
+
+| Check | Result |
+|---|---|
+| `/`, `/why-veyora/`, `/brands/`, `/brands/example-brand/`, `/collections/`, `/collections/example-brand/example-model/`, `/contact/`, `/privacy-policy/`, `/sitemap/` | all 200, one H1, correct title/description/canonical, `robots: index, follow` |
+| `/collections/?page=2` | 200, `index, follow`, canonical `…/collections/?page=2` |
+| `/collections/?brand=example` | 200, `noindex, follow`, canonical `…/collections/` |
+| `/collections/?sort=name` | 200, `noindex, follow`, canonical `…/collections/` |
+| `/healthz` | 200, `application/json`, `X-Robots-Tag: noindex, nofollow` — unaffected by the new middleware |
+| unknown path | 404, one H1, `noindex, follow`, links to Brands/Collections/Contact |
+| `/500/` | 500, one H1, `noindex, nofollow` |
+| `/about-us/`, `/contact-us/`, `/shop/`, `/index.php` | 301 to their documented targets, resolved in one hop |
+| `/collections` (no slash) | 301 → `/collections/`, resolved in one hop |
+| `/logo-black.svg` | 200, never redirected |
+| legacy hash bridge | `<meta name="portal-origin">` and the compiled bridge logic present in `/`'s served HTML |
+
+Server stopped cleanly after every check; no orphaned process confirmed via `tasklist`/`netstat`
+after each run.
+
+### Known limitations
+
+- **A real regression was found and fixed mid-batch:** B1.2's `astro.config.mjs` set
+  `trailingSlash: 'always'`. Once B1.3's middleware existed, this caused Astro's own routing to
+  *also* enforce a trailing slash on every route — including `/healthz`, which must never redirect.
+  Caught by direct testing (`curl` returned `301 Location: /healthz/`), fixed by removing the
+  config setting entirely now that `redirects.ts` is the single place trailing-slash normalisation
+  happens.
+- Canonical-host enforcement (redirecting a non-canonical host to `PUBLIC_SITE_ORIGIN`) was
+  explicitly optional and is not implemented — see "Redirects" above.
+- The 500 page's correctness is fully verified directly; Astro's automatic dispatch to it from a
+  genuine unhandled error in another route is not exercised by an automated test — see "500
+  implementation and test limitation" above.
+- Dynamic placeholder routes still accept any slug and return 200 (unchanged B1.2 limitation,
+  documented again here and in `404.astro`'s own comments).
+- `indexingCategory` on each metadata record is descriptive/informational only; `indexing.ts`'s
+  actual query-state rules are applied uniformly regardless of category, by design — see "Metadata
+  implementation" above.
+- JSON-LD is not implemented; `Base.astro`'s `structured-data` slot exists for B7 to fill.
+- No sitemap XML, robots.txt generation, or IndexNow — B7, unchanged.
+
+### Deferred to B2 and later
+
+Database migrations, the `/public/*` API surface, catalogue data, forms, CRM, sitemaps (XML),
+robots.txt generation, JSON-LD content (the slot and the breadcrumb data structure are ready for
+it), analytics, image processing, real content templates, production Caddy/deployment changes,
+canonical-host enforcement, database-backed redirects, product-slug mapping redirects, and real
+unpublished/unknown-entity 404 behaviour for the three dynamic routes — all unchanged from
+`07_IMPLEMENTATION_PLAN.md` and explicitly out of scope per the B1.3 task brief.
+
+### Final storage
+
+| Checkpoint | Free space |
+|---|---|
+| Before B1.3 (Task 1) | 7.889 GB |
+| After full test suite (221/221) | 7.892 GB |
+| Final | 7.89 GB |
+
+Never approached the 4 GB floor. No new dependency was installed in this batch.
+
+### Confirmation: B1 is complete
+
+B1 now provides everything named in the B1.3 task brief's final review: the Astro server
+application, the fail-closed environment contract, the health endpoint, the editorial token/base
+layer, shared layouts, navigation, mobile menu, footer, breadcrumbs, 25 route skeletons, central
+metadata, the indexing authority, a real 404, a safe 500 page, static legacy redirects, legacy
+portal hash continuity (corrected to its right location), and route-contract tests. Everything
+explicitly out of scope for B1 (database migrations, the public API, catalogue data, forms/CRM,
+sitemaps, robots.txt, JSON-LD content, analytics, image processing, real content templates, and
+production deployment) remains out of scope and is deferred to B2 onward, as planned.
+
+### Confirmation: protected systems untouched
+
+`platform/server/storefront/**`, `platform/server/api/**`, `platform/server/db/**`, the root admin
+application, `docker-compose.yml`, `Caddyfile`, `deploy.sh`, every package outside
+`platform/server/web`, and every existing API test are untouched — confirmed by `git status
+--short` showing changes confined to `platform/server/web/**` and the four permitted documentation
+files. The other developer's concurrent storefront branch was never inspected, referenced or
+merged. No commit was made, nothing was pushed, and no deploy, VPS, production or DNS access
+occurred at any point in this session.

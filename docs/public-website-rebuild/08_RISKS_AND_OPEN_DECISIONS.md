@@ -357,3 +357,26 @@ The §4 list stands, with the reclassification recorded in
 `06_CONTENT_AND_PLACEHOLDER_REGISTER.md` §8.4: 22 of the 43 formerly blocking placeholders now
 resolve through omission, neutral wording or configuration. Twenty-one remain blocking, and six of
 those sit with Veyora legal — which is now the single most schedule-critical content owner.
+
+---
+
+## 7. Programme correction — legacy hash bridge location (2026-08-05, B1.3)
+
+R-01's mitigation (§1, "Portal URL change breaks live customer access") originally read: "Ship an
+allowlisted client-side legacy-hash bridge **on the public 404 page**." That placement does not
+work, and the reason is structural rather than a tuning question: `{ORIGIN}/#/login` sends only `/`
+to the server, because everything after `#` is a URL fragment and a fragment is never transmitted
+in an HTTP request. `/` is a real, existing, 200-status route — it never reaches 404 — so a bridge
+that only lives on the 404 page never runs for the single most common shape of legacy link: a
+bookmark or an old inbound link to the bare origin carrying a root-level fragment.
+
+**Corrected mitigation:** the bridge (`platform/server/web/src/lib/legacy-hash-bridge.ts` plus a
+bundled script in `src/layouts/Base.astro`, B1.3) now loads from the shared page layout every one
+of the 25 public routes renders through, not from the 404 template alone. It remains an explicit,
+strict allowlist matched with case-sensitive, non-decoded equality — no leniency was traded for the
+wider reach — and the "residual: a customer with JavaScript disabled lands on the public 404" risk
+noted in R-01 is unchanged, since the bridge is client-side JavaScript by necessity (fragments are
+invisible to any server, so nothing server-side could ever substitute for it). R-01's score (L4 ×
+I5 = 20) and its other mitigations (separate `PORTAL_URL` configuration, RC rehearsal, twelve-month
+retention) are unaffected by this correction. Full detail: `04_TARGET_ARCHITECTURE.md` §11,
+`05_ROUTE_TEMPLATE_MATRIX.md` §10.

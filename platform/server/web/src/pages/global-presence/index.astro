@@ -1,18 +1,14 @@
 ---
-// Route 12 of 25 — 05_ROUTE_TEMPLATE_MATRIX.md. Title/H1 are the
-// specification's own documented values (§3). The title's country list is
-// the specification's own text, explicitly flagged there as "re-checked
-// after ... the domain decision" — carried through as-is, not invented
-// here.
+// Route 12 of 25 — 05_ROUTE_TEMPLATE_MATRIX.md. Metadata/H1 come from the
+// central registry (src/lib/metadata.ts). The title's country list is the
+// specification's own text, carried verbatim — see metadata.ts's comment
+// on this entry for why pendingContent is nonetheless true.
 import Page from '../../layouts/Page.astro';
 import SkeletonNotice from '../../components/dev/SkeletonNotice.astro';
+import { STATIC_ROUTE_METADATA } from '../../lib/metadata.ts';
 import { staticBreadcrumbs } from '../../lib/routes.ts';
 ---
 
-<Page
-  title="Eyewear Distribution in Canada, USA and Europe | Veyora"
-  breadcrumbs={staticBreadcrumbs('/global-presence/')}
->
-  <h1>Global eyewear distribution with local support.</h1>
+<Page meta={STATIC_ROUTE_METADATA['/global-presence/']} breadcrumbs={staticBreadcrumbs('/global-presence/')}>
   <SkeletonNotice />
 </Page>

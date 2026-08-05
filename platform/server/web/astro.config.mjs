@@ -23,10 +23,16 @@ export default defineConfig({
   output: 'server',
   adapter: node({ mode: 'standalone' }),
   site: siteOrigin,
-  // The full route set uses trailing slashes throughout
-  // (05_ROUTE_TEMPLATE_MATRIX.md §6.1: "one form, enforced ... tested in
-  // both directions"). This makes Astro's own link/route handling agree
-  // with that convention; the redirect middleware that enforces it for
-  // arbitrary incoming requests is B1's WP-05, not yet built.
-  trailingSlash: 'always',
+  // Deliberately left at Astro's default ('ignore'), NOT 'always'.
+  // B1.2 set this to 'always' with the trailing-slash redirect itself
+  // deferred to "B1's WP-05, not yet built" — now that WP-05 IS built
+  // (src/middleware.ts + src/lib/redirects.ts, B1.3), 'always' turned out
+  // to be actively harmful: Astro enforces it for EVERY route including
+  // `/healthz`, which has no trailing slash by design and must never
+  // redirect (confirmed by testing directly — `/healthz` was returning
+  // 301 Location: /healthz/, breaking the B1.1 health-check contract,
+  // even though src/lib/redirects.ts explicitly excludes it). The
+  // middleware is now the single place trailing-slash normalisation for
+  // public HTML routes happens; Astro's own routing no longer also tries
+  // to enforce it.
 });

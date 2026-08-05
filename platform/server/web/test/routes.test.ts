@@ -69,12 +69,25 @@ test('every route skeleton uses the shared Page layout', () => {
   }
 });
 
-test('every route skeleton defines exactly one H1', () => {
+test('every route skeleton supplies a central metadata record, which is where its H1 now comes from', () => {
+  // As of B1.3, no route file writes its own <h1> literal any more —
+  // Page.astro renders exactly one <h1>{meta.h1}</h1> from the metadata
+  // record every route passes in (src/lib/metadata.ts), which is the
+  // stronger, structural version of "exactly one H1": it is no longer
+  // possible for a route file to define zero, two, or a drifted H1, since
+  // there is nowhere in the route file to put one at all.
   for (const rel of ROUTE_FILES) {
     const content = readRoute(rel);
-    const matches = content.match(/<h1\b/g) ?? [];
-    assert.equal(matches.length, 1, `${rel} defines ${matches.length} <h1> elements, expected exactly 1`);
+    assert.match(content, /meta=\{/, `${rel} does not pass a meta prop to <Page>`);
+    assert.doesNotMatch(content, /<h1\b/, `${rel} defines its own <h1> instead of using the central metadata H1`);
   }
+});
+
+test('Page layout renders exactly one <h1>, from meta.h1, for every route', () => {
+  const pageLayout = fs.readFileSync(path.join(root, 'src', 'layouts', 'Page.astro'), 'utf8');
+  const matches = pageLayout.match(/<h1\b/g) ?? [];
+  assert.equal(matches.length, 1, 'Page.astro must render exactly one <h1>');
+  assert.match(pageLayout, /<h1>\{meta\.h1\}<\/h1>/);
 });
 
 test('no route skeleton contains lorem ipsum placeholder text', () => {
@@ -103,13 +116,17 @@ test('every route skeleton shows the development-only content notice', () => {
   }
 });
 
-test('category-landing routes use neutral temporary labels, not approved marketing copy', () => {
+test('category-landing routes reference their own central metadata record', () => {
+  // The actual title/H1 text (neutral labels, not approved marketing
+  // copy) is asserted against src/lib/metadata.ts directly in
+  // test/metadata.test.ts — this only checks each page file is wired to
+  // the correct record, since B1.3 moved the text itself out of these files.
   const optical = readRoute('collections/optical/index.astro');
   const sun = readRoute('collections/sun/index.astro');
   const kids = readRoute('collections/kids/index.astro');
-  assert.match(optical, /Optical collection page/);
-  assert.match(sun, /Sun collection page/);
-  assert.match(kids, /Kids collection page/);
+  assert.match(optical, /STATIC_ROUTE_METADATA\['\/collections\/optical\/'\]/);
+  assert.match(sun, /STATIC_ROUTE_METADATA\['\/collections\/sun\/'\]/);
+  assert.match(kids, /STATIC_ROUTE_METADATA\['\/collections\/kids\/'\]/);
 });
 
 test('dynamic routes read their params and pass them through only as an echoed note, not an invented fact', () => {

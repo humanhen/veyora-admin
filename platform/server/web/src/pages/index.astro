@@ -1,12 +1,12 @@
 ---
-// Route 1 of 25 — 05_ROUTE_TEMPLATE_MATRIX.md. Title/H1 are the
-// specification's own documented values (§3), not invented. Home omits
-// breadcrumbs per Page.astro's contract.
+// Route 1 of 25 — 05_ROUTE_TEMPLATE_MATRIX.md. Metadata/H1 come from the
+// central registry (src/lib/metadata.ts). Home omits breadcrumbs per
+// Page.astro's contract.
 import Page from '../layouts/Page.astro';
 import SkeletonNotice from '../components/dev/SkeletonNotice.astro';
+import { STATIC_ROUTE_METADATA } from '../lib/metadata.ts';
 ---
 
-<Page title="Wholesale Eyewear Distributor for Optical Retailers | Veyora">
-  <h1>More than eyewear distribution. A growth partner for optical retailers.</h1>
+<Page meta={STATIC_ROUTE_METADATA['/']}>
   <SkeletonNotice />
 </Page>

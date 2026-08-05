@@ -8,7 +8,7 @@
     "build": "node ./scripts/validate-env.mjs && astro build",
     "preview": "astro preview",
     "start": "node ./scripts/validate-env.mjs && node ./dist/server/entry.mjs",
-    "test": "node --test \"test/**/*.test.ts\""
+    "test": "node --test --test-concurrency=1 \"test/**/*.test.ts\""
   },
   "dependencies": {
     "astro": "5.18.2",

@@ -1,0 +1,33 @@
+---
+// Real 404: a genuine unmatched-route response, not a 200 skeleton and
+// not the homepage. Metadata is NOT_FOUND_METADATA (src/lib/metadata.ts);
+// robots is indexing.ts's fixed NOT_FOUND_ROBOTS ("noindex, follow" —
+// the page itself may still be worth following links from, but is never
+// indexed as content).
+//
+// No API or database dependency: Header/Footer/MobileMenu depend only on
+// src/lib/nav.ts and src/env.ts (pure configuration), never on I/O, so
+// this page renders even when everything downstream of the (not yet
+// built) public API is unavailable.
+//
+// Known B1.2/B1.3 limitation, unchanged here: the three dynamic
+// placeholder routes (/brands/{brand}/, /collections/{brand}/{model}/,
+// /resources/{slug}/) still accept ANY slug and return 200 — there is no
+// data source yet to know a slug is unpublished or nonexistent. Real
+// unpublished/unknown-entity 404 behaviour is B2/B4/B5 work. This file
+// only covers paths that match no route at all.
+import Page from '../layouts/Page.astro';
+import { NOT_FOUND_METADATA } from '../lib/metadata.ts';
+import { NOT_FOUND_ROBOTS } from '../lib/indexing.ts';
+
+Astro.response.status = 404;
+---
+
+<Page meta={NOT_FOUND_METADATA} fixedRobots={NOT_FOUND_ROBOTS}>
+  <p>The page you were looking for could not be found. Here are some places to continue:</p>
+  <ul>
+    <li><a href="/brands/">Brands</a></li>
+    <li><a href="/collections/">Collections</a></li>
+    <li><a href="/contact/">Contact</a></li>
+  </ul>
+</Page>

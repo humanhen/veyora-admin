@@ -5,20 +5,21 @@
 // and unknown-slug 404 behaviour are deferred to B2/B4.
 import Page from '../../../../layouts/Page.astro';
 import SkeletonNotice from '../../../../components/dev/SkeletonNotice.astro';
+import { modelDetailMetadata } from '../../../../lib/metadata.ts';
 import { breadcrumbsWithHome, humanizeSlug } from '../../../../lib/routes.ts';
 
 const { brand, model } = Astro.params;
+const meta = modelDetailMetadata(brand ?? '', model ?? '');
 const brandLabel = humanizeSlug(brand ?? '');
 const modelLabel = humanizeSlug(model ?? '');
 ---
 
 <Page
-  title="Model detail page | Veyora"
+  meta={meta}
   breadcrumbs={breadcrumbsWithHome([
     { label: 'Collections', href: '/collections/' },
     { label: `${brandLabel} ${modelLabel}`, href: `/collections/${brand}/${model}/` },
   ])}
 >
-  <h1>Model detail page</h1>
   <SkeletonNotice note={`Showing the temporary skeleton for brand: ${brand}, model: ${model}`} />
 </Page>

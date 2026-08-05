@@ -1,0 +1,25 @@
+---
+// Real 500: intended for Astro's own error-page mechanism when rendering
+// another route throws, but also directly reachable and self-reporting
+// status 500 on its own — which is what makes it possible to test this
+// page's actual HTTP behaviour without a hack (see test/error-pages.test.ts).
+//
+// No API, database or catalogue dependency of any kind: Header/Footer/
+// MobileMenu depend only on src/lib/nav.ts and src/env.ts, both pure
+// configuration, so this page can render even when whatever caused the
+// original error is data/API-related. No stack trace, no error detail,
+// no secret — the body below is the entire content, always.
+import Page from '../layouts/Page.astro';
+import { SERVER_ERROR_METADATA } from '../lib/metadata.ts';
+import { SERVER_ERROR_ROBOTS } from '../lib/indexing.ts';
+
+Astro.response.status = 500;
+---
+
+<Page meta={SERVER_ERROR_METADATA} fixedRobots={SERVER_ERROR_ROBOTS}>
+  <p>Something went wrong on our end. Try reloading the page, or use one of the links below:</p>
+  <ul>
+    <li><a href="/">Return home</a></li>
+    <li><a href="/contact/">Contact us</a></li>
+  </ul>
+</Page>

@@ -314,3 +314,23 @@ Applied to every indexable route:
 Plus, site-wide: unknown paths return **404**; the error template returns **500**; every redirect
 in §6 resolves in one hop; no route in the sitemap returns anything but 200; no `noindex` route
 appears in any sitemap.
+
+---
+
+## 10. Programme correction — legacy hash bridge location (2026-08-05, B1.3)
+
+§6.3 above is retained as written but is corrected by this section, which takes precedence where
+the two disagree: **"Client-side bridge on the 404 page"** is not where the bridge runs.
+
+A URL like `{ORIGIN}/#/login` sends only `/` to the server — the fragment after `#` is never part
+of the HTTP request, so it never reaches any server-side logic, including the logic that decides a
+request is a 404. `/` is a real, existing, 200-status route (route 1 in §1), so a bridge that only
+lives on the 404 page never runs for a root-level legacy fragment at all — which is the single most
+common shape this bridge exists to handle.
+
+**Corrected:** the bridge is implemented once, in `platform/server/web/src/lib/
+legacy-hash-bridge.ts` (the pure allowlist-matching function, unit tested), and loaded from the
+shared `Base.astro` layout — meaning every one of the 25 routes in §1, not only the 404 template,
+carries it. The allowlist, the "must not accept an arbitrary target" rule, and the dedicated
+security test named in §6.3 are all unchanged in substance; only the loading location moved. Full
+detail: `04_TARGET_ARCHITECTURE.md` §11.

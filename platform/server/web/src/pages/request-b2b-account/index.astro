@@ -1,15 +1,12 @@
 ---
-// Route 17 of 25 — 05_ROUTE_TEMPLATE_MATRIX.md. Title/H1 are the
-// specification's own documented values (§3).
+// Route 17 of 25 — 05_ROUTE_TEMPLATE_MATRIX.md. Metadata/H1 come from the
+// central registry (src/lib/metadata.ts).
 import Page from '../../layouts/Page.astro';
 import SkeletonNotice from '../../components/dev/SkeletonNotice.astro';
+import { STATIC_ROUTE_METADATA } from '../../lib/metadata.ts';
 import { staticBreadcrumbs } from '../../lib/routes.ts';
 ---
 
-<Page
-  title="Request a Veyora B2B Account | Wholesale Eyewear"
-  breadcrumbs={staticBreadcrumbs('/request-b2b-account/')}
->
-  <h1>Request a Veyora B2B account.</h1>
+<Page meta={STATIC_ROUTE_METADATA['/request-b2b-account/']} breadcrumbs={staticBreadcrumbs('/request-b2b-account/')}>
   <SkeletonNotice />
 </Page>

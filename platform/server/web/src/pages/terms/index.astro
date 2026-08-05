@@ -1,13 +1,13 @@
 ---
-// Route 23 of 25 — 05_ROUTE_TEMPLATE_MATRIX.md. No documented title/H1 and
-// no `policies` table yet (that is B2), so this is a neutral structural
-// skeleton, not policy content.
+// Route 23 of 25 — 05_ROUTE_TEMPLATE_MATRIX.md. Metadata/H1 come from the
+// central registry (src/lib/metadata.ts). No `policies` table yet (B2), so
+// this is a neutral structural skeleton, not policy content.
 import Page from '../../layouts/Page.astro';
 import SkeletonNotice from '../../components/dev/SkeletonNotice.astro';
+import { STATIC_ROUTE_METADATA } from '../../lib/metadata.ts';
 import { staticBreadcrumbs } from '../../lib/routes.ts';
 ---
 
-<Page title="Terms page | Veyora" breadcrumbs={staticBreadcrumbs('/terms/')}>
-  <h1>Terms page</h1>
+<Page meta={STATIC_ROUTE_METADATA['/terms/']} breadcrumbs={staticBreadcrumbs('/terms/')}>
   <SkeletonNotice />
 </Page>

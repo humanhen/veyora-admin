@@ -1,13 +1,14 @@
 ---
 import '../styles/tokens.css';
 import '../styles/base.css';
+import { env } from '../env.ts';
+import type { SeoHead } from '../lib/seo.ts';
 
 interface Props {
-  title: string;
-  description?: string;
+  seo: SeoHead;
 }
 
-const { title, description } = Astro.props;
+const { seo } = Astro.props;
 ---
 
 <!doctype html>
@@ -15,22 +16,30 @@ const { title, description } = Astro.props;
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>{title}</title>
-    {description && <meta name="description" content={description} />}
+    <title>{seo.title}</title>
+    <meta name="description" content={seo.description} />
+    <meta name="robots" content={seo.robots} />
+    {seo.canonical && <link rel="canonical" href={seo.canonical} />}
+    <meta property="og:type" content={seo.ogType} />
+    <meta property="og:site_name" content={seo.ogSiteName} />
+    <meta property="og:title" content={seo.ogTitle} />
+    <meta property="og:description" content={seo.ogDescription} />
+    {seo.ogUrl && <meta property="og:url" content={seo.ogUrl} />}
+    {seo.ogImage && <meta property="og:image" content={seo.ogImage} />}
+    <meta name="twitter:card" content={seo.twitterCard} />
+    <meta name="twitter:title" content={seo.twitterTitle} />
+    <meta name="twitter:description" content={seo.twitterDescription} />
+    {seo.twitterImage && <meta name="twitter:image" content={seo.twitterImage} />}
     <!--
-      Blanket noindex while every route is a development skeleton (B1.2)
-      carrying a placeholder notice rather than approved content — a real
-      per-route indexing disposition (index/follow, canonical, query-state
-      handling) is src/lib/indexing.ts, B1's WP-04, deliberately not built
-      yet. This one static tag is a safety default, not a policy engine;
-      WP-04 replaces it.
+      Read by the legacy hash-bridge script below. PORTAL_ORIGIN is
+      server-validated config (src/env.ts), already shown verbatim in the
+      B2B Login link in every page's header — this is not a new exposure,
+      just a second, script-readable place to find the same value.
     -->
-    <meta name="robots" content="noindex, follow" />
+    <meta name="portal-origin" content={env.portalOrigin} />
     <!--
-      Named slots for later batches: the full metadata framework (canonical,
-      OG/Twitter, robots) is B1's WP-04, out of scope here; JSON-LD is B7.
-      Both slots exist now so those batches extend this file rather than
-      reopening it.
+      Named slots for later batches: JSON-LD is B7. Exists now so that
+      batch extends this file rather than reopening it.
     -->
     <slot name="head" />
   </head>
@@ -38,5 +47,21 @@ const { title, description } = Astro.props;
     <a class="skip-link" href="#main-content">Skip to main content</a>
     <slot />
     <slot name="structured-data" />
+    <script>
+      // Legacy portal hash continuity — see src/lib/legacy-hash-bridge.ts
+      // for the full security rationale. Runs on every page (this file is
+      // every page's shell), which is what fixes the original 404-only
+      // placement: root-level fragment URLs like "{ORIGIN}/#/login" send
+      // "/" to the server, never "/404", so the bridge must live where
+      // "/" itself renders.
+      import { resolveLegacyHashRedirect } from '../lib/legacy-hash-bridge.ts';
+
+      const portalOriginMeta = document.querySelector('meta[name="portal-origin"]');
+      const portalOrigin = portalOriginMeta ? portalOriginMeta.getAttribute('content') : null;
+      const destination = resolveLegacyHashRedirect(window.location.hash, portalOrigin);
+      if (destination) {
+        window.location.replace(destination);
+      }
+    </script>
   </body>
 </html>
