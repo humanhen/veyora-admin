@@ -9,6 +9,7 @@ import orderRoutes from './routes/orders.js';
 import accountRoutes from './routes/account.js';
 import agentRoutes from './routes/agent.js';
 import adminRoutes from './routes/admin.js';
+import adminPublicContentRoutes from './routes/admin-public-content.js';
 import publicRoutes from './routes/public.js';
 import { ensureSchema } from './migrate.js';
 import { startZohoSchedule } from './zoho.js';
@@ -44,6 +45,13 @@ app.get('/admin/country-list', requireAuth(), (req, res) => {
     { code: 'CA', name: 'Canada' },
   ]});
 });
+
+/* Public-content administration (B2.4A). Mounted BEFORE the general /admin
+   router so its own, stricter permission gate is the one that runs:
+   adminRoutes admits 'warehouse' for fulfilment work, which has no reason
+   to edit public brand copy or publish a model. Deliberately under /admin,
+   never under /public — the public router is unauthenticated and read-only. */
+app.use('/admin/public-content', adminPublicContentRoutes);
 
 app.use('/admin', adminRoutes);
 

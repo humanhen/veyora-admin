@@ -685,3 +685,51 @@ controlled mock on `127.0.0.1`. `platform/server/api/**`, `platform/server/db/**
 `platform/server/storefront/**`, the root admin application, `docker-compose.yml`, `Caddyfile`,
 `deploy.sh` and every `.env` file are unchanged. Full integration detail:
 `docs/public-website-rebuild/17_B2_WEB_API_INTEGRATION.md`.
+
+---
+
+## 15. B2.4A implementation result — 2026-08-06
+
+**Scope executed:** the authenticated administrative API and publication gate for public brand,
+product and variation content. Starting commit `71e1ea0` (completed B2.3). No admin UI, no
+backfill, no publication of any real record, no media upload, no schema change, no Astro or
+storefront change, no deployment.
+
+### 15.1 §7's governance model now has an enforcement layer
+
+§7.1 defined the governance block and §7.5 the slug-change trigger, and B2.1 delivered both plus a
+database CHECK tying `products.is_published` to `publication_state`. What a CHECK cannot see is
+another row — so "is the linked brand published", "does the replacement reference resolve", "is any
+variation publishable" were recorded in `14_B2_SCHEMA_REFERENCE.md` §6 as deferred application-level
+rules. `src/publication-gate.js` closes that gap: pure functions, no SQL, evaluated **inside the
+publish transaction against the freshly locked row**, so changing `publication_state` alone cannot
+bypass them.
+
+### 15.2 The public/private boundary is preserved in the write direction
+
+§4 established the read boundary. This batch adds writes, and keeps them on the other side of it:
+the router is mounted at `/admin/public-content` — never under `/public` — behind the repository's
+existing `requireAuth`. It imports no pricing, ordering, inventory, cart or Zoho module, and queries
+no customer, order, invoice, payment or stock table. Administrative responses use their own explicit
+serializers, separate from the public ones, so governance fields available to an editor cannot leak
+onto the public surface.
+
+### 15.3 An architectural gap recorded, not papered over
+
+§10's configuration table and this document's earlier sections assume an administrator role is
+sufficient authority. Management's stated requirement is **specific permissions for specific
+accounts**, and that is **not supported**: the repository has role-based access control only
+(`users.role`, a single enum), with no permissions table, per-account column, scope list or ACL
+anywhere. B2.4A added a single named permission seam (`requirePublicContentAdmin()`) applied once to
+the whole router, so a future capability check has exactly one place to attach — but it did not
+implement per-account grants, which require an additive schema change this batch was explicitly
+forbidden from making. Full detail: `18_B2_ADMIN_PUBLICATION_API.md` §1.1.
+
+### 15.4 Confirmed untouched
+
+No live database, production system, VPS or DNS was contacted — every test runs against a
+controlled fake database. No record was published. `platform/server/web/**`,
+`platform/server/storefront/**`, `platform/server/db/**`, the root admin frontend,
+`docker-compose.yml`, `Caddyfile`, `deploy.sh` and every `.env` file are unchanged, as are all
+existing `/public` response shapes and all pricing, inventory, ordering and Zoho behaviour. Full
+contract: `docs/public-website-rebuild/18_B2_ADMIN_PUBLICATION_API.md`.

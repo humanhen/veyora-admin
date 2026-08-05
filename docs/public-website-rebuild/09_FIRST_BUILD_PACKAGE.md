@@ -1495,3 +1495,122 @@ controlled mock on `127.0.0.1`. `platform/server/api/**`, `platform/server/db/**
 `platform/server/storefront/**`, the root admin application, `docker-compose.yml`, `Caddyfile`,
 `deploy.sh` and every `.env` file are unchanged. The other developer's branch was never inspected,
 referenced or merged. No commit was made and nothing was pushed.
+
+---
+
+## 15. B2.4A implementation result — 2026-08-06
+
+**Scope executed:** the authenticated administrative API and publication gate for public brand,
+product and variation content. Starting commit `71e1ea0` (completed B2.3).
+
+**Session note:** this batch spanned two sessions. The first reached a usage limit during read-only
+inspection (Tasks 1–2) and wrote nothing; the resuming session verified the tree was clean at
+`71e1ea0` with no B2.4A artifacts present, and implemented everything from Task 3 onward. No work
+was duplicated.
+
+### Files created
+
+```
+platform/server/api/src/
+├── publication-gate.js            pure gate: brand/product/variation eligibility + deferred gates
+├── admin-public-serialize.js      admin serializers, PATCH allowlists, concurrency tokens
+└── routes/admin-public-content.js the authenticated router (17 routes) + DI-testable handlers
+
+platform/server/api/test/
+├── publication-gate.test.js          (28)
+├── admin-public-serialize.test.js    (26)
+├── admin-public-content.test.js      (39)
+└── helpers/test-env.js               side-effect module: sets JWT_SECRET before src imports
+
+docs/public-website-rebuild/18_B2_ADMIN_PUBLICATION_API.md
+```
+
+### Files modified
+
+`platform/server/api/src/index.js` — **the only pre-existing file touched**: one import and one
+`app.use('/admin/public-content', …)` mount, placed before the general `/admin` router so the
+stricter gate runs first. Plus this document and `04`/`07`.
+
+### Authentication convention used
+
+The repository's existing `requireAuth('admin')` from `authmw.js`, wrapped in one named seam
+(`requirePublicContentAdmin()`) applied once to the whole router. `'admin'` only — deliberately not
+`ADMIN_ROLES`, which also admits `warehouse` for fulfilment work that has no business editing public
+brand copy. No second authentication system; no existing check weakened.
+
+### Endpoints
+
+17 routes under `/admin/public-content`: 5 GET (brand list/detail, product list/detail, variation
+detail), 3 PATCH, 3 evaluate, 3 publish, 3 unpublish. **No DELETE anywhere**, verified against the
+live router stack.
+
+### Publication gate
+
+Pure functions with no database access. Shared governance rules (not retired, state published,
+verified, source reference, last reviewed, content-updated date) plus per-entity rules: brand needs
+a valid unique slug and an approved summary **or** headline; product needs a unique public slug,
+display SKU, description, a **published** brand, coherent replacement, ≥1 publishable variation and
+≥1 media item; variation needs an eligible parent and an approved colour name, with **no price,
+stock or availability requirement**. Unknown inputs fail closed. Reasons are stable codes sorted
+deterministically. Advisories are separate and never affect the verdict.
+
+### Validation, concurrency, transactions
+
+Explicit per-entity allowlists; unknown and immutable fields are `400` with field-level errors,
+never silently dropped. **`is_published` is immutable via PATCH** — publication is a separate gated
+operation, which is what makes the gate un-bypassable. Draft partial saves are permitted.
+
+Optimistic concurrency uses an `entityType:id:version` token (no schema change): `GET` issues one,
+mutations require one, a stale/missing/replayed token is `409` **and rolls back**. Publish and
+unpublish run in `tx()` with a locked read, in-transaction gate re-evaluation, the content update
+and a `content_approvals` row — any failure rolls back both, leaving no partial approval. Actor
+identity comes only from `req.user`; nothing reads an actor from the request body.
+
+`invalidatePublicCache()` is called only after a commit — never on validation failure, conflict,
+gate failure or rollback (all five asserted).
+
+### Test result
+
+**727/727 API tests passing** — 634 pre-existing (zero regressions) plus 93 new. All exercise real
+handlers against a controlled fake database and fake auth context; no live database was contacted.
+
+### Account-specific permissions — the outstanding requirement
+
+**Not supported, and not added by this batch.** Pre-existing capability was role-based only:
+`users.role` (a single enum), `requireAuth(...roles)`, two role groupings, and one ad-hoc
+role-derived check in the orders router. A verified search found no permissions table, per-account
+column, scope list or ACL anywhere. B2.4A added a single named permission seam so a future
+capability check has one place to attach, but per-account grants need an additive migration, which
+this batch was explicitly forbidden from making. Two `admin` accounts remain indistinguishable in
+authority. Full detail and remaining work: `18_B2_ADMIN_PUBLICATION_API.md` §1.1.
+
+### Known limitations
+
+- **Account-specific permissions absent** (above) — the most significant gap.
+- **`variations` has no `updated_at`**, so its concurrency token is derived from `created_at` plus
+  the fields this API can change; a change to a variation column outside that set would not
+  invalidate it.
+- **Cache invalidation is in-process only** — a multi-process deployment would need a shared signal.
+- **Three declared `DEFERRED_GATES`**: no `is_non_variant` column; `media` has no per-asset approval
+  state; nothing yet *requires* a `content_approvals` row before a state change.
+- **Nothing is actually publishable yet** — no brand rows exist and no product has a `public_slug`
+  (WP-08 backfill not started), so the publish path is proven against fixtures, not real records.
+
+### Deferred to B2.4B–B2.4D
+
+Per-account permissions (migration, resolution helper, assignment surface — plausibly its own
+batch); the admin UI; catalogue backfill and brand seeding (WP-08); media upload and per-asset
+approval; content-page/policy/form administration; cross-process and Zoho-sync cache invalidation.
+
+### Final storage
+
+Started 8.706 GB free; ended 8.711 GB. Never approached the 4 GB floor. **Zero new dependencies.**
+
+### Confirmation
+
+No live database, production system, VPS or DNS was contacted. **No record was published.** No
+schema change was made. `platform/server/web/**`, `platform/server/storefront/**`,
+`platform/server/db/**`, the root admin frontend, `docker-compose.yml`, `Caddyfile`, `deploy.sh`
+and every `.env` file are unchanged, as are all existing `/public` response shapes and all pricing,
+inventory, ordering and Zoho behaviour. The other developer's branch was never inspected,
+referenced or merged. No commit was made and nothing was pushed.

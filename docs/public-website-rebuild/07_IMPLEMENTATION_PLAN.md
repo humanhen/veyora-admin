@@ -518,3 +518,48 @@ that delegated its status to a child component would silently answer 200 during 
 
 Full detail: `docs/public-website-rebuild/17_B2_WEB_API_INTEGRATION.md`;
 `04_TARGET_ARCHITECTURE.md` §14; `05_ROUTE_TEMPLATE_MATRIX.md` §11.
+
+---
+
+## 13. B2.4A implementation result — 2026-08-06
+
+**Scope executed: the WP-09 groundwork, minus the UI.** §5 describes WP-09 as "Admin editing
+surfaces for brand, location, policy, publication · 21 h · round-trip edit → publish → render".
+B2.4A delivered the **API half** for brand, product and variation — reads, gated PATCH,
+publication evaluation, and transactional publish/unpublish with approval recording — plus the
+publication gate WP-06's exit condition named ("publication gate test green"), which B2.1 could not
+close because it is application-level logic rather than schema.
+
+**727/727 API tests passing** (634 pre-existing all green, plus 93 new). No web test was run and no
+web file changed.
+
+### 13.1 Work-package status
+
+- **WP-06** — now fully complete. Its second exit condition, "publication gate rejects a record
+  missing approval or source", is met and tested: a record missing `source_reference`,
+  `last_reviewed_at`, verification, media or a publishable variation is refused with a `422` and
+  stable reason codes, and neither content nor an approval row is written.
+- **WP-09** — API layer complete for brand/product/variation; **UI not started**; location and
+  policy administration not started (B2.4B+).
+- **WP-08** (slug generation + backfill) — **still not started.** This matters practically: no brand
+  rows exist and no product has a `public_slug`, so while the publish path is fully exercised
+  against fixtures, nothing real is publishable yet.
+
+### 13.2 A gate not in the original plan
+
+§6's gate table lists "Public data boundary" and "Portal regression" but no *publication* gate,
+because Phase 0 treated publication as a content-workflow concern rather than an engineering
+control. It is now an enforced merge-relevant control: `src/publication-gate.js` is the single
+authority, and `is_published` cannot be set through any ordinary edit path — publication is a
+separate transactional operation. Worth carrying into B9's gate list.
+
+### 13.3 Permissions — a scheduling flag
+
+Management requires **specific permissions for specific accounts**. The repository has role-based
+access control only, and adding per-account grants needs an additive migration plus a resolution
+helper, an assignment surface and its own tests. That is not a sub-task of an editing UI; it is
+plausibly its own batch, and it currently gates any deployment where "who may publish" must differ
+from "who is an admin". Detail and the exact remaining work: `18_B2_ADMIN_PUBLICATION_API.md` §1.1.
+
+Full detail: `docs/public-website-rebuild/18_B2_ADMIN_PUBLICATION_API.md`;
+`04_TARGET_ARCHITECTURE.md` §15; `09_FIRST_BUILD_PACKAGE.md`'s B2.4A section.

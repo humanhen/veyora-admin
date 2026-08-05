@@ -70,6 +70,22 @@ is outstanding and who owns it. Neutral wording so no page depends structurally 
 fact. Weekly outstanding-placeholder report from B2 onwards. Escalate anything still `pending`
 four weeks before the target cutover.
 
+**Implementation update — 2026-08-06 (B2.4A).** The entry above is retained as written. A second,
+mechanical control now exists alongside the placeholder register: `src/publication-gate.js` refuses
+to publish any brand, product or variation whose `source_reference` is empty, whose
+`verification_status` is not `verified`, or which has no `last_reviewed_at` — returning `422` with
+stable reason codes and writing neither the content change nor an approval row. Publication is a
+separate transactional operation and `is_published` cannot be set through any ordinary edit path,
+so this cannot be bypassed by an editor in a hurry.
+
+This narrows the failure mode from "an unapproved fact reaches a public page" to "an unapproved
+fact blocks a publish attempt, visibly". **Score unchanged**: the gate governs whether a *record*
+may publish, not whether the *copy inside it* is approved — an editor can still enter a plausible
+sentence and mark it verified. Field-level approval enforcement (requiring a `content_approvals`
+row per claim field before a state change) is declared as `DEFERRED_FIELD_LEVEL_APPROVAL` in the
+gate module and remains outstanding. The register, its owners and the release gate are all still
+required.
+
 ---
 
 ### R-05 · Legacy URL inventory never materialises · L4 × I3 = **12**
@@ -434,3 +450,55 @@ invisible to any server, so nothing server-side could ever substitute for it). R
 I5 = 20) and its other mitigations (separate `PORTAL_URL` configuration, RC rehearsal, twelve-month
 retention) are unaffected by this correction. Full detail: `04_TARGET_ARCHITECTURE.md` §11,
 `05_ROUTE_TEMPLATE_MATRIX.md` §10.
+
+---
+
+## 7. Risk added — 2026-08-06 (B2.4A)
+
+Sections 1–6 are retained as written. This section adds one risk surfaced by implementation
+evidence rather than by re-analysis.
+
+### R-17 · No account-specific permissions for publication authority · L4 × I3 = **12**
+
+**The finding.** Building the administrative API required establishing what permission model the
+platform actually has. A verified search of `platform/server/api/src/**` found role-based access
+control only: `users.role` is a single text enum, checked by `requireAuth(...roles)`, with two named
+groupings (`ADMIN_ROLES`, `AGENT_ROLES`) and one ad-hoc role-derived check (`isFinancialActor()` for
+order discounts). There is **no permissions table, no per-account permission column, no scope list
+and no ACL anywhere in the codebase.**
+
+Consequently any account with role `admin` can do everything any other `admin` can — including
+publishing public content, changing brand copy, and every existing admin-panel capability. Two admin
+accounts are indistinguishable in authority.
+
+**Why this is a risk and not merely a gap.** Management has stated a requirement for *specific
+permissions for specific accounts*. Until it exists, granting someone the ability to publish a brand
+page necessarily grants them the entire admin surface — order editing, customer records, user
+management, Zoho sync. On a public, indexed site the blast radius of a mistaken or malicious publish
+is permanent (cached and scraped), and the mitigation "only give admin to people you trust with
+everything" does not scale to an editorial workflow that will involve marketing and content staff.
+
+**Likelihood** is high (L4) because the requirement is stated and the site cannot be operated
+editorially without granting broad admin access. **Impact** is moderate (I3) rather than severe
+because the accounts involved are internal and authenticated, and because B2.4A's publication gate
+still prevents *unverified* content reaching the public regardless of who triggers it.
+
+**Mitigation.**
+- *Done (B2.4A):* the public-content router's authorisation is a single named seam,
+  `requirePublicContentAdmin()`, applied once — so a capability check replaces one function rather
+  than seventeen scattered inline checks. It deliberately excludes `warehouse`, narrowing the
+  surface to `admin` only. Publication is additionally gated, transactional and approval-recorded,
+  so every publish is attributable to an authenticated actor in `content_approvals`.
+- *Outstanding:* an additive migration for per-account grants (a `user_permissions` table or a
+  `permissions jsonb` column); a resolution helper; replacing the seam's body with a capability
+  check such as `public_content.edit` vs `public_content.publish`; an assignment surface; and tests
+  proving two `admin` accounts with different grants genuinely differ.
+
+**Why it was not closed in B2.4A.** Per-account grants require persistence, and B2.4A was
+explicitly forbidden from schema changes (`platform/server/db/**` is a protected path). Implementing
+it without persistence — an environment-variable account allowlist, for instance — would have been a
+second, unreviewable authorisation system, which the same brief forbids. Recorded here rather than
+improvised.
+
+**Owner:** engineering, with a product decision needed on the capability vocabulary. Detail:
+`18_B2_ADMIN_PUBLICATION_API.md` §1.1.
