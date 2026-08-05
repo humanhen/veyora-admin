@@ -19,7 +19,7 @@ import { Router } from 'express';
 import { pool, tx as realTx, audit } from '../db.js';
 import { requireAuth } from '../authmw.js';
 import { invalidatePublicCache } from '../public-cache.js';
-import { requirePermission } from '../permissions.js';
+import { requirePermission, getUserPermissions } from '../permissions.js';
 import {
   evaluateBrandPublication,
   evaluateProductPublication,
@@ -249,6 +249,58 @@ function tokenSourceFor(entityType, row) {
   return row.updated_at;
 }
 
+/* PUBLICATION BYPASS GUARD (B2.4B2A).
+
+   Brands have no `is_published` column: `publication_state = 'published'` IS
+   the publication flag, and routes/public.js selects brands with exactly that
+   predicate. But `publication_state` is in the brand PATCH allowlist and
+   `PUBLICATION_STATES` includes 'published', while PATCH requires only
+   `public_content.edit` and never runs the publication gate.
+
+   So before this guard, `PATCH /brands/:id {"publication_state":"published"}`
+   put a brand on the live public site while bypassing all three of:
+     - the `public_content.publish` capability (B2.4P),
+     - the publication gate (B2.4A), and
+     - the `content_approvals` record that publishEntity writes.
+
+   publishEntity's own comment — "changing publication_state alone cannot
+   bypass the gate" — held for the publish endpoint but not for PATCH.
+
+   The transition is checked here rather than in validateAdminPatch because
+   only this point knows the CURRENT state, and it runs inside the transaction
+   against the locked row, so a concurrent publish cannot slip underneath it.
+   Ordinary editorial transitions (draft → verified → approved, → retired)
+   remain fully editable; only crossing the published boundary is refused, in
+   either direction. Products are unaffected: their publication flag is the
+   separate, already-immutable `is_published` column. */
+export function assertPublicationBoundaryNotCrossed(entityType, current, fields) {
+  if (entityType !== 'brand') return;
+  if (!Object.prototype.hasOwnProperty.call(fields, 'publication_state')) return;
+
+  const from = current?.publication_state ?? null;
+  const to = fields.publication_state;
+  if (from === to) return;
+  if (from !== 'published' && to !== 'published') return;
+
+  throw new AdminApiError(400, {
+    error:
+      to === 'published'
+        ? 'Publishing is a separate, gated operation — use the publish endpoint.'
+        : 'Unpublishing is a separate, gated operation — use the unpublish endpoint.',
+    code: 'PUBLICATION_BOUNDARY',
+    fieldErrors: [
+      {
+        field: 'publication_state',
+        code: 'PUBLICATION_BOUNDARY',
+        message:
+          to === 'published'
+            ? 'A brand cannot be published by editing this field. Use the publish action, which checks the publication requirements and records an approval.'
+            : 'A published brand cannot be unpublished by editing this field. Use the unpublish action, which records the decision.',
+      },
+    ],
+  });
+}
+
 export async function patchAdminEntity(db, entityType, id, body) {
   const meta = ENTITY_TABLES[entityType];
   if (!meta) throw new AdminApiError(400, { error: 'Unknown entity type' });
@@ -277,6 +329,8 @@ export async function patchAdminEntity(db, entityType, id, body) {
       // nothing — asserted by test.
       throw conflict();
     }
+
+    assertPublicationBoundaryNotCrossed(entityType, current, validated.fields);
 
     const { sets, values } = buildUpdateSql(validated.fields);
     /* `content_updated_at` is bumped here because this is an editorial
@@ -498,6 +552,37 @@ const SERIALIZERS = {
   product: serializeAdminProduct,
   variation: serializeAdminVariation,
 };
+
+/* ---- current account's public-content capabilities (B2.4B2A) ----
+
+   The admin panel's session carries {id, name, role} and no capabilities, so
+   the browser cannot tell a viewer from an editor without asking. Before this
+   endpoint the panel could only probe an endpoint and read 200 vs 403, which
+   cannot distinguish "may read" from "may edit" without attempting a write.
+
+   Deliberately NOT gated on a capability: an authenticated account with none
+   of them must still get an honest all-false answer, so the UI can render an
+   accurate access-denied state instead of a failure. Authentication alone is
+   required, and the answer describes only the caller.
+
+   It returns nothing but three booleans — no user record, no role, no grant
+   attribution, no `permissions.manage` disclosure, nothing about any other
+   account. It is a read: no mutation, no caching, and the answer is resolved
+   fresh from the permission service on every call so a revocation takes
+   effect immediately. Nothing is read from the body, query or headers. */
+export async function getPublicContentCapabilities(db, userId) {
+  const held = new Set(await getUserPermissions(db, userId));
+  // Fresh object literal, fixed keys — never derived from a database row.
+  return {
+    view: held.has(PUBLIC_CONTENT_CAPABILITIES.read),
+    edit: held.has(PUBLIC_CONTENT_CAPABILITIES.edit),
+    publish: held.has(PUBLIC_CONTENT_CAPABILITIES.publish),
+  };
+}
+
+r.get('/capabilities', (req, res, next) =>
+  send(res, next, getPublicContentCapabilities(liveDb, req.user?.id), (capabilities) => ({ capabilities }))
+);
 
 // ---- reads ----
 r.get('/brands', canRead(), (req, res, next) =>

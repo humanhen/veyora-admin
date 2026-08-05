@@ -94,7 +94,14 @@ class Element {
   set checked(v){ this._checked = !!v; }
   get disabled(){ return this._disabled !== undefined ? this._disabled : this.hasAttribute('disabled'); }
   set disabled(v){ this._disabled = !!v; }
-  get value(){ return this._value !== undefined ? this._value : (this.attributes.value || ''); }
+  /* A <textarea>'s value is its TEXT CONTENT, not a value attribute — every
+     other control reads the attribute. Getting this wrong would make a
+     populated textarea look empty to a test. */
+  get value(){
+    if (this._value !== undefined) return this._value;
+    if (this.tagName === 'TEXTAREA') return this.textContent;
+    return this.attributes.value || '';
+  }
   set value(v){ this._value = String(v); }
   get type(){ return this.attributes.type || ''; }
 

@@ -1782,3 +1782,94 @@ schema was touched. `platform/server/api/**`, `platform/server/db/**`, `platform
 `platform/server/storefront/**`, `docker-compose.yml`, `Caddyfile`, `deploy.sh` and every `.env`
 file are unchanged. The other developer's branch was never inspected, referenced or merged. No
 commit was made and nothing was pushed.
+
+---
+
+## 18. B2.4B2A implementation result — public-content review and draft editing — 2026-08-06
+
+### Files
+
+**Added**
+| Path | Purpose |
+|---|---|
+| `js/pages_public_content.js` | Lists and the three editors. |
+| `test/public-content.test.js` | 45 tests — capabilities, lists, editors, errors, accessibility. |
+| `platform/server/api/test/public-content-capabilities.test.js` | 26 tests — capability endpoint and the publication boundary guard. |
+| `docs/public-website-rebuild/21_PUBLIC_CONTENT_EDITOR.md` | Full contract. |
+
+**Modified**
+| Path | Change |
+|---|---|
+| `platform/server/api/src/routes/admin-public-content.js` | `GET /capabilities`; publication boundary guard on PATCH. |
+| `js/data.js` | Capability + six public-content client methods, allowlist shapers, frozen editable-field mirror. |
+| `js/app.js` | Public-content capabilities in `loadCaps()`; cache cleared before probing; `Public Content` nav entry. |
+| `js/util.js` | One new icon. |
+| `index.html`, `css/styles.css` | Script tag; editor styles. |
+| `test/helpers/dom.js` | A `<textarea>`'s value reads its text content. |
+| `test/admin-shell.test.js`, `test/permissions-client.test.js`, `platform/server/api/test/{account-permissions,admin-public-content}.test.js` | Updated for the new route and the `/capabilities` gate exemption. |
+
+### Defect fixed
+
+**An account holding only `public_content.edit` could publish a brand to the live public website.**
+Brands have no `is_published` column — `publication_state = 'published'` is the flag, and it was
+PATCH-editable without the publish capability, without the publication gate, and without an approval
+record. A transactional boundary guard now refuses that transition in either direction, while
+ordinary editorial transitions stay editable. 13 tests.
+
+### Endpoint added
+
+`GET /admin/public-content/capabilities` → `{ capabilities: { view, edit, publish } }`.
+Authenticated, **ungated** (an account holding none must still get an honest answer), three booleans
+about the caller only, no mutation, no caching, derived from `req.user.id` alone.
+
+### Routes
+
+`#/public-content[/brands|/products]`, `#/public-content/brands/<id>`,
+`#/public-content/products/<id>`, `#/public-content/products/<pid>/variations/<vid>`.
+Sidebar entry **Public Content**, shown only with `public_content.view`.
+
+### Behaviour summary
+
+- Lists come from the existing GET endpoints only; loading, empty, denied and **failed-load** states
+  are distinct — a failure is never rendered as an empty catalogue.
+- `view` renders everything read-only and visibly disabled; `edit` unlocks the controls. Neither
+  implies the other; neither implies publish.
+- **No publish or unpublish control exists at any capability level.** The publication-state select
+  offers only `draft`, `verified`, `approved`, `retired`.
+- Editing is local until Save; Save sends only changed fields through a frozen mirror of the API's
+  allowlist, so `is_published`, `fact_owner`, `approver_id`, `sku` and `price` cannot be sent.
+- Concurrency tokens are preserved, replaced from the response, and never shared between entities —
+  a variation is saved with its own token, never its product's.
+- `400` renders field-level errors against the relevant controls; `409` offers reload and never
+  reports success; `401`/`403`/`404` and generic failures are translated; no raw API body, stack,
+  SQL, hostname or port is ever shown.
+- No price, cost, stock, availability, customer or order data appears anywhere.
+
+### Verification
+
+- **API suite: 823 passing, 0 failing** (797 baseline + 26).
+- **Frontend suite: 99 passing, 0 failing** (53 baseline + 46), loading the real shipped scripts in
+  the `vm` harness rather than a duplicate implementation.
+- **No frontend build exists.** The production equivalent was run instead: every shipped script
+  parses, every `index.html` reference resolves, and the `deploy.sh` tar payload assembles (1.4 MB).
+- Diff sweep: no role bypass, no hard-coded account ids or emails, no unrestricted response
+  spreading, no publish control, no `is_published` PATCH path, no raw error rendering, no
+  price/stock/availability presentation, no secrets, no production hostnames, no bootstrap SQL, no
+  `TODO`/`FIXME`, no merge markers. `git diff --check` clean.
+
+### Required before this is usable
+
+**Unchanged.** `account_permissions` is empty, so `/capabilities` returns all false for everyone and
+the Public Content section is unreachable by every account, including every administrator. Perform
+the bootstrap in `19_ACCOUNT_PERMISSION_SYSTEM.md` §8, then grant `public_content.view` and
+`public_content.edit` through the B2.4B1 screen.
+
+### Confirmation
+
+No live database, production system, VPS or DNS was contacted. **No permission was granted to any
+real account, no bootstrap SQL was executed, and nothing was published or unpublished.** No schema
+change was made. `platform/server/db/**`, `platform/server/web/**`, `platform/server/storefront/**`,
+`api/src/migrate.js`, `api/src/routes/public.js`, `docker-compose.yml`, `Caddyfile`, `deploy.sh` and
+every `.env` file are unchanged, as are all public API response shapes and all pricing, inventory,
+ordering and Zoho behaviour. The other developer's branch was never inspected, referenced or merged.
+No commit was made and nothing was pushed.

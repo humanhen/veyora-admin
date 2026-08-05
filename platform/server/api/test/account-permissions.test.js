@@ -222,10 +222,21 @@ test('16/17/18 — routes map to the documented capabilities', () => {
 });
 
 test('every public-content route carries a capability middleware in addition to its handler', () => {
+  /* One deliberate exemption (B2.4B2A): `/capabilities` reports the caller's
+     OWN capabilities and must answer an authenticated account that holds
+     none, so the admin panel can render an accurate access-denied state
+     instead of a failure. It is still behind router-level authentication and
+     discloses nothing but three booleans about the caller. */
+  const EXEMPT = new Set(['/capabilities']);
   for (const layer of adminPublicContentRouter.stack) {
     if (!layer.route) continue;
-    assert.equal(layer.route.stack.length, 2, `${layer.route.path} should have capability + handler`);
+    const expected = EXEMPT.has(layer.route.path) ? 1 : 2;
+    assert.equal(layer.route.stack.length, expected, `${layer.route.path} should have capability + handler`);
   }
+  // The exemption is exactly one route, and it is a read.
+  const exempt = adminPublicContentRouter.stack.filter((l) => l.route && l.route.stack.length === 1);
+  assert.deepEqual(exempt.map((l) => l.route.path), ['/capabilities']);
+  assert.ok(exempt.every((l) => l.route.methods.get), 'the exempt route must be a GET');
 });
 
 test('39 — the public-content router has no role bypass', () => {

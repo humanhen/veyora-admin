@@ -274,6 +274,114 @@ const DB = (function(){
     };
   }
 
+  /* ---------- public-content administration shaping (B2.4B2A) ----------
+
+     PUBLIC_CONTENT_EDITABLE mirrors EDITABLE_FIELDS in the API's
+     admin-public-serialize.js. The API is the source of truth and re-checks
+     everything; this copy exists so the browser cannot even attempt to send a
+     field the API would reject, and so an accidental spread of a response
+     back into a PATCH is impossible.
+
+     `is_published`, `id`, `sku`, `brand`, `price`, `fact_owner`, `approver_id`
+     and `approved_at` are absent on purpose — they are the API's immutable
+     set. Publication is a gated operation with its own endpoint, and this
+     batch ships no control for it. */
+  const PUBLIC_CONTENT_EDITABLE = {
+    brand: ['slug','name','short_name','segment','headline','summary','story','ideal_retailer',
+      'price_tier_label','design_origin','manufacturing_origin','style_traits','approved_materials',
+      'logo_media_id','hero_media_id','publication_state','verification_status','source_reference',
+      'last_reviewed_at','scheduled_review_at'],
+    product: ['public_slug','name','brand_id','line','shape','segment','public_description',
+      'is_featured','is_discontinued','replacement_product_id','publication_state',
+      'verification_status','source_reference','last_reviewed_at','scheduled_review_at'],
+    variation: ['color','color_code','swatch_media_id'],
+  };
+  Object.keys(PUBLIC_CONTENT_EDITABLE).forEach(k=>Object.freeze(PUBLIC_CONTENT_EDITABLE[k]));
+  Object.freeze(PUBLIC_CONTENT_EDITABLE);
+
+  function pickEditable(entity, changes){
+    const allowed = PUBLIC_CONTENT_EDITABLE[entity] || [];
+    const out = {};
+    for (const key of allowed){
+      if (changes && Object.prototype.hasOwnProperty.call(changes, key)) out[key] = changes[key];
+    }
+    return out;
+  }
+
+  /** A response that does not match the documented contract is an error, not
+      an empty record — rendering "no content" for a malformed payload is how
+      a broken deploy reads as an empty catalogue. */
+  function malformed(){
+    const e = new Error('The server returned an unexpected response.');
+    e.status = 502;
+    return e;
+  }
+
+  const str = v => v == null ? '' : String(v);
+  const idOrNull = v => v == null ? null : String(v);
+  const strList = v => Array.isArray(v) ? v.map(String) : [];
+
+  function shapeGovernance(g){
+    const o = g || {};
+    return {
+      publicationState: idOrNull(o.publicationState),
+      verificationStatus: idOrNull(o.verificationStatus),
+      sourceReference: str(o.sourceReference),
+      lastReviewedAt: idOrNull(o.lastReviewedAt),
+      scheduledReviewAt: idOrNull(o.scheduledReviewAt),
+      contentUpdatedAt: idOrNull(o.contentUpdatedAt),
+      factOwnerId: idOrNull(o.factOwnerId),
+    };
+  }
+
+  /* Each shaper lists every field the screen may read. Nothing about price,
+     cost, stock, availability, customers or orders appears in the
+     administrative contract, and nothing is copied here by wildcard, so none
+     can reach the editor even if the API were to start returning it. */
+  function shapeAdminBrand(b){
+    return {
+      id: str(b.id), slug: idOrNull(b.slug), name: idOrNull(b.name),
+      shortName: str(b.shortName), segment: str(b.segment), headline: str(b.headline),
+      summary: str(b.summary), story: str(b.story), idealRetailer: str(b.idealRetailer),
+      priceTierLabel: str(b.priceTierLabel), designOrigin: str(b.designOrigin),
+      manufacturingOrigin: str(b.manufacturingOrigin),
+      styleTraits: strList(b.styleTraits), approvedMaterials: strList(b.approvedMaterials),
+      logoMediaId: idOrNull(b.logoMediaId), heroMediaId: idOrNull(b.heroMediaId),
+      governance: shapeGovernance(b.governance),
+      isPublished: b.isPublished === true,
+      concurrencyToken: idOrNull(b.concurrencyToken),
+      updatedAt: idOrNull(b.updatedAt), createdAt: idOrNull(b.createdAt),
+    };
+  }
+
+  function shapeAdminProduct(p){
+    return {
+      id: str(p.id), sku: idOrNull(p.sku), name: idOrNull(p.name),
+      publicSlug: idOrNull(p.publicSlug), brandId: idOrNull(p.brandId),
+      legacyBrandText: str(p.legacyBrandText), line: str(p.line), shape: str(p.shape),
+      segment: str(p.segment), size: str(p.size), publicDescription: str(p.publicDescription),
+      categories: strList(p.categories),
+      isPublished: p.isPublished === true, isFeatured: p.isFeatured === true,
+      isDiscontinued: p.isDiscontinued === true,
+      replacementProductId: idOrNull(p.replacementProductId),
+      isActiveInPortal: p.isActiveInPortal === true,
+      governance: shapeGovernance(p.governance),
+      variations: Array.isArray(p.variations) ? p.variations.map(shapeAdminVariation) : [],
+      concurrencyToken: idOrNull(p.concurrencyToken),
+      updatedAt: idOrNull(p.updatedAt), createdAt: idOrNull(p.createdAt),
+    };
+  }
+
+  function shapeAdminVariation(v){
+    return {
+      id: str(v.id), productId: idOrNull(v.productId), sku: idOrNull(v.sku),
+      colorName: str(v.colorName), colorCode: str(v.colorCode),
+      swatchMediaId: idOrNull(v.swatchMediaId),
+      isPublished: v.isPublished === true, isActiveInPortal: v.isActiveInPortal === true,
+      concurrencyToken: idOrNull(v.concurrencyToken), createdAt: idOrNull(v.createdAt),
+    };
+  }
+
   /* ---------- lookups ---------- */
   const api = {
     load, save, reset, audit, init,
@@ -367,6 +475,80 @@ const DB = (function(){
       const res = await apiCall('PUT', '/admin/account-permissions/users/'+encodeURIComponent(userId),
         { permissions: keys, concurrencyToken });
       return shapePermissions(res);
+    },
+
+    /* ---- public-content administration (B2.4B2A) ----
+       Narrow calls against the B2.4A administrative routes. Fixed paths built
+       here, `apiCall` still private, no generic helper, and every response
+       shaped through an explicit allowlist below rather than spread.
+
+       Deliberately ABSENT: publish, unpublish and evaluate. Those exist on
+       the API but are B2.4B2B's surface — a client function for them here
+       would be a publish control waiting for a button. */
+
+    /** The caller's own three public-content capabilities. Authenticated but
+        ungated, so an account holding none still gets an honest answer. */
+    /** The editable-field allowlist, frozen. Exposed so the editors render
+        controls from the same list the client sends, rather than a second
+        hand-maintained copy that could drift. */
+    get publicContentEditable(){ return PUBLIC_CONTENT_EDITABLE; },
+
+    async publicContentCapabilities(){
+      const res = await apiCall('GET', '/admin/public-content/capabilities');
+      const c = (res && res.capabilities) || {};
+      /* Strict booleans: a malformed or partial response must read as "no
+         capability", never as truthy. */
+      return { view: c.view === true, edit: c.edit === true, publish: c.publish === true };
+    },
+
+    async adminBrands(){
+      const res = await apiCall('GET', '/admin/public-content/brands');
+      if (!res || !Array.isArray(res.brands)) throw malformed();
+      return res.brands.map(shapeAdminBrand);
+    },
+    async adminBrand(id){
+      const res = await apiCall('GET', '/admin/public-content/brands/'+encodeURIComponent(id));
+      if (!res || !res.brand) throw malformed();
+      return shapeAdminBrand(res.brand);
+    },
+    async adminProducts(brandId){
+      const qs = brandId ? '?brandId='+encodeURIComponent(brandId) : '';
+      const res = await apiCall('GET', '/admin/public-content/products'+qs);
+      if (!res || !Array.isArray(res.products)) throw malformed();
+      return res.products.map(shapeAdminProduct);
+    },
+    async adminProduct(id){
+      const res = await apiCall('GET', '/admin/public-content/products/'+encodeURIComponent(id));
+      if (!res || !res.product) throw malformed();
+      return shapeAdminProduct(res.product);
+    },
+    async adminVariation(id){
+      const res = await apiCall('GET', '/admin/public-content/variations/'+encodeURIComponent(id));
+      if (!res || !res.variation) throw malformed();
+      return shapeAdminVariation(res.variation);
+    },
+
+    /* PATCH takes an object of CHANGED fields only, already keyed by the
+       API's snake_case column names, plus the token from the matching read.
+       Callers cannot smuggle anything else: `pickEditable` drops every key
+       that is not on the API's own allowlist for that entity. */
+    async patchAdminBrand(id, changes, concurrencyToken){
+      const res = await apiCall('PATCH', '/admin/public-content/brands/'+encodeURIComponent(id),
+        Object.assign(pickEditable('brand', changes), { concurrencyToken }));
+      if (!res || !res.brand) throw malformed();
+      return shapeAdminBrand(res.brand);
+    },
+    async patchAdminProduct(id, changes, concurrencyToken){
+      const res = await apiCall('PATCH', '/admin/public-content/products/'+encodeURIComponent(id),
+        Object.assign(pickEditable('product', changes), { concurrencyToken }));
+      if (!res || !res.product) throw malformed();
+      return shapeAdminProduct(res.product);
+    },
+    async patchAdminVariation(id, changes, concurrencyToken){
+      const res = await apiCall('PATCH', '/admin/public-content/variations/'+encodeURIComponent(id),
+        Object.assign(pickEditable('variation', changes), { concurrencyToken }));
+      if (!res || !res.variation) throw malformed();
+      return shapeAdminVariation(res.variation);
     },
 
     get d(){ return load(); },

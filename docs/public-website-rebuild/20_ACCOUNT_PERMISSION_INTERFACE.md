@@ -313,3 +313,40 @@ under `js/` would silently start deploying them.
 - **`permissions.manage` is not self-serviceable.** A manager can revoke their own capability
   (subject to the last-manager guard) and would then lose access to the screen — the same fail-closed
   behaviour as any other account.
+
+---
+
+## 15. B2.4B2A update — 2026-08-06
+
+**The capabilities granted here now do something.** Before B2.4B2A, `public_content.view`, `.edit`
+and `.publish` could be granted on this screen but had no interface behind them. B2.4B2A added the
+**Public Content** section that `view` and `edit` unlock —
+[21_PUBLIC_CONTENT_EDITOR.md](21_PUBLIC_CONTENT_EDITOR.md). `public_content.publish` still has no
+interface; its controls are B2.4B2B.
+
+### The access model generalised
+
+§2 described probing a gated endpoint and reading `200` vs `403`. That works for
+`permissions.manage`, whose registry endpoint is gated on exactly that capability, but it cannot
+scale: a `200` on a *read* endpoint proves only `view`, and telling a viewer from an editor would
+mean attempting a write.
+
+B2.4B2A therefore added `GET /admin/public-content/capabilities`, which reports the caller's own
+three public-content capabilities as booleans, is authenticated but ungated, and answers an account
+holding none. `App.loadCaps()` now resolves all four capabilities: the registry probe for
+`permissions.manage` plus that endpoint for the other three.
+
+Two hardening changes came with it, both applying to this screen as well:
+
+- **`loadCaps()` clears the cached set before probing**, so a failed re-probe can no longer leave a
+  previous session's capabilities in place. §2's note that the cache "can go stale" still holds for a
+  revocation mid-session; it no longer holds across a re-probe.
+- **A malformed capability response fails closed.** The client returns strict booleans, so a partial
+  or unexpected body reads as *no capability* rather than as truthy.
+
+§12's test count is superseded: the frontend suite is now **99 passing** (53 from B2.4B1, 46 from
+B2.4B2A). One B2.4B1 test changed — it pinned `loadCaps()` to a single request and now asserts both
+requests by name, which is a stronger statement of the same property.
+
+The **bootstrap prerequisite in §10 and §13 is unchanged**, and now blocks more: with no grants,
+neither this screen nor the Public Content section is reachable by any account.

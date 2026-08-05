@@ -667,3 +667,59 @@ R-17 remains open; see `08_RISKS_AND_OPEN_DECISIONS.md`.
 Full detail: `docs/public-website-rebuild/20_ACCOUNT_PERMISSION_INTERFACE.md`;
 `04_TARGET_ARCHITECTURE.md` §17; `19_ACCOUNT_PERMISSION_SYSTEM.md` §11;
 `09_FIRST_BUILD_PACKAGE.md`'s B2.4B1 section.
+
+---
+
+## 16. B2.4B2A implementation result — public-content review and draft editing — 2026-08-06
+
+First half of B2.4B2, split so that reviewing and editing land before publication controls.
+
+### 16.1 Delivered
+
+A **Public Content** section in the admin panel: brand and product administrative lists, and brand,
+product and variation editors over B2.4A's exact GET/PATCH contract, gated on `public_content.view`
+and `public_content.edit`. One new authenticated API endpoint (`GET …/capabilities`), narrow client
+methods, shared form/error/concurrency helpers, 46 new frontend tests and 26 new API tests, and
+`21_PUBLIC_CONTENT_EDITOR.md`.
+
+**API suite: 823 passing. Frontend suite: 99 passing.** No schema change.
+
+### 16.2 A defect found, and why it was fixed rather than only reported
+
+Reading the PATCH allowlist closely revealed that **an account with `public_content.edit` alone
+could publish a brand to the live public website**, because brands' publication flag *is*
+`publication_state` and that column was PATCH-editable without the gate or the publish capability.
+
+The brief permitted modifying `routes/admin-public-content.js` and contemplated finding a genuine
+defect, so it was fixed there with a transactional boundary guard plus 13 tests. Hiding it in the UI
+alone was rejected: the hole would have stayed open to anyone with a terminal while the interface
+created an impression of safety. This is the invariant the whole B2.4A/B2.4P sequence exists to
+protect, so building on top of it while leaving it open was not defensible.
+
+### 16.3 Deliberately deferred to B2.4B2B
+
+Publish and unpublish controls, publication-gate evaluation display, approval decisions and approval
+history. The endpoints exist and are capability-gated; no client function or control for them was
+written — a client method would have been a publish button waiting to happen.
+
+Also outstanding, and now visible as concrete gaps: server-side search for large catalogues (lists
+are a single ≤200-row page with client-side filtering), a brand picker for `brand_id`, and a media
+picker for the media-ID fields. None could be built without inventing an API this batch was not
+permitted to add.
+
+### 16.4 Sequencing consequence — unchanged and still blocking
+
+**The bootstrap remains the gate on everything.** With `account_permissions` empty, `/capabilities`
+returns all false for every account, so the Public Content section is unreachable by everyone
+including every administrator, exactly as the Account Permissions screen is. Before any of this is
+usable:
+
+1. perform the controlled bootstrap in `19_ACCOUNT_PERMISSION_SYSTEM.md` §8;
+2. grant `permissions.manage` to a second active account through the B2.4B1 screen;
+3. grant `public_content.view` and `public_content.edit` to editorial staff.
+
+R-17 is unchanged by this batch: the mechanism and its interfaces exist, the grants do not.
+
+Full detail: `docs/public-website-rebuild/21_PUBLIC_CONTENT_EDITOR.md`;
+`04_TARGET_ARCHITECTURE.md` §18; `18_B2_ADMIN_PUBLICATION_API.md` §14;
+`19_ACCOUNT_PERMISSION_SYSTEM.md` §12; `09_FIRST_BUILD_PACKAGE.md`'s B2.4B2A section.

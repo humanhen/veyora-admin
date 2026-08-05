@@ -190,7 +190,16 @@ test('the admin role alone is never sufficient — no role bypass', async () => 
   await sandbox.App.loadCaps();
   assert.equal(sandbox.App.can('permissions.manage'), false,
     'an admin without the grant must not be treated as a manager');
-  assert.equal(calls.length, 1, 'access must be decided by asking the server, not by reading the role');
+
+  /* Access is decided by asking the server, never by reading the role.
+     loadCaps makes exactly two server calls and no more: the registry probe
+     for permissions.manage (B2.4B1) and the public-content capability read
+     (B2.4B2A). Both are answered by the server; neither consults the
+     session's role. */
+  assert.deepEqual(calls.map((c) => `${c.method} ${c.path}`), [
+    'GET /admin/account-permissions/registry',
+    'GET /admin/public-content/capabilities',
+  ]);
 });
 
 test('a probe that fails for any other reason also denies (fail closed)', async () => {

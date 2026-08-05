@@ -857,3 +857,73 @@ touched, and `platform/server/api/**`, `platform/server/db/**`, `platform/server
 `platform/server/storefront/**`, `docker-compose.yml`, `Caddyfile`, `deploy.sh` and every `.env`
 file are unchanged. Full contract:
 `docs/public-website-rebuild/20_ACCOUNT_PERMISSION_INTERFACE.md`.
+
+---
+
+## 18. B2.4B2A implementation result — public-content review and draft editing — 2026-08-06
+
+The editorial surface over B2.4A's administrative API, gated by B2.4P's per-account capabilities.
+Review and draft editing only — publication remains B2.4B2B.
+
+### 18.1 A capability bypass found and closed
+
+Building the editor over the PATCH allowlist surfaced a real hole in B2.4A. **Brands have no
+`is_published` column** — `publication_state = 'published'` *is* the publication flag, and
+`routes/public.js` selects brands on exactly that predicate. But `publication_state` was
+PATCH-editable, and PATCH requires only `public_content.edit` and never runs the gate.
+
+An account with **edit alone could publish a brand to the live public site**, bypassing the
+`public_content.publish` capability, the publication gate and the `content_approvals` record.
+
+`assertPublicationBoundaryNotCrossed()` now runs inside `patchAdminEntity`'s transaction against the
+locked row and refuses to cross the published boundary in either direction; ordinary editorial
+transitions stay editable. Products were never affected — their flag is the separate, immutable
+`is_published` column.
+
+The architectural lesson is worth keeping: **a capability split is only as strong as the fields each
+capability can reach.** A field that is both editable and load-bearing for publication silently
+merges two capabilities into one.
+
+### 18.2 Capability discovery
+
+```
+session {id,name,role}  ──has no capabilities──▶  GET /admin/public-content/capabilities
+                                                   (authenticated, UNGATED)
+                                                          │
+                                          { view, edit, publish } — three booleans
+                                                          │
+App.loadCaps() ─┬─ registry probe (200/403) ─────▶ permissions.manage
+                └─ capabilities endpoint ────────▶ public_content.{view,edit,publish}
+```
+
+B2.4B1's 200/403 probe could not scale here: a `200` on a read proves only `view`, and separating a
+viewer from an editor would mean attempting a write. The new endpoint is the one route on the router
+without a capability gate — deliberately, so an account holding none still gets an honest all-false
+answer instead of a failure. It returns three booleans about the caller and nothing else.
+
+`loadCaps()` now clears its cache before probing, so a failed re-probe cannot leave a previous
+session's capabilities in place, and every failure path — `401`, `403`, network, malformed body —
+resolves to no capability.
+
+### 18.3 Interface invariants
+
+- **View and edit are separate.** `view` renders every control disabled and visibly greyed; `edit`
+  makes them editable. Neither implies the other; neither implies publish.
+- **No publish control exists anywhere**, at any capability level. The publication-state select
+  offers only `draft`, `verified`, `approved`, `retired`.
+- **Only changed fields are sent**, filtered through a frozen mirror of the API's own allowlist, so
+  `is_published`, `fact_owner`, `approver_id`, `sku` and `price` are structurally unsendable.
+- **Every response is allowlist-shaped**, never spread — a response can never be fed back as a
+  request, and no price, cost, stock or availability data can reach the screen.
+- **A failed load is an error with a retry, never an empty list.**
+- **A variation is saved with its own token**, never the product's.
+
+### 18.4 Confirmed untouched
+
+No live database, production system, VPS or DNS was contacted. **No permission was granted to any
+account, no bootstrap SQL was executed, and no record was published or unpublished.** No schema
+change. `platform/server/db/**`, `platform/server/web/**`, `platform/server/storefront/**`,
+`api/src/migrate.js`, `api/src/routes/public.js`, `docker-compose.yml`, `Caddyfile`, `deploy.sh` and
+every `.env` file are unchanged, as are all public API response shapes and all pricing, inventory,
+ordering and Zoho behaviour. Full contract:
+`docs/public-website-rebuild/21_PUBLIC_CONTENT_EDITOR.md`.

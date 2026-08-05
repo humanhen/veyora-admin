@@ -437,3 +437,40 @@ manager and deliberately contains no bypass to do so:
 
 Until §8 has been performed and verified in production, B2.4P and B2.4B1 together deliver a complete
 but **dormant** permission system.
+
+---
+
+## 12. Capability consumption status — B2.4B2A, 2026-08-06
+
+All four capabilities now have a working consumer, except publish.
+
+| Capability | Consumed by |
+|---|---|
+| `permissions.manage` | Account Permissions screen (B2.4B1) — [20_ACCOUNT_PERMISSION_INTERFACE.md](20_ACCOUNT_PERMISSION_INTERFACE.md) |
+| `public_content.view` | Public Content lists and read-only editors (B2.4B2A) — [21_PUBLIC_CONTENT_EDITOR.md](21_PUBLIC_CONTENT_EDITOR.md) |
+| `public_content.edit` | Draft editing in the same screens (B2.4B2A) |
+| `public_content.publish` | **No interface yet.** The API endpoints exist and are gated; the controls are B2.4B2B. |
+
+B2.4B2A added `GET /admin/public-content/capabilities`, which reports the caller's own three
+public-content capabilities as booleans. It is authenticated but **ungated**, so an account holding
+none receives an honest all-false answer. §6's endpoints could not express that: a 200/403 probe
+proves only `view` and cannot distinguish a viewer from an editor without attempting a write.
+
+**A publish bypass was found and fixed.** Because brands have no `is_published` column,
+`publication_state = 'published'` is their publication flag — and it was PATCH-editable under
+`public_content.edit` alone. Edit could therefore publish a brand to the live public site, bypassing
+the `public_content.publish` capability, the publication gate and the approval record. A
+transactional boundary guard now refuses that transition in either direction. Detail:
+[21_PUBLIC_CONTENT_EDITOR.md](21_PUBLIC_CONTENT_EDITOR.md) §1 and
+[18_B2_ADMIN_PUBLICATION_API.md](18_B2_ADMIN_PUBLICATION_API.md) §14.2.
+
+This is worth recording against §5: the capability split is only as strong as the fields each
+capability can reach. A field that is editable and also load-bearing for publication silently merges
+two capabilities into one.
+
+### The bootstrap requirement is STILL unchanged
+
+No account holds any capability. `/capabilities` returns all false for everyone, so **both**
+governance screens are unreachable and public content can be neither read nor edited by anyone,
+including every existing administrator. The §8 procedure remains the only way in, and nothing in
+either interface can perform or bypass it.

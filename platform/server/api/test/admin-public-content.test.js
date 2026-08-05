@@ -147,8 +147,18 @@ function seedCache() {
 test('every route is gated: router-level authentication plus a per-route capability', () => {
   const middleware = adminPublicContentRouter.stack.filter((l) => !l.route);
   assert.equal(middleware.length, 1, 'expected exactly one router-level gate');
+
+  /* `/capabilities` (B2.4B2A) is the one route with no capability gate, and
+     deliberately so: it tells the caller which capabilities they hold, so it
+     must answer an account holding none. Authentication still applies, and
+     it exposes nothing but three booleans about the caller. Every route that
+     touches CONTENT still requires a capability. */
   for (const layer of adminPublicContentRouter.stack) {
     if (!layer.route) continue;
+    if (layer.route.path === '/capabilities') {
+      assert.equal(layer.route.stack.length, 1);
+      continue;
+    }
     assert.equal(layer.route.stack.length, 2, `${layer.route.path} lacks a capability middleware`);
   }
 });

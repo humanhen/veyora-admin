@@ -77,6 +77,7 @@ const NAV=[
      when the account does not hold it — convenience only. The API is the
      authority: the route itself re-checks, and every request is authorised
      server-side regardless of what the sidebar shows. */
+  {route:'public-content',label:'Public Content',icon:'globe',requires:'public_content.view'},
   {route:'account-permissions',label:'Account Permissions',icon:'lock',requires:'permissions.manage'},
   {route:'audit',label:'Audit log',icon:'audit'},
 ];
@@ -108,6 +109,10 @@ const App={
 
   async loadCaps(){
     this.capsChecked=false;
+    /* Clear FIRST. If a previous session's capabilities were still in place
+       and this probe failed, keeping them would carry one account's menu into
+       another's session. */
+    this.caps=null;
     const held=new Set();
     try{
       await DB.permissionRegistry();
@@ -117,6 +122,23 @@ const App={
          is not an error worth surfacing. Anything else (network, 500) also
          leaves the entry hidden: fail closed, never assume authority. */
     }
+
+    /* Public-content capabilities (B2.4B2A). Unlike permissions.manage these
+       cannot be probed by a 200/403 on a gated endpoint, because 200 on a
+       read would only prove `view` — it could never distinguish a viewer from
+       an editor without attempting a write. The dedicated /capabilities
+       endpoint answers all three at once, and answers an account holding none.
+
+       Every failure path — 401, 403, network, or a malformed body — leaves
+       all three unheld. The client returns strict booleans, so a partial or
+       unexpected payload reads as no capability rather than as truthy. */
+    try{
+      const pc=await DB.publicContentCapabilities();
+      if(pc.view)held.add('public_content.view');
+      if(pc.edit)held.add('public_content.edit');
+      if(pc.publish)held.add('public_content.publish');
+    }catch(e){/* fail closed — see above */}
+
     this.caps=held;
     this.capsChecked=true;
     return held;

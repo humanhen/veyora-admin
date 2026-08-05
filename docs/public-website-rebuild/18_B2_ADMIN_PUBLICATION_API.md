@@ -358,3 +358,55 @@ All fictional; no real production data.
 { "error": "This record changed since you loaded it. Reload and reapply your edit.",
   "code": "STALE_TOKEN" }
 ```
+
+---
+
+## 14. B2.4B2A amendments — 2026-08-06
+
+Two changes to this contract, both made while building the editing interface
+([21_PUBLIC_CONTENT_EDITOR.md](21_PUBLIC_CONTENT_EDITOR.md)).
+
+### 14.1 New route — `GET /admin/public-content/capabilities`
+
+```json
+{ "capabilities": { "view": false, "edit": false, "publish": false } }
+```
+
+Reports the **caller's own** three public-content capabilities. Authentication is required;
+**deliberately no capability gate** — an authenticated account holding none must still receive an
+honest all-false answer so an interface can render an accurate access-denied state rather than a
+failure. It is the only route on this router without a capability middleware.
+
+Returns exactly three booleans about the caller: no user record, no role, no grant attribution, no
+`permissions.manage` disclosure, nothing about any other account. A fresh object literal, never a
+database row. Resolved through `getUserPermissions()`, so a revoked grant or a disabled account
+resolves false. No mutation, no caching; derived from `req.user.id` alone, never from the body,
+query or headers.
+
+### 14.2 Defect fixed — publication boundary on PATCH
+
+**§3's brand allowlist contained a publish bypass.** Brands have no `is_published` column:
+`publication_state = 'published'` *is* the publication flag (as §5 notes, and as `routes/public.js`
+queries). But `publication_state` was PATCH-editable, `PUBLICATION_STATES` includes `'published'`,
+and PATCH requires only `public_content.edit` and never runs the gate.
+
+An account with **edit** alone could therefore publish a brand to the live public site with
+`PATCH /brands/:id {"publication_state":"published"}`, bypassing the `public_content.publish`
+capability, the publication gate, and the `content_approvals` record. §7's claim that changing
+`publication_state` alone cannot bypass the gate held for the **publish endpoint** only.
+
+`assertPublicationBoundaryNotCrossed()` now runs inside `patchAdminEntity`'s transaction against the
+locked row and refuses to cross the published boundary in **either** direction:
+
+```json
+{ "error": "Publishing is a separate, gated operation — use the publish endpoint.",
+  "code": "PUBLICATION_BOUNDARY",
+  "fieldErrors": [ { "field": "publication_state", "code": "PUBLICATION_BOUNDARY",
+                     "message": "A brand cannot be published by editing this field. …" } ] }
+```
+
+`draft → verified → approved → retired` transitions remain fully editable. Products are unaffected —
+their flag is the separate, already-immutable `is_published` column. 13 tests cover the guard.
+
+**§3 and §10 should be read with this guard in place:** `publication_state` is editable, but not
+across the published boundary.
