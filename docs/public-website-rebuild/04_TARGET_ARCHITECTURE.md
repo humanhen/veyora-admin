@@ -733,3 +733,67 @@ controlled fake database. No record was published. `platform/server/web/**`,
 `docker-compose.yml`, `Caddyfile`, `deploy.sh` and every `.env` file are unchanged, as are all
 existing `/public` response shapes and all pricing, inventory, ordering and Zoho behaviour. Full
 contract: `docs/public-website-rebuild/18_B2_ADMIN_PUBLICATION_API.md`.
+
+---
+
+## 16. B2.4P implementation result — account-specific capability permissions — 2026-08-06
+
+Authorisation on the public-content administrative API moved from a role check to **per-account
+capability grants**, implementing management's requirement, *"specific permissions for specific
+accounts."* This is the architectural change B2.4A's single-point seam was built to accommodate.
+
+### 16.1 The model
+
+Four capability keys, and only four: `public_content.view`, `public_content.edit`,
+`public_content.publish`, `permissions.manage`. They are held by **individual accounts**, not by
+roles. There are no wildcards, no prefix or hierarchical matching, no client-defined names, and no
+role name doubling as a key. Closure is enforced independently at four layers — a database `CHECK`,
+the frozen registry, API validation, and a registry filter applied to the resolver's own output — so
+a bypass at any single layer still fails.
+
+```
+users ──< account_permissions (user_id, permission_key) unique
+                is_active · granted_by/at · revoked_by/at
+                          │
+                          ▼
+        permissions.js — resolution (uncached, never reads users.role)
+                          │
+          ┌───────────────┴────────────────┐
+          ▼                                ▼
+  requirePermission(key)          /admin/account-permissions
+  on every public-content route    (gated on permissions.manage)
+```
+
+### 16.2 Layers
+
+- **Schema** — additive `account_permissions` (migration `0008`, mirrored in `ensureSchema()`). One
+  row per (account, capability) for the lifetime of the pairing: revocation flips `is_active` and
+  stamps the revoker rather than deleting, so grant history survives in place. `is_active` defaults
+  to `false`, and the migration contains **no `INSERT`** — nothing is granted automatically.
+- **Registry** (`permission-registry.js`) — a frozen constant, no database access, exact-match
+  lookup with no normalisation or case-folding.
+- **Resolution** (`permissions.js`) — requires an active account, an active grant, and a registered
+  key. Never consults `users.role`; there is no admin fallback and no superuser. Deliberately
+  uncached, so a revocation takes effect on the next request rather than at session expiry.
+- **Enforcement** — the router-level gate is now `requireAuth()` with **no role arguments** (proving
+  identity only); each route carries its own capability middleware. Edit and publish are separate
+  and non-hierarchical.
+- **Management** (`/admin/account-permissions`) — gated on `permissions.manage`, so no account can
+  self-grant. Transactional replacement with `SELECT … FOR UPDATE`, an account-bound concurrency
+  token, and a last-manager guard counted **inside** the transaction after the lock.
+
+### 16.3 Deliberate boundaries
+
+The unauthenticated read-only `/public/*` API is untouched — public visitors are not accounts and
+hold no capabilities. Existing role-protected admin routes keep `requireAuth('admin', 'warehouse')`
+unchanged: B2.4P introduced capabilities where the requirement demanded them and did not rewrite the
+platform's authorisation model wholesale, which is a separate and larger decision.
+
+### 16.4 Confirmed untouched
+
+No live database, production system, VPS or DNS was contacted — every test runs against controlled
+database doubles. **No permission was assigned to any account**, and the production bootstrap was
+not performed. No record was published. `platform/server/web/**`, `platform/server/storefront/**`,
+the root admin frontend, `docker-compose.yml`, `Caddyfile`, `deploy.sh` and every `.env` file are
+unchanged, as are all existing `/public` response shapes and all pricing, inventory, ordering and
+Zoho behaviour. Full contract: `docs/public-website-rebuild/19_ACCOUNT_PERMISSION_SYSTEM.md`.

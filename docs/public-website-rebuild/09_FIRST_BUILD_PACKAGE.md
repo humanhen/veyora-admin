@@ -1614,3 +1614,83 @@ schema change was made. `platform/server/web/**`, `platform/server/storefront/**
 and every `.env` file are unchanged, as are all existing `/public` response shapes and all pricing,
 inventory, ordering and Zoho behaviour. The other developer's branch was never inspected,
 referenced or merged. No commit was made and nothing was pushed.
+
+---
+
+## 16. B2.4P implementation result — account-specific capability permissions — 2026-08-06
+
+### Files
+
+**Added**
+| Path | Purpose |
+|---|---|
+| `platform/server/db/migrations/0008_account_permissions.sql` | Additive `account_permissions` table. Contains no `INSERT`. |
+| `platform/server/api/src/permission-registry.js` | Frozen registry of the four capability keys; no database access. |
+| `platform/server/api/src/permissions.js` | Resolution service and capability middleware. |
+| `platform/server/api/src/routes/account-permissions.js` | Management API, gated on `permissions.manage`. |
+| `platform/server/api/test/permissions.test.js` | 29 tests — registry, resolution, middleware. |
+| `platform/server/api/test/account-permissions.test.js` | 41 tests — schema alignment, mapping, management API, safety. |
+| `docs/public-website-rebuild/19_ACCOUNT_PERMISSION_SYSTEM.md` | Full contract, including the bootstrap procedure. |
+
+**Modified**
+| Path | Change |
+|---|---|
+| `platform/server/api/src/migrate.js` | Idempotent `ensureSchema()` mirror of migration `0008`. |
+| `platform/server/api/src/routes/admin-public-content.js` | Role check → per-route capability enforcement. |
+| `platform/server/api/src/index.js` | Mounts `/admin/account-permissions` before the general `/admin` router. |
+| `platform/server/api/test/admin-public-content.test.js` | Three role-model assertions updated to the capability model. |
+
+### The four capabilities
+
+`public_content.view` · `public_content.edit` · `public_content.publish` · `permissions.manage`
+
+Closed set. No wildcards, no prefixes, no hierarchy, no client-defined names, no role names as keys.
+Enforced independently by a database `CHECK`, the frozen registry, API validation, and a registry
+filter on the resolver's own output.
+
+### Route authorisation
+
+| Route group | Capability |
+|---|---|
+| all `GET` public-content routes, `POST …/evaluate` | `public_content.view` |
+| `PATCH /{brands,products,variations}/:id` | `public_content.edit` |
+| `POST …/publish`, `POST …/unpublish` | `public_content.publish` |
+| everything under `/admin/account-permissions` | `permissions.manage` |
+
+The router-level gate is `requireAuth()` with **no role arguments** — identity only. An `admin`
+holding no grant is refused; a non-admin holding a grant is allowed. Edit and publish are separate
+and non-hierarchical.
+
+### Verification
+
+- Full API test suite: **797 passing, 0 failing** (70 new). Real handlers and middleware against
+  injected database doubles.
+- Proven behaviours include: a role-only administrator denied on a capability route; a non-admin
+  with the grant allowed; permission forgery via headers, body and query rejected; revoked, disabled
+  and unknown-key cases denied; stale-token `409`; cross-account token replay rejected;
+  last-manager `422` with the count proven to run after the transaction's lock; revocation
+  preserving history; no `DELETE` route; no customer data in the serializer.
+- Source sweep of every changed file: no role bypass, no wildcard, no environment-variable or
+  hard-coded-email bypass, no `SELECT *`, no row spreading, no SQL interpolation of user input, no
+  client-supplied actor identity, no automatic grant, no secrets, no production hostnames, no
+  `TODO`/`FIXME`, no merge markers. `git diff --check` clean.
+
+### Required before this is usable
+
+**The production bootstrap has not been performed, and no permission is assigned to any account.**
+The table ships empty deliberately, so at present no account can use the public-content API at all.
+The first `permissions.manage` grant is a one-time reviewed database operation — it cannot come from
+the API, which requires that capability, and must not come from a migration, which would run
+unreviewed on every deployment. Procedure, verification query, rollback query and warnings:
+`19_ACCOUNT_PERMISSION_SYSTEM.md` §8. Grant it to **at least two** active accounts.
+
+### Confirmation
+
+No live database, production system, VPS or DNS was contacted. **No permission was assigned to any
+real account** and the bootstrap was not performed. **No record was published.** No existing table,
+column, constraint or role meaning was altered — the schema change is purely additive, and
+`users.role` works exactly as before. `platform/server/web/**`, `platform/server/storefront/**`, the
+root admin frontend, `docker-compose.yml`, `Caddyfile`, `deploy.sh` and every `.env` file are
+unchanged, as are all existing `/public` response shapes and all pricing, inventory, ordering and
+Zoho behaviour. The other developer's branch was never inspected, referenced or merged. No commit
+was made and nothing was pushed.

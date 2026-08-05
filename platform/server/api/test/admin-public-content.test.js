@@ -31,7 +31,8 @@ import adminPublicContentRouter, {
   publishEntity,
   unpublishEntity,
   AdminApiError,
-  requirePublicContentAdmin,
+  requirePublicContentAuth,
+  PUBLIC_CONTENT_CAPABILITIES,
 } from '../src/routes/admin-public-content.js';
 
 const SRC = path.join(path.dirname(path.dirname(fileURLToPath(import.meta.url))), 'src');
@@ -138,13 +139,22 @@ function seedCache() {
 // 1/2/3/4 — authentication and authorisation
 // ---------------------------------------------------------------------------
 
-test('the router applies exactly one permission middleware to every route', () => {
+/* B2.4P moved this router from a role check to per-account capabilities.
+   The router-level gate now proves only IDENTITY; authority is the
+   per-route capability middleware asserted below and in
+   account-permissions.test.js. */
+
+test('every route is gated: router-level authentication plus a per-route capability', () => {
   const middleware = adminPublicContentRouter.stack.filter((l) => !l.route);
   assert.equal(middleware.length, 1, 'expected exactly one router-level gate');
+  for (const layer of adminPublicContentRouter.stack) {
+    if (!layer.route) continue;
+    assert.equal(layer.route.stack.length, 2, `${layer.route.path} lacks a capability middleware`);
+  }
 });
 
-test('the permission gate rejects an unauthenticated request with 401', async () => {
-  const gate = requirePublicContentAdmin();
+test('the authentication gate rejects an unauthenticated request with 401', async () => {
+  const gate = requirePublicContentAuth();
   const req = { cookies: {}, headers: {} };
   /* requireAuth answers by calling res.status(401).json(...) and does NOT
      call next() — so the promise resolves on the json() call, not on next.
@@ -162,17 +172,29 @@ test('the permission gate rejects an unauthenticated request with 401', async ()
   assert.deepEqual(result.body, { error: 'unauthorized' });
 });
 
-test('the permission gate is the admin role check, not a second auth system', () => {
-  // It delegates to the repository's existing requireAuth, with 'admin'.
-  assert.match(routerCode, /requireAuth\('admin'\)/);
+test('the gate reuses the existing authentication, not a second auth system', () => {
   assert.match(routerCode, /import \{ requireAuth \} from '\.\.\/authmw\.js'/);
   // No home-grown token/session parsing anywhere in this router.
   assert.doesNotMatch(routerCode, /jsonwebtoken|jwt\.|cookies\.veyora|hashToken/);
 });
 
-test("'warehouse' is deliberately NOT admitted — public copy is not fulfilment work", () => {
-  assert.doesNotMatch(routerCode, /ADMIN_ROLES/);
-  assert.doesNotMatch(routerCode, /'warehouse'/);
+test('authority is the capability, not a role — no role name gates any route', () => {
+  /* B2.4P: requireAuth() is called with NO role arguments. A role name here
+     would be a bypass, letting any admin edit and publish public copy
+     without a grant — the exact thing account-specific permissions exist to
+     prevent. 'warehouse' remains excluded for the same reason it always
+     was: public copy is not fulfilment work. */
+  assert.match(routerCode, /requireAuth\(\)/);
+  assert.doesNotMatch(routerCode, /requireAuth\('[^']*'/);
+  assert.doesNotMatch(routerCode, /ADMIN_ROLES|AGENT_ROLES/);
+  assert.doesNotMatch(routerCode, /'warehouse'|'admin'/);
+  // Each capability used here is one of the four registered keys.
+  for (const key of Object.values(PUBLIC_CONTENT_CAPABILITIES)) {
+    assert.ok(
+      ['public_content.view', 'public_content.edit', 'public_content.publish'].includes(key),
+      `unexpected capability ${key}`
+    );
+  }
 });
 
 test('actor identity is taken from the authenticated context, never the request body', async () => {

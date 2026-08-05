@@ -1,10 +1,12 @@
 /* Authenticated administrative API for public-content editing and
-   publication (B2.4A).
+   publication (B2.4A; capability-gated in B2.4P).
 
    Mounted under /admin (see index.js), NOT under /public — the public
-   router is unauthenticated and read-only, and putting a mutation there
-   would destroy that property. Every route here sits behind the same
-   `requireAuth('admin')` gate the rest of the admin surface uses.
+   router is unauthenticated and read-only, and putting a mutation here
+   would destroy that property. Every route requires an authenticated,
+   active session AND the specific capability it needs
+   (`public_content.view` / `.edit` / `.publish`). There is no role bypass:
+   an `admin` role alone satisfies nothing on this router.
 
    The core logic of every handler is exported as a plain function taking
    an injectable `db` (anything with `.query()`, plus `.tx()` for the
@@ -17,6 +19,7 @@ import { Router } from 'express';
 import { pool, tx as realTx, audit } from '../db.js';
 import { requireAuth } from '../authmw.js';
 import { invalidatePublicCache } from '../public-cache.js';
+import { requirePermission } from '../permissions.js';
 import {
   evaluateBrandPublication,
   evaluateProductPublication,
@@ -36,27 +39,35 @@ import {
    Authorisation seam
    --------------------------------------------------------------------------- */
 
-/* THE single permission check for this entire router.
+/* Authentication, then per-route capability (B2.4P).
  *
- * Today it is a role check — `requireAuth('admin')` — because that is the
- * only permission mechanism this repository has: `users.role` is a single
- * text enum, and there is no permissions table, per-account permission
- * column, scope list or ACL anywhere in the codebase (verified by search
- * before writing this). Public content is editorial and commercially
- * sensitive, so 'admin' alone is used rather than ADMIN_ROLES — the
- * 'warehouse' role reaches other admin routes for fulfilment work and has
- * no reason to edit public brand copy or publish a model.
+ * B2.4A left one named seam here as a placeholder role check, because the
+ * platform had no per-account permission mechanism. B2.4P replaced it: the
+ * router now requires authentication once, and each route additionally
+ * requires the specific capability it needs.
  *
- * It is expressed as ONE named middleware, applied once, specifically so
- * that granular per-account permissions (the outstanding management
- * requirement — see 18_B2_ADMIN_PUBLICATION_API.md §"Account-specific
- * permissions") have exactly one place to attach. Adding them needs a
- * schema change (a permissions table or column), which B2.4A is explicitly
- * forbidden from making, so this batch does not pretend to implement them.
+ * `requireAuth()` is called with NO role arguments deliberately. It still
+ * enforces a valid session and an active account — but the authority
+ * decision is the capability, not the role. Passing 'admin' here as well
+ * would reintroduce exactly the equivalence this batch removes: it would
+ * mean an admin without a grant is refused for the right reason while a
+ * non-admin WITH a grant is refused for the wrong one, making grants to
+ * non-admin accounts silently ineffective.
+ *
+ * There is no role bypass anywhere on this router. An `admin` role alone
+ * satisfies nothing here.
  */
-export function requirePublicContentAdmin() {
-  return requireAuth('admin');
+export function requirePublicContentAuth() {
+  return requireAuth();
 }
+
+/** Capability required by each group of routes on this router. */
+export const PUBLIC_CONTENT_CAPABILITIES = Object.freeze({
+  read: 'public_content.view',
+  evaluate: 'public_content.view',
+  edit: 'public_content.edit',
+  publish: 'public_content.publish',
+});
 
 /* ---------------------------------------------------------------------------
    Errors
@@ -464,8 +475,14 @@ const liveDb = { query: (sql, params) => pool.query(sql, params), tx: realTx };
 
 const r = Router();
 
-// ONE permission check, applied to the whole router. See the seam comment above.
-r.use(requirePublicContentAdmin());
+/* Authentication once for the whole router; capability per route below.
+   Splitting them is what lets one account read public content without
+   being able to edit it, and edit without being able to publish. */
+r.use(requirePublicContentAuth());
+
+const canRead = () => requirePermission(PUBLIC_CONTENT_CAPABILITIES.read);
+const canEdit = () => requirePermission(PUBLIC_CONTENT_CAPABILITIES.edit);
+const canPublish = () => requirePermission(PUBLIC_CONTENT_CAPABILITIES.publish);
 
 function send(res, next, promise, shape = (v) => v) {
   promise
@@ -483,13 +500,13 @@ const SERIALIZERS = {
 };
 
 // ---- reads ----
-r.get('/brands', (req, res, next) =>
+r.get('/brands', canRead(), (req, res, next) =>
   send(res, next, listAdminBrands(liveDb, { limit: req.query.limit, offset: req.query.offset }), (brands) => ({ brands }))
 );
-r.get('/brands/:id', (req, res, next) =>
+r.get('/brands/:id', canRead(), (req, res, next) =>
   send(res, next, getAdminBrand(liveDb, req.params.id), (brand) => ({ brand }))
 );
-r.get('/products', (req, res, next) =>
+r.get('/products', canRead(), (req, res, next) =>
   send(
     res,
     next,
@@ -501,10 +518,10 @@ r.get('/products', (req, res, next) =>
     (products) => ({ products })
   )
 );
-r.get('/products/:id', (req, res, next) =>
+r.get('/products/:id', canRead(), (req, res, next) =>
   send(res, next, getAdminProduct(liveDb, req.params.id), (product) => ({ product }))
 );
-r.get('/variations/:id', (req, res, next) =>
+r.get('/variations/:id', canRead(), (req, res, next) =>
   send(res, next, getAdminVariation(liveDb, req.params.id), (variation) => ({ variation }))
 );
 
@@ -514,17 +531,17 @@ for (const [entityType, segment] of [
   ['product', 'products'],
   ['variation', 'variations'],
 ]) {
-  r.patch(`/${segment}/:id`, (req, res, next) =>
+  r.patch(`/${segment}/:id`, canEdit(), (req, res, next) =>
     send(res, next, patchAdminEntity(liveDb, entityType, req.params.id, req.body), (row) => ({
       [entityType]: SERIALIZERS[entityType](row),
     }))
   );
 
-  r.post(`/${segment}/:id/evaluate`, (req, res, next) =>
+  r.post(`/${segment}/:id/evaluate`, canRead(), (req, res, next) =>
     send(res, next, evaluateEntity(liveDb, entityType, req.params.id), (gate) => ({ gate }))
   );
 
-  r.post(`/${segment}/:id/publish`, (req, res, next) =>
+  r.post(`/${segment}/:id/publish`, canPublish(), (req, res, next) =>
     send(
       res,
       next,
@@ -537,7 +554,7 @@ for (const [entityType, segment] of [
     )
   );
 
-  r.post(`/${segment}/:id/unpublish`, (req, res, next) =>
+  r.post(`/${segment}/:id/unpublish`, canPublish(), (req, res, next) =>
     send(
       res,
       next,

@@ -418,4 +418,45 @@ export async function ensureSchema() {
         for each row execute function record_product_slug_redirect();
     end if;
   end $$`);
+
+  /* ---- account-specific capability permissions (mirrors db/migrations/0008) ----
+     Additive: one new table, no change to `users` or to any existing role
+     meaning. GRANTS NOTHING — there is deliberately no insert here, so no
+     account (including existing administrators) gains a capability from a
+     deploy. The first `permissions.manage` grant is a separately reviewed
+     bootstrap step, documented in
+     docs/public-website-rebuild/19_ACCOUNT_PERMISSION_SYSTEM.md. */
+  await q(`create table if not exists account_permissions (
+    id              text primary key default veyora_id('perm'),
+    user_id         text not null references users(id) on delete cascade,
+    permission_key  text not null
+                    check (permission_key in (
+                      'public_content.view',
+                      'public_content.edit',
+                      'public_content.publish',
+                      'permissions.manage'
+                    )),
+    is_active       boolean not null default false,
+    granted_by      text references users(id) on delete set null,
+    granted_at      timestamptz,
+    revoked_by      text references users(id) on delete set null,
+    revoked_at      timestamptz,
+    created_at      timestamptz not null default now(),
+    updated_at      timestamptz not null default now(),
+    constraint account_permissions_user_key_unique unique (user_id, permission_key),
+    constraint account_permissions_active_attributed
+      check (is_active = false or granted_at is not null),
+    constraint account_permissions_revocation_attributed
+      check (is_active = true or revoked_at is null or revoked_by is not null)
+  )`);
+  await q(`create index if not exists account_permissions_user_idx
+    on account_permissions (user_id)`);
+  await q(`create index if not exists account_permissions_active_key_idx
+    on account_permissions (permission_key) where is_active`);
+  await q(`do $$ begin
+    if not exists (select 1 from pg_trigger where tgname = 't_account_permissions_touch') then
+      create trigger t_account_permissions_touch before update on account_permissions
+        for each row execute function touch_updated_at();
+    end if;
+  end $$`);
 }

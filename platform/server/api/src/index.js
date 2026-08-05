@@ -10,6 +10,7 @@ import accountRoutes from './routes/account.js';
 import agentRoutes from './routes/agent.js';
 import adminRoutes from './routes/admin.js';
 import adminPublicContentRoutes from './routes/admin-public-content.js';
+import accountPermissionRoutes from './routes/account-permissions.js';
 import publicRoutes from './routes/public.js';
 import { ensureSchema } from './migrate.js';
 import { startZohoSchedule } from './zoho.js';
@@ -52,6 +53,12 @@ app.get('/admin/country-list', requireAuth(), (req, res) => {
    to edit public brand copy or publish a model. Deliberately under /admin,
    never under /public — the public router is unauthenticated and read-only. */
 app.use('/admin/public-content', adminPublicContentRoutes);
+
+/* Account capability management (B2.4P). Also mounted before the general
+   /admin router: it is gated on the `permissions.manage` capability, not on
+   a role, so the broader role check must not run first and admit an admin
+   who holds no grant. */
+app.use('/admin/account-permissions', accountPermissionRoutes);
 
 app.use('/admin', adminRoutes);
 

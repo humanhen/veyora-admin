@@ -13,26 +13,44 @@ no content-page/policy/form administration. Nothing in this batch published anyt
 Mounted at **`/admin/public-content`** — under the existing authenticated admin namespace, never
 under `/public` (which is unauthenticated and read-only by design).
 
-One permission gate, applied once to the whole router:
+> **Superseded by B2.4P (2026-08-06).** This section described a role check. Authorisation on this
+> router is now **per-account capabilities** — see
+> [19_ACCOUNT_PERMISSION_SYSTEM.md](19_ACCOUNT_PERMISSION_SYSTEM.md). The current model is
+> summarised in §1.1 below; the original B2.4A rationale is retained in §1.2 as the record of why
+> the seam was built the way it was.
+
+### 1.1 Current model (B2.4P)
+
+Two layers. The router-level gate proves **identity only**; each route additionally requires a
+specific capability granted to the individual account:
 
 ```js
-r.use(requirePublicContentAdmin());   // → requireAuth('admin')
+r.use(requirePublicContentAuth());   // → requireAuth()  — NO role arguments
+
+r.get('/brands',            canRead(),    …)   // public_content.view
+r.patch('/brands/:id',      canEdit(),    …)   // public_content.edit
+r.post('/brands/:id/publish', canPublish(), …) // public_content.publish
 ```
 
-It delegates to the repository's existing `requireAuth` from `authmw.js`. No second authentication
-system was introduced, and no existing check was weakened.
+| Route group | Capability |
+|---|---|
+| all `GET` routes, and `POST …/evaluate` | `public_content.view` |
+| `PATCH /{brands,products,variations}/:id` | `public_content.edit` |
+| `POST …/publish`, `POST …/unpublish` | `public_content.publish` |
 
-**`'admin'` only — deliberately not `ADMIN_ROLES`.** `ADMIN_ROLES` is `['admin', 'warehouse']`, and
-the general `/admin` router admits both because `warehouse` needs fulfilment screens. Editing public
-brand copy or publishing a model is editorial and commercially sensitive work with no fulfilment
-dimension, so `warehouse` is excluded here. The stricter router is mounted **before** the general
-one so its gate is the one that runs.
+`requireAuth()` takes **no role arguments deliberately**. A role name here would be a bypass: it
+would silently constrain who could hold a grant, and would reintroduce exactly the "every admin is
+identical" property that per-account permissions exist to remove. An `admin` with no grant is
+refused; a non-admin holding `public_content.edit` is allowed. `warehouse` remains excluded — not by
+name, but because no fulfilment account is granted a public-content capability.
 
-### 1.1 Account-specific permissions — the outstanding requirement
+Editing and publishing are **separate, non-hierarchical capabilities**: neither implies the other.
 
-Management's requirement is *"specific permissions for specific accounts."* **That is not supported
-today, and B2.4A did not add it.** Stated plainly because the presence of working authentication
-and an admin role could easily be mistaken for it:
+### 1.2 Original B2.4A rationale (historical)
+
+Management's requirement is *"specific permissions for specific accounts."* **That was not supported
+at the time of B2.4A, and B2.4A did not add it.** Stated plainly because the presence of working
+authentication and an admin role could easily be mistaken for it:
 
 **What already existed (before B2.4A):**
 - `users.role` — a single text column with a fixed CHECK constraint:
@@ -42,37 +60,30 @@ and an admin role could easily be mistaken for it:
 - One ad-hoc finer check: `isFinancialActor()` in the orders router, which gates discount edits to
   `admin` — still derived from the role, not from a per-account grant.
 
-That is **role-based access control only**. A verified search of `platform/server/api/src/**` found
+That was **role-based access control only**. A verified search of `platform/server/api/src/**` found
 no permissions table, no per-account permission column, no scope list, no capability set and no ACL
-of any kind. Two accounts with role `admin` are, today, indistinguishable in authority.
+of any kind. Two accounts with role `admin` were indistinguishable in authority.
 
-**What B2.4A added:** one named, single-point permission seam — `requirePublicContentAdmin()` —
-applied once to the entire router. It is a role check today. Its value is that when per-account
-permissions land, there is exactly **one** function to change, rather than seventeen scattered
-inline checks.
+**What B2.4A added:** one named, single-point permission seam — then called
+`requirePublicContentAdmin()` — applied once to the entire router. It was a role check. Its value
+was that when per-account permissions landed, there would be exactly **one** function to change
+rather than seventeen scattered inline checks.
 
-**Is genuinely account-specific permission supported? No.** An `admin` account can edit and publish
-all public content; there is no way to grant one account "may edit brand copy" and another "may
-publish". 
+**Why it was not built there.** Real per-account permissions need persistent per-account grants, and
+B2.4A's brief explicitly forbade schema changes (`platform/server/db/**` is a protected path).
+Faking it without persistence — an env-var account allowlist, say — would have been a second,
+unreviewable authorisation system, which the brief also forbade.
 
-**Why it was not built here.** Real per-account permissions need persistent per-account grants —
-a `user_permissions` table or a `permissions jsonb` column on `users`. B2.4A's brief explicitly
-forbids schema changes ("Do not modify the B2.1 schema in this run", and
-`platform/server/db/**` is a protected path), and instructs stopping rather than improvising when
-an invariant needs one. Faking it without persistence — an env-var account allowlist, say — would
-be a second, unreviewable authorisation system, which the brief also forbids.
-
-**What remains (B2.4B or a dedicated permissions batch):** an additive migration for per-account
-grants; a permission-resolution helper; replacing the body of `requirePublicContentAdmin()` with a
-capability check (e.g. `public_content.edit` vs `public_content.publish`); an admin surface for
-assigning grants; and tests that two `admin` accounts with different grants genuinely differ. The
-seam means the router itself should not need to change.
+**Outcome.** B2.4P delivered the outstanding work: an additive `account_permissions` table, a closed
+four-key registry, a resolution service, and per-route capability enforcement. The seam held — the
+router's authorisation changed without touching a single handler.
 
 ---
 
 ## 2. Route contract
 
-Every route requires an authenticated `admin`. No `DELETE` route exists anywhere.
+Every route requires an authenticated, active account **plus** the capability listed in §1.1. No
+`DELETE` route exists anywhere.
 
 | Method | Path | Purpose |
 |---|---|---|

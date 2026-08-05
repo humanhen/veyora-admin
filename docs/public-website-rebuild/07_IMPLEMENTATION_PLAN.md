@@ -563,3 +563,51 @@ from "who is an admin". Detail and the exact remaining work: `18_B2_ADMIN_PUBLIC
 
 Full detail: `docs/public-website-rebuild/18_B2_ADMIN_PUBLICATION_API.md`;
 `04_TARGET_ARCHITECTURE.md` §15; `09_FIRST_BUILD_PACKAGE.md`'s B2.4A section.
+
+---
+
+## 14. B2.4P implementation result — account-specific capability permissions — 2026-08-06
+
+Unplanned batch, inserted between B2.4A and B2.4B. B2.4A's closing finding was that the platform had
+role-based access control only, which left management's requirement — *specific permissions for
+specific accounts* — unmet and recorded as risk R-17. B2.4P implements it.
+
+### 14.1 Delivered
+
+Additive `account_permissions` schema (migration `0008`, mirrored in `ensureSchema()`); a frozen
+four-key registry; an uncached resolution service and capability middleware; per-route capability
+enforcement replacing the role check across the whole public-content API; an authenticated
+management API at `/admin/account-permissions` gated on `permissions.manage`; revoke-in-place audit
+history; transactional replacement with optimistic concurrency and a last-manager guard; 70 new
+tests with the full API suite at **797 passing, 0 failing**; and
+`19_ACCOUNT_PERMISSION_SYSTEM.md`.
+
+The B2.4A seam paid off exactly as intended: authorisation on seventeen routes changed without
+touching a single handler.
+
+### 14.2 Deliberately deferred
+
+- **The assignment interface.** The management API exists; the screen that drives it does not. Until
+  it does, permission administration requires API calls.
+- **The production bootstrap.** The first `permissions.manage` grant cannot come from the API (it
+  requires that capability) and must not come from a migration (which would run unreviewed on every
+  deployment). It is a one-time, reviewed database operation, documented with verification and
+  rollback queries in `19_ACCOUNT_PERMISSION_SYSTEM.md` §8 and **not performed**.
+- **Migrating unrelated admin routes** from roles to capabilities — a larger decision than this
+  batch's scope.
+
+### 14.3 Sequencing consequence
+
+**Nothing on the public-content API is usable until the bootstrap is performed.** The table ships
+empty by design, so at present no account — including every existing `admin` — can read, edit or
+publish public content. This is the intended fail-closed state, but it means the bootstrap is a hard
+prerequisite for B2.4B (the editing UI) and for any deployment where content must actually be
+published. Grant `permissions.manage` to **at least two** active accounts: the last-manager guard
+prevents lockout by revocation but cannot help if a single manager's account is lost or disabled.
+
+R-17 remains open with its likelihood reduced from L4 to L2; see
+`08_RISKS_AND_OPEN_DECISIONS.md`.
+
+Full detail: `docs/public-website-rebuild/19_ACCOUNT_PERMISSION_SYSTEM.md`;
+`04_TARGET_ARCHITECTURE.md` §16; `18_B2_ADMIN_PUBLICATION_API.md` §1.1;
+`09_FIRST_BUILD_PACKAGE.md`'s B2.4P section.

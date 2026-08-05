@@ -502,3 +502,36 @@ improvised.
 
 **Owner:** engineering, with a product decision needed on the capability vocabulary. Detail:
 `18_B2_ADMIN_PUBLICATION_API.md` §1.1.
+
+**Implementation update — B2.4P, 2026-08-06. Substantially mitigated; risk remains OPEN.**
+
+The mechanism now exists. Delivered: an additive `account_permissions` table granting capabilities to
+**individual accounts**; a closed registry of exactly four keys (`public_content.view`,
+`public_content.edit`, `public_content.publish`, `permissions.manage`) with no wildcards, no
+prefixes and no client-defined names; an uncached resolution service that never consults `users.role`
+and denies disabled accounts; per-route capability enforcement on the entire public-content API; and
+an authenticated management API gated on `permissions.manage`, with transactional replacement,
+optimistic concurrency, revoke-in-place audit history, and a last-manager guard evaluated inside the
+transaction. 70 new tests; the full API suite is 797 passing.
+
+The original finding is now **materially false as written**: two `admin` accounts with different
+grants genuinely differ in authority, an `admin` with no grant can do nothing on this API, and no
+account can self-grant. Editing and publishing are separately grantable and non-hierarchical.
+
+**Why this is NOT closed.** Two things stand between the mechanism and the mitigated state:
+
+1. **No permission is assigned to anyone.** The table ships empty; the migration contains no
+   `INSERT`; nothing was granted automatically, deliberately. Until the controlled production
+   bootstrap in `19_ACCOUNT_PERMISSION_SYSTEM.md` §8 is performed and verified, **no account can use
+   the public-content API at all** — the risk has changed shape (from over-broad authority to no
+   authority) rather than disappearing.
+2. **There is no assignment interface.** Grants can only be managed through the API by an account
+   that already holds `permissions.manage`. Without a screen, day-to-day permission administration
+   is not yet operable by the people who will own it.
+
+Residual likelihood drops to L2 (the mechanism exists and is tested; the exposure is now an
+operational gap, not a design one). Impact is unchanged at I3. Revised score **6**.
+
+**Closes when:** the bootstrap has been performed and verified on production, at least two active
+accounts hold `permissions.manage`, and an assignment surface exists. Detail:
+`19_ACCOUNT_PERMISSION_SYSTEM.md`.
