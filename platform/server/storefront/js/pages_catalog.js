@@ -284,9 +284,24 @@ function lensChip(p) {
 
 function attrLine(p) {
   const a = p.attributes || {};
-  if (!a.lens_w) return '';
-  const parts = [a.lens_w, a.bridge, a.temple].filter(Boolean).join(' · ');
-  return `${parts}${a.lens_h ? ` — H ${a.lens_h}` : ''}`;
+  // Industry frame size: eye (lens width) – bridge – temple, e.g. 53-18-140
+  if (a.lens_w == null || a.bridge == null || a.temple == null) return '';
+  const w = String(a.lens_w).trim();
+  const b = String(a.bridge).trim();
+  const t = String(a.temple).trim();
+  if (!w || !b || !t) return '';
+  return `${w}-${b}-${t}`;
+}
+
+/** Modal frame size — classic optical sizing, visually quiet. */
+function frameDimsBlock(p) {
+  const line = attrLine(p);
+  if (!line) return '';
+  const a = p.attributes || {};
+  const h = a.lens_h != null && String(a.lens_h).trim() !== '' ? String(a.lens_h).trim() : '';
+  return `<div class="pdetail-dims" title="Lens width – Bridge – Temple">${esc(line)}${
+    h ? `<span class="pdetail-dims-h"> · H ${esc(h)}</span>` : ''
+  }</div>`;
 }
 
 /* The card's call to action. A frame with no stock is still orderable when
@@ -404,38 +419,36 @@ function productGallery(p) {
                          for customers who would rather wait than commit.
    With backorders OFF — only stocked colourways take a quantity, capped at what
                          is available; the rest offer "Notify me" as before. */
-function variationOrderControls(v) {
-  const bo = backordersAllowed();
-  const notify = `<button class="btn ghost sm notify" data-sku="${esc(v.sku)}"
+function variationNotifyButton(v) {
+  // Only when the colour cannot be ordered at all — if backorders are on,
+  // the qty box already covers demand and "Notify me" is noise.
+  if (v.qty > 0 || backordersAllowed()) return '';
+  return `<button class="btn ghost sm notify" data-sku="${esc(v.sku)}"
     title="Email me when this colour is back in stock">Notify me</button>`;
-
-  // Backorders off: a zero-stock colourway is genuinely not orderable.
-  if (v.qty === 0 && !bo) return `<span class="vactions">${notify}</span>`;
-
-  // Uncapped when backorders are on, so the customer may deliberately order
-  // beyond the shelf; capped at what exists when they are off.
+}
+function variationQtyControls(v) {
+  const bo = backordersAllowed();
+  if (v.qty === 0 && !bo) return '';
   const max = bo ? null : v.qty;
-  // The .vactions wrapper keeps the quantity box and "Notify me" together as
-  // one unit that WRAPS. Without it the row overflowed and, because .qtybox
-  // has overflow:hidden, the quantity and + button were clipped away — which
-  // is why an out-of-stock frame looked like it offered only "Notify me".
-  return `<span class="vactions">${qtyBox(0, 0, max)}${v.qty === 0 ? notify : ''}</span>`;
+  return qtyBox(0, 0, max);
+}
+function variationOrderControls(v) {
+  const notify = variationNotifyButton(v);
+  const qty = variationQtyControls(v);
+  if (!notify && !qty) return '';
+  return `<span class="vactions">${qty}${notify}</span>`;
 }
 
 function productModal(p, startSrc = null) {
   const u = catalogUser();
   const hide = u.hidePrices;
   const guest = !!u.guest;
-  const a = p.attributes || {};
-  const attrs = [
-    ['Lens width', a.lens_w], ['Lens height', a.lens_h], ['Bridge', a.bridge],
-    ['Temple', a.temple], ['Lens type', a.lens_type], ['Case', a.case_code],
-    ['Size', p.size], ['EAN', p.ean],
-  ].filter(x => x[1]);
   // gallery = product images + any per-variation images (deduped)
   const { gallery, colorAt } = productGallery(p);
   // Honour the colour the customer already picked on the product card.
   const startIdx = Math.max(0, startSrc ? gallery.indexOf(startSrc) : 0);
+  const pricesVary = (p.variations || []).some(v =>
+    v.price != null && p.price != null && Number(v.price) !== Number(p.price));
   const m = modal(`
     <div class="pdetail">
       <div class="pdetail-img">
@@ -449,30 +462,32 @@ function productModal(p, startSrc = null) {
       </div>
       <div class="pdetail-info">
         <div class="sub">${esc(p.sku)} · ${esc(p.brand || '')}</div>
-        <h2 style="margin:2px 0 6px;font-size:19px">${esc(p.name)}</h2>
-        ${!hide ? `<div class="price" style="font-size:18px;font-weight:800">${money(p.price)}</div>`
+        <h2 class="pdetail-title">${esc(p.name)}</h2>
+        ${!hide ? `<div class="price pdetail-price">${money(p.price)}</div>`
           : guest ? '' : `<div class="reveal-row">
-              <span class="price pr-hidden" style="font-size:18px;font-weight:800">${money(p.price)}</span>
+              <span class="price pr-hidden pdetail-price">${money(p.price)}</span>
               <button class="reveal-btn" id="revealP" type="button">${eyeIcon(false)} Show price</button>
             </div>`}
-        ${p.description ? `<p class="sub" style="margin-top:8px">${esc(p.description)}</p>` : ''}
-        ${attrs.length ? `<div class="attr-grid">${attrs.map(x =>
-          `<div class="a">${esc(x[0])}<b>${esc(x[1])}</b></div>`).join('')}</div>` : ''}
-        <h3 style="font-size:13.5px;margin:14px 0 2px">Colors</h3>
-        <div id="vrows">
+        ${p.description ? `<p class="sub pdetail-desc">${esc(p.description)}</p>` : ''}
+        ${frameDimsBlock(p)}
+        <h3 class="pdetail-colors-h">Colors</h3>
+        <div id="vrows" class="vrows">
           ${p.variations.map(v => `
             <div class="vrow" data-sku="${esc(v.sku)}" data-avail="${v.qty || 0}">
               ${imgOr(v.image || p.images?.[0])}
-              <span class="vsku">${esc(v.sku)}</span>
-              <span class="vcol">${esc(v.color || '')}</span>
-              ${stockPill(v)}
-              ${!hide ? `<b class="vprice">${money(v.price)}</b>`
-                : guest ? '' : `<b class="vprice pr-hidden">${money(v.price)}</b>`}
-              ${guest ? '' : variationOrderControls(v)}
+              <span class="vcol">${esc(v.color || v.sku)}</span>
+              ${stockPill(v, { short: true })}
+              <div class="vctrl">
+                ${!hide && pricesVary ? `<b class="vprice">${money(v.price)}</b>`
+                  : guest || !hide ? ''
+                  : pricesVary ? `<b class="vprice pr-hidden">${money(v.price)}</b>` : ''}
+                ${guest ? '' : variationQtyControls(v)}
+                ${guest ? '' : variationNotifyButton(v)}
+              </div>
               <span class="vbo"></span>
             </div>`).join('')}
         </div>
-        <div style="display:flex;gap:10px;margin-top:16px;align-items:center;flex-wrap:wrap">
+        <div class="pdetail-actions">
           ${guest
             ? `<button class="btn" onclick="location.hash='#/login'">Sign in to see prices & order</button>`
             : `<button class="btn" id="addBtn">Add to cart</button>
@@ -485,6 +500,24 @@ function productModal(p, startSrc = null) {
         </div>
       </div>
     </div>`);
+
+  // Phone: float close on the gallery image. Desktop/tablet: keep it on the
+  // modal's top-right corner (previous behaviour).
+  const galleryCol = m.querySelector('.pdetail-img');
+  const modalEl = m.querySelector('.modal');
+  const closeBtn = m.querySelector('.close');
+  if (galleryCol && modalEl && closeBtn) {
+    const phone = window.matchMedia('(max-width:760px)');
+    const placeClose = () => {
+      if (phone.matches) {
+        if (closeBtn.parentElement !== galleryCol) galleryCol.prepend(closeBtn);
+      } else if (closeBtn.parentElement !== modalEl) {
+        modalEl.prepend(closeBtn);
+      }
+    };
+    placeClose();
+    phone.addEventListener('change', placeClose);
+  }
 
   const mainBox = m.querySelector('#mainImg');
   let curIdx = startIdx;

@@ -1,4 +1,19 @@
 /* ================= Veyora Admin — design system ================= */
+/* Brand faces (Chromatic Pro): Ghotic Bold headlines + Geometric Semibold UI */
+@font-face{
+  font-family:'Ghotic';
+  src:url('../assets/fonts/Ghotic-Bold.ttf') format('truetype');
+  font-weight:600 900;
+  font-style:normal;
+  font-display:swap;
+}
+@font-face{
+  font-family:'Geometric';
+  src:url('../assets/fonts/Geometric-SemiBold.ttf') format('truetype');
+  font-weight:100 700;
+  font-style:normal;
+  font-display:swap;
+}
 :root{
   --bg:#f8f8f7;
   --panel:#ffffff;
@@ -24,7 +39,8 @@
   --radius:12px;
   --radius-lg:16px;
   --shadow:0 1px 2px rgba(28,24,16,.05),0 4px 18px rgba(28,24,16,.05);
-  --font:'Poppins',system-ui,-apple-system,'Segoe UI',sans-serif;
+  --font:'Geometric',system-ui,-apple-system,'Segoe UI',sans-serif;
+  --font-display:'Ghotic',var(--font);
 }
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%}
@@ -36,7 +52,8 @@ input,select,textarea{font-family:inherit;font-size:13px;color:var(--ink)}
 ::placeholder{color:#b4aea3}
 
 /* ================= Brand ================= */
-.brand-logo{font-family:'Marcellus',Georgia,serif;font-size:26px;letter-spacing:4px;font-weight:400;color:var(--ink);white-space:nowrap;user-select:none}
+.brand-logo{font-family:var(--font-display);font-size:26px;letter-spacing:4px;font-weight:700;color:var(--ink);white-space:nowrap;user-select:none}
+.page-title,.modal h2,.stat .n,h1,h2,h3{font-family:var(--font-display)}
 .brand-reg{font-size:9px;vertical-align:top;letter-spacing:0}
 
 /* ================= Login ================= */

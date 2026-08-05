@@ -193,8 +193,22 @@ table.list tr.click:hover td{background:var(--soft-blue)}
 
 /* ---------- product modal ---------- */
 .modal-back{position:fixed;inset:0;background:rgba(19,30,66,.5);z-index:60;display:flex;align-items:center;justify-content:center;padding:16px}
-.modal{background:#fff;border-radius:14px;max-width:860px;width:100%;max-height:92vh;overflow:auto;padding:22px}
-.modal .close{float:right;background:none;border:none;font-size:24px;color:var(--muted)}
+.modal{position:relative;background:#fff;border-radius:14px;max-width:960px;width:100%;max-height:92vh;overflow:auto;padding:22px}
+/* Floating circle close (reference: white circle + soft shadow) */
+.modal .close{
+  position:absolute;top:12px;right:12px;z-index:6;
+  width:40px;height:40px;padding:0;margin:0;
+  display:flex;align-items:center;justify-content:center;
+  background:#fff;border:none;border-radius:999px;
+  font-size:22px;font-weight:400;line-height:1;color:#222;cursor:pointer;
+  box-shadow:0 2px 10px rgba(0,0,0,.16);
+}
+.modal .close:hover{background:#f7f7f7;color:#000}
+.modal .close:focus-visible{outline:2px solid var(--ink-2);outline-offset:2px}
+/* Product modal: close floats on the gallery (top-right of the image) */
+.pdetail-img > .close{
+  position:absolute;top:10px;right:10px;z-index:3;
+}
 /* Variation rows in the product modal.
    The row must WRAP rather than squeeze: an out-of-stock row carries a long
    "Available to backorder" pill plus a quantity box plus "Notify me", which on
@@ -233,19 +247,108 @@ table.list tr.click:hover td{background:var(--soft-blue)}
 /* flex:0 0 auto is load-bearing: this box has overflow:hidden, so if flex is
    allowed to shrink it the quantity and the + button are silently clipped
    instead of the row wrapping. */
-.qtybox{flex:0 0 auto;display:flex;align-items:center;gap:0;border:1px solid var(--line);border-radius:8px;overflow:hidden}
-.qtybox button{flex:0 0 auto;width:34px;height:36px;background:#f8fafc;border:none;font-size:17px;color:var(--ink-2);cursor:pointer}
-.qtybox input{flex:0 0 auto;width:46px;height:36px;border:none;text-align:center;font-weight:600;outline:none}
+.qtybox{
+  flex:0 0 auto;display:inline-flex;align-items:stretch;gap:0;
+  height:36px;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:#fff;
+  box-sizing:border-box;
+}
+.qtybox button{
+  flex:0 0 auto;width:34px;border:0;background:#f8fafc;font-size:17px;line-height:1;color:var(--ink-2);cursor:pointer;
+  display:flex;align-items:center;justify-content:center;padding:0;
+}
+.qtybox button:hover{background:#eee}
+.qtyfield{
+  position:relative;flex:0 0 auto;width:44px;
+  display:flex;align-items:center;justify-content:center;
+  border-left:1px solid var(--line);border-right:1px solid var(--line);background:#fff;
+}
+.qtyfield .qtynum{
+  pointer-events:none;font-size:14px;font-weight:600;font-variant-numeric:tabular-nums;
+  line-height:1;color:var(--ink);user-select:none;
+  display:flex;align-items:center;justify-content:center;
+  width:100%;height:100%;
+}
+.qtyfield input{
+  position:absolute;inset:0;width:100%;height:100%;
+  border:0;padding:0;margin:0;opacity:0;caret-color:var(--ink);
+  font-size:14px;font-weight:600;text-align:center;outline:none;background:#fff;
+  appearance:textfield;-moz-appearance:textfield;-webkit-appearance:none;
+}
+.qtyfield:focus-within .qtynum{opacity:0}
+.qtyfield input:focus{opacity:1}
+.qtyfield input::-webkit-outer-spin-button,
+.qtyfield input::-webkit-inner-spin-button{-webkit-appearance:none;appearance:none;margin:0;display:none}
 /* "Notify me" is secondary — it must never crowd out the quantity control */
 .vrow .notify{flex:0 0 auto;white-space:nowrap}
-.attr-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px;margin:14px 0}
-.attr-grid .a{background:var(--soft-blue);border-radius:8px;padding:8px 10px;font-size:12px}
-.attr-grid .a b{display:block;font-size:13px}
 
 /* product modal image gallery */
-.pdetail{display:flex;gap:24px;align-items:flex-start}
-.pdetail-img{flex:0 0 340px;min-width:0;position:sticky;top:0}
-.pdetail-info{flex:1;min-width:0;padding-right:20px}
+.pdetail{display:flex;gap:24px;align-items:stretch}
+.pdetail-img{flex:0 0 320px;min-width:0;position:sticky;top:0;align-self:flex-start}
+.pdetail-info{flex:1;min-width:0;padding-right:8px;display:flex;flex-direction:column;min-height:0}
+.pdetail-title{margin:2px 0 6px;font-size:19px}
+.pdetail-price{font-size:18px;font-weight:800}
+.pdetail-desc{margin-top:8px}
+.pdetail-dims{
+  margin:10px 0 0;padding:0;
+  font-size:15px;font-weight:600;font-variant-numeric:tabular-nums;
+  letter-spacing:.12em;color:var(--ink-2);line-height:1.3;
+}
+.pdetail-dims-h{
+  font-size:12px;font-weight:500;letter-spacing:.04em;color:var(--muted);
+}
+.pdetail-colors-h{font-size:13.5px;margin:16px 0 4px;font-weight:700;letter-spacing:.02em}
+.pdetail .vrows{margin:0;width:100%}
+/* Color rows: thumb · name · status …… qty (qty pinned to the trailing edge) */
+.pdetail .vrow{
+  display:grid;
+  grid-template-columns:48px max-content max-content minmax(12px,1fr) auto;
+  grid-template-areas:"thumb name pill . ctrl";
+  align-items:center;
+  column-gap:10px;
+  width:100%;
+  box-sizing:border-box;
+  padding:10px 0;
+  border-bottom:1px solid #f1f5f9;
+}
+.pdetail .vrow:last-child{border-bottom:0}
+.pdetail .vrow > img,
+.pdetail .vrow > .noimg{
+  grid-area:thumb;width:48px;height:48px;object-fit:contain;
+  border:1px solid var(--line);border-radius:8px;background:#fff;
+}
+.pdetail .vrow > .noimg{display:flex;align-items:center;justify-content:center;font-size:14px;color:#cbd5e1}
+.pdetail .vcol{
+  grid-area:name;
+  flex:none !important; /* beat base/mobile .vrow .vcol flex:1 1 … */
+  min-width:0;max-width:200px;
+  color:var(--ink);font-size:13.5px;font-weight:600;line-height:1.25;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.pdetail .stockpill{
+  grid-area:pill;justify-self:start;margin:0;
+  font-size:10px;padding:2px 7px;line-height:1.3;white-space:nowrap;
+}
+.pdetail .vctrl{
+  grid-area:ctrl;justify-self:end;align-self:center;
+  display:flex;align-items:center;gap:8px;margin:0;
+}
+.pdetail .vprice{min-width:0;font-size:13px;font-weight:700}
+.pdetail .vctrl .qtybox{margin:0}
+.pdetail .vctrl .notify{
+  flex:0 0 auto;white-space:nowrap;padding:6px 10px;font-size:11.5px;min-height:0;
+}
+.pdetail .vbo{
+  grid-column:1 / -1;flex:none;min-height:0;margin:0;width:100%;
+  display:none;
+}
+.pdetail .vbo.on{display:block;padding-top:2px}
+.pdetail-actions{
+  display:flex;gap:10px;margin-top:auto;padding-top:14px;align-items:center;flex-wrap:wrap;
+  position:sticky;bottom:0;background:#fff;z-index:2;
+  border-top:1px solid #f1f5f9;margin-left:-2px;margin-right:-2px;padding-left:2px;padding-right:2px;
+  padding-bottom:2px;
+}
+.pdetail-actions > .btn:first-child{flex:1 1 auto;min-width:140px}
 /* clean stage: soft grey field, no border lines (old-site look) */
 .imgbox.big{position:relative;aspect-ratio:1/1;background:#f7f6f4;border:none;border-radius:12px;display:flex;align-items:center;justify-content:center;overflow:hidden;cursor:zoom-in}
 .imgbox.big img{object-fit:contain;width:100%;height:100%;mix-blend-mode:multiply}
@@ -257,19 +360,42 @@ table.list tr.click:hover td{background:var(--soft-blue)}
 @media(max-width:760px){
   .modal-back{padding:8px}
   .modal{padding:16px 14px;max-height:94vh;border-radius:12px}
-  .pdetail{flex-direction:column}
-  .pdetail-img{flex:none;width:100%;position:static}
-  .pdetail-info{padding-right:0}
-  /* color rows: photo+sku+color on line 1, stock+price+qty right on line 2 —
-     everything fits the phone width with no sideways pan or zoom */
+  .modal .close{top:10px;right:10px;width:44px;height:44px;font-size:24px}
+  .pdetail-img > .close{top:10px;right:10px}
+  .pdetail{flex-direction:column;gap:14px;align-items:stretch}
+  .pdetail-img{flex:none;width:100%;position:relative;align-self:stretch}
+  .pdetail-info{padding-right:0;width:100%;max-width:100%;min-width:0}
+  .pdetail .vrow{
+    grid-template-columns:40px minmax(0,1fr) auto;
+    grid-template-areas:
+      "thumb name ctrl"
+      "thumb pill  ctrl";
+    column-gap:10px;
+    row-gap:2px;
+    padding:9px 0;
+  }
+  .pdetail .vrow > img,
+  .pdetail .vrow > .noimg{width:40px;height:40px;border-radius:6px}
+  .pdetail .vcol{font-size:13px;max-width:none;min-width:0}
+  .pdetail .stockpill{font-size:10px;padding:2px 6px}
+  .pdetail .vctrl{margin-left:0;justify-self:end}
+  .pdetail .qtybox{height:34px}
+  .pdetail .qtybox button{width:32px;min-width:32px}
+  .pdetail .qtyfield{width:36px}
+  .pdetail .qtyfield .qtynum{font-size:13px}
+  .pdetail .qtyfield input{font-size:13px}
+  .pdetail-actions{
+    position:sticky;bottom:-2px;padding-top:12px;padding-bottom:calc(8px + env(safe-area-inset-bottom,0px));
+    box-shadow:0 -8px 16px rgba(255,255,255,.9);
+  }
+  /* legacy/dashboard color rows outside the product modal */
   .vrow{flex-wrap:wrap;row-gap:7px}
   .vrow .vsku{min-width:0}
   .vrow .vcol{flex:1 1 40px;min-width:40px}
   .vrow .stockpill{margin-left:auto}
   .vrow .qtybox button{width:30px;height:34px}
-  .vrow .qtybox input{width:40px;height:34px}
-  /* the actions take their own full-width line on a phone, so the quantity
-     control is never squeezed against the price */
+  .vrow .qtyfield{width:40px}
+  .vrow .qtybox{height:34px}
   .vrow .vactions{flex:1 0 100%;margin-left:0;justify-content:flex-end}
 }
 
@@ -724,8 +850,14 @@ body.hm-dark .hm-wa{width:48px;height:48px;bottom:calc(22px + env(safe-area-inse
   .cart-line .lt{min-width:0}
 }
 @media(max-width:760px){
-  .qtybox button{min-width:40px;height:40px}
-  .vrow .qtybox button{width:40px;height:40px}
+  .qtybox{height:40px}
+  .qtybox button{min-width:40px;width:40px}
+  .qtyfield{width:40px}
+  .vrow .qtybox button{width:40px}
+  /* product modal stays denser */
+  .pdetail .qtybox{height:34px}
+  .pdetail .qtybox button{width:32px;min-width:32px}
+  .pdetail .qtyfield{width:36px}
 }
 .pcard2{position:relative;background:#fff;border:none;border-radius:2px;cursor:pointer;display:flex;flex-direction:column;transition:box-shadow .15s}
 .pcard2:hover{box-shadow:var(--shadow)}
@@ -747,7 +879,7 @@ body.hm-dark .hm-wa{width:48px;height:48px;bottom:calc(22px + env(safe-area-inse
 .pcard2.thumb-swapping .hover-img,
 .pcard2.thumb-swapping:hover .hover-img{opacity:0}
 .pcard2 .photo-wrap{cursor:zoom-in}
-.pcard2 .attrline{text-align:center;color:rgba(0,0,0,.55);font-size:12px;padding:2px 10px 12px;letter-spacing:1px}
+.pcard2 .attrline{text-align:center;color:rgba(0,0,0,.55);font-size:12.5px;font-weight:600;font-variant-numeric:tabular-nums;padding:2px 10px 12px;letter-spacing:.14em}
 .lens-chip{display:inline-block;background:#efe9f5;color:#56416d;font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:4px;margin-left:6px;vertical-align:1px}
 .pcard2 .rowname{display:flex;justify-content:space-between;align-items:center;padding:8px 14px 4px}
 .pcard2 .pname{font-size:11.5px;font-weight:500;letter-spacing:1.5px;color:#1a1a1a;text-transform:uppercase}
