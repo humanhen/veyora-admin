@@ -16,6 +16,11 @@
 'use strict';
 
 const WHATSAPP = 'https://wa.me/16467731000';
+const SOCIAL = {
+  instagram: 'https://www.instagram.com/veyora.vision/',
+  facebook: 'https://www.facebook.com/veyoravision',
+  linkedin: 'https://www.linkedin.com/company/veyoravision/',
+};
 
 function glassesIcon() {
   return `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="6.5" cy="14" r="3.5"/><circle cx="17.5" cy="14" r="3.5"/><path d="M10 14q2 -1.6 4 0"/><path d="M3 14 L2 9.5 M21 14 L22 9.5"/></svg>`;
@@ -26,6 +31,15 @@ function personIcon() {
 function waIcon() {
   return `<svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor"><path d="M17.5 14.4c-.3-.15-1.76-.87-2.03-.97-.27-.1-.47-.15-.67.15-.2.3-.77.96-.94 1.16-.17.2-.35.22-.65.07-.3-.15-1.26-.46-2.4-1.48-.88-.79-1.48-1.76-1.65-2.06-.17-.3-.02-.46.13-.61.14-.13.3-.35.45-.52.15-.17.2-.3.3-.5.1-.2.05-.37-.02-.52-.08-.15-.67-1.62-.92-2.22-.24-.58-.49-.5-.67-.51h-.57c-.2 0-.52.07-.8.37-.27.3-1.04 1.02-1.04 2.5 0 1.47 1.07 2.89 1.22 3.09.15.2 2.11 3.22 5.1 4.51.71.31 1.27.49 1.7.63.72.23 1.37.2 1.88.12.57-.09 1.76-.72 2.01-1.41.25-.7.25-1.29.17-1.41-.07-.13-.27-.2-.57-.35z"/><path d="M12.05 2a9.9 9.9 0 0 0-8.57 14.84L2 22l5.31-1.39A9.9 9.9 0 1 0 12.05 2zm0 18.1a8.2 8.2 0 0 1-4.18-1.15l-.3-.18-3.15.83.84-3.07-.2-.31a8.2 8.2 0 1 1 6.99 3.88z"/></svg>`;
 }
+function igIcon() {
+  return `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="1" fill="currentColor" stroke="none"/></svg>`;
+}
+function fbIcon() {
+  return `<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M14 9h3V6h-3c-2.2 0-4 1.8-4 4v2H8v3h2v7h3v-7h2.6l.4-3H13v-2c0-.6.4-1 1-1z"/></svg>`;
+}
+function liIcon() {
+  return `<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6.5 9.5H3.7V20h2.8V9.5zM5.1 4a1.65 1.65 0 1 0 0 3.3 1.65 1.65 0 0 0 0-3.3zM20.3 20h-2.8v-5.6c0-1.5-.03-3.4-2.08-3.4-2.08 0-2.4 1.62-2.4 3.3V20h-2.8V9.5h2.69v1.43h.04c.37-.7 1.28-1.44 2.64-1.44 2.82 0 3.34 1.86 3.34 4.28V20z"/></svg>`;
+}
 
 /* The dark guest header used by the sign-in, catalogue and list pages. Left
    untouched by the homepage redesign — those pages are not being restyled. */
@@ -34,6 +48,7 @@ function homeHeader() {
     <header class="hm-head">
       <a class="hm-logo" href="#/"><img src="assets/logo-white.svg" alt="Veyora"/></a>
       <div class="hm-head-right">
+        <a class="hm-pill ghost" href="#/">Home</a>
         <a class="hm-pill" href="#/products">${glassesIcon()}<span>Products</span></a>
         <a class="hm-account" href="${Store.session ? '#/products' : '#/login'}" title="Account">${personIcon()}</a>
       </div>
@@ -73,6 +88,11 @@ function editorialFooter() {
           <a href="#/">Terms of service</a>
           <a href="#/">Accessibility Statement</a>
           <a href="${WHATSAPP}" target="_blank" rel="noopener">Talk to sales</a>
+          <span class="hm-foot-social" aria-label="Social">
+            <a class="hm-soc" href="${SOCIAL.instagram}" target="_blank" rel="noopener" title="Instagram" aria-label="Veyora on Instagram">${igIcon()}</a>
+            <a class="hm-soc" href="${SOCIAL.facebook}" target="_blank" rel="noopener" title="Facebook" aria-label="Veyora on Facebook">${fbIcon()}</a>
+            <a class="hm-soc" href="${SOCIAL.linkedin}" target="_blank" rel="noopener" title="LinkedIn" aria-label="Veyora on LinkedIn">${liIcon()}</a>
+          </span>
         </nav>
         <div class="hm-foot-legal">© ${new Date().getFullYear()} Veyora. All rights reserved.</div>
       </div>
@@ -187,7 +207,7 @@ Routes['#/'] = Routes['#/home'] = {
       <section class="hm-port">
         <div class="hm-port-in">
           <figure class="hm-port-feature">
-            <img src="assets/home/product-shot-03.webp" width="800" height="1003"
+            <img src="assets/home/product-shot-03.webp" width="800" height="800"
                  loading="lazy" decoding="async"
                  alt="Charlett Saint Cloud sunglasses arranged on a leather case"/>
           </figure>
@@ -198,12 +218,18 @@ Routes['#/'] = Routes['#/home'] = {
                together in a portfolio created for modern optical retail.</p>
             <a class="hm-textlink" href="#/products">See all products</a>
             <div class="hm-port-row">
-              <img src="assets/home/product-shot-01.webp" width="800" height="1004"
-                   loading="lazy" decoding="async" alt="Gold aviator frames from the Veyora portfolio"/>
-              <img src="assets/home/product-shot-02.webp" width="800" height="1004"
-                   loading="lazy" decoding="async" alt="Detail of a Veyora metal frame and temple"/>
-              <img src="assets/home/product-shot-04.webp" width="800" height="1003"
-                   loading="lazy" decoding="async" alt="Veyora frames styled on a studio surface"/>
+              <figure>
+                <img src="assets/home/product-shot-01.webp" width="800" height="800"
+                     loading="lazy" decoding="async" alt="Gold aviator frames from the Veyora portfolio"/>
+              </figure>
+              <figure>
+                <img src="assets/home/product-shot-02.webp" width="800" height="800"
+                     loading="lazy" decoding="async" alt="Detail of a Veyora metal frame and temple"/>
+              </figure>
+              <figure>
+                <img src="assets/home/product-shot-04.webp" width="800" height="800"
+                     loading="lazy" decoding="async" alt="Veyora frames styled on a studio surface"/>
+              </figure>
             </div>
           </div>
         </div>

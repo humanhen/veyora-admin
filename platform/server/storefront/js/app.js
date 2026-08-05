@@ -4,6 +4,7 @@
 const Routes = {};   // '#/products' -> {render(el, args), title, public}
 
 const NAV = [
+  { hash: '#/',            label: 'Home' },
   { hash: '#/products',    label: 'Products' },
   { hash: '#/orders',      label: 'Orders' },
   { hash: '#/backorders',  label: 'Backorders' },
@@ -155,13 +156,19 @@ const BOTTOM_NAV = [
   { hash: '#/dashboard',   label: 'My Account', icon: 'user' },
 ];
 
+function navLinkActive(hash, activeHash) {
+  return hash === '#/' ? activeHash === '#/' || activeHash === '#/home'
+    : activeHash.startsWith(hash);
+}
+
 function shell(contentEl, activeHash) {
   const u = Store.session.user;
   const el = h(`<div>
     <header class="topbar">
       <button class="burger" aria-label="Menu">${NAVICON.burger}</button>
-      <img class="logo" src="assets/logo-white.svg" alt="Veyora" style="width:126px;cursor:pointer" onclick="location.hash='#/dashboard'"/>
+      <img class="logo" src="assets/logo-white.svg" alt="Veyora" style="width:126px;cursor:pointer" onclick="location.hash='#/'"/>
       <div class="spacer"></div>
+      <button class="icon-btn" title="Home" aria-label="Home" onclick="location.hash='#/'">${NAVICON.home}</button>
       <button class="icon-btn present-toggle ${Store.presenting ? 'on' : ''}" data-present
         title="${Store.presenting ? 'Presentation mode ON — prices hidden. Click to show prices.' : 'Presentation mode — hide your prices to show frames to customers'}">${eyeIcon(Store.presenting)}</button>
       <button class="icon-btn" title="Favorites" onclick="location.hash='#/favourites'">♡</button>
@@ -169,14 +176,14 @@ function shell(contentEl, activeHash) {
       <button class="icon-btn" title="My Account" onclick="location.hash='#/account'">👤</button>
     </header>
     <nav class="nav">${navFor(u).map(n =>
-      `<a href="${n.hash}" class="${activeHash.startsWith(n.hash) ? 'active' : ''}">${n.label}</a>`).join('')}
+      `<a href="${n.hash}" class="${navLinkActive(n.hash, activeHash) ? 'active' : ''}">${n.label}</a>`).join('')}
     </nav>
     <div class="drawer-back">
       <div class="drawer">
         <div class="dhead"><img src="assets/logo-black.svg" alt="Veyora"/></div>
         <a href="#/dashboard" class="${activeHash === '#/dashboard' ? 'active' : ''}">Dashboard</a>
         ${navFor(u).map(n =>
-          `<a href="${n.hash}" class="${activeHash.startsWith(n.hash) ? 'active' : ''}">${n.label}</a>`).join('')}
+          `<a href="${n.hash}" class="${navLinkActive(n.hash, activeHash) ? 'active' : ''}">${n.label}</a>`).join('')}
         <div class="drow" data-present-drawer>${eyeIcon(Store.presenting)}
           ${Store.presenting ? 'Show my prices' : 'Hide prices (presentation)'}</div>
       </div>

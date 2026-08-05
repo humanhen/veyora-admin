@@ -30,6 +30,15 @@ r.use(requireAuth());
 const PUBLIC_BRANDS = ['Charlett', 'Essedue', 'Extreme', 'Kyme', 'Laura Ferre',
   'Liv London', 'Puro', 'Spike'];
 
+/** Brand chip match: category wins; brand column is a last resort only. */
+function productMatchesBrand(p, brand) {
+  const cats = p.categories || [];
+  const branded = PUBLIC_BRANDS.filter(b => cats.includes(b));
+  if (branded.length) return branded.includes(brand);
+  const col = String(p.brand || '');
+  return col === brand || col.startsWith(brand + ' ');
+}
+
 // Building the full catalog response — loading ~1000 products and shaping each
 // (price/visibility per customer) costs ~1s in Node, and it ran on every filter
 // click, page and search: that's why browsing felt slow and filters felt broken.
@@ -175,12 +184,14 @@ async function getProducts(req, res, next) {
       p.variations.some(v => v.sku.toLowerCase().includes(search)
         || (v.color || '').toLowerCase().includes(search)));
   }
-  // Brand chips mirror the old site's brand *category*: Zoho splits some
-  // brands (e.g. "Charlett" vs "Charlett Sunglass") but the old site groups
-  // them under one name, which is present in `categories`. Fall back to the
-  // brand column for Zoho-only products not in the old-site export.
-  if (brands.length) items = items.filter(p =>
-    brands.some(b => p.categories.includes(b) || p.brand === b));
+  // Brand chips mirror the old site's brand *category*. Prefer `categories`
+  // over the Zoho `brand` column — that column is often wrong (e.g. brand
+  // "Laura Ferre" on a Charlett frame whose categories correctly say Charlett).
+  // Only fall back to the brand column when the product has no public brand
+  // category at all (Zoho-only / uncategorised stock).
+  if (brands.length) {
+    items = items.filter(p => brands.some(b => productMatchesBrand(p, b)));
+  }
   if (categories.length) items = items.filter(p => categories.some(c => p.categories.includes(c)));
   for (const group of catGroups) {
     items = items.filter(p => group.some(c => p.categories.includes(c)));

@@ -1,6 +1,6 @@
 /* Product catalog — replica of the old veyora.com products page:
-   beige search, grouped filters, density toggle, big cards with colorway
-   thumbnails and seller badges. Works for guests (no prices) and customers. */
+   beige search, grouped filters, big cards with colorway thumbnails and
+   seller badges. Works for guests (no prices) and customers. */
 'use strict';
 
 const CATALOG_FILTER_DEFAULTS = { search: '', brands: [], types: [], genders: [], sizes: [],
@@ -13,7 +13,6 @@ const Catalog = {
       if (s) return { ...CATALOG_FILTER_DEFAULTS, ...JSON.parse(s) }; } catch (e) {}
     return { ...CATALOG_FILTER_DEFAULTS };
   })(),
-  density: 4,
 };
 /** Is anything actually filtered right now? (page number doesn't count) */
 function filtersActive(F) {
@@ -70,10 +69,6 @@ Routes['#/products'] = {
     el.innerHTML = `
       <div class="prod-head">
         <h1>Products</h1>
-        <div class="density">
-          <button data-d="3" class="${Catalog.density === 3 ? 'on' : ''}" title="Larger cards">•••</button>
-          <button data-d="4" class="${Catalog.density === 4 ? 'on' : ''}" title="Smaller cards">••••</button>
-        </div>
         ${guest ? '' : `<button class="fbtn scanbtn" type="button" title="Scan your list">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h4"/></svg>
         </button>`}
@@ -111,7 +106,7 @@ Routes['#/products'] = {
           <div class="fsheet-body"></div>
         </div>
       </div>
-      <div id="grid" class="pgrid2 ${Catalog.density === 3 ? 'cols3' : ''}"></div>
+      <div id="grid" class="pgrid2"></div>
       <div class="pager" id="pager"></div>`;
 
     // mobile: the same filter bar moves into a bottom sheet (old-site pattern)
@@ -166,18 +161,27 @@ Routes['#/products'] = {
         grid.innerHTML = `<div class="empty" style="grid-column:1/-1"><div class="big">🕶️</div>No products match your filters</div>`;
       }
       for (const p of res.products) grid.appendChild(productCard(p));
-      // Guests get no catalog-size info (res.total is null): just Page N + Prev/Next.
-      // Customers see the full "Page N of M · K products".
+      // Guests don't get a total — keep a fixed-width sliding window of page
+      // numbers (never grow 1…N as they browse). Customers get classic
+      // first/last + ellipsis pagination.
       const knowTotal = res.total != null;
       const pages = knowTotal ? Math.max(1, Math.ceil(res.total / res.perPage)) : null;
       const hasPrev = F.page > 1;
       const hasNext = knowTotal ? F.page < pages : !!res.hasMore;
-      pager.innerHTML = (hasPrev || hasNext) ? `
-        <button ${hasPrev ? '' : 'disabled'} data-d="-1">‹ Prev</button>
-        <span class="sub">${knowTotal ? `Page ${F.page} of ${pages} · ${res.total} products` : `Page ${F.page}`}</span>
-        <button ${hasNext ? '' : 'disabled'} data-d="1">Next ›</button>` : '';
-      pager.querySelectorAll('button').forEach(b => b.onclick = () => {
+      const nums = pagerNumbers(F.page, pages, hasNext);
+      pager.innerHTML = (hasPrev || hasNext || (pages && pages > 1) || nums.length > 1) ? `
+        <button type="button" ${hasPrev ? '' : 'disabled'} data-d="-1" aria-label="Previous page">‹ Prev</button>
+        ${nums.map(n => n === '…'
+          ? `<span class="pager-gap" aria-hidden="true">…</span>`
+          : `<button type="button" class="pg ${n === F.page ? 'on' : ''}" data-p="${n}" aria-label="Page ${n}" ${n === F.page ? 'aria-current="page"' : ''}>${n}</button>`).join('')}
+        <button type="button" ${hasNext ? '' : 'disabled'} data-d="1" aria-label="Next page">Next ›</button>
+        ${knowTotal ? `<span class="sub pager-meta">${res.total} products</span>` : ''}` : '';
+      pager.querySelectorAll('button[data-d]').forEach(b => b.onclick = () => {
         F.page += parseInt(b.dataset.d, 10); load();
+        window.scrollTo({ top: 0 });
+      });
+      pager.querySelectorAll('button[data-p]').forEach(b => b.onclick = () => {
+        F.page = parseInt(b.dataset.p, 10); load();
         window.scrollTo({ top: 0 });
       });
     }
@@ -214,15 +218,47 @@ Routes['#/products'] = {
     if (!guest) API.get(withOrderingContext('/user/get-cart'))
       .then(c => { if (ctAmt) ctAmt.textContent = money(c.total || 0); setCartBadge(c.totalQty || 0); })
       .catch(() => { if (ctAmt) ctAmt.textContent = money(0); });
-    el.querySelectorAll('.density button').forEach(b => b.onclick = () => {
-      Catalog.density = parseInt(b.dataset.d, 10);
-      el.querySelectorAll('.density button').forEach(x => x.classList.toggle('on', x === b));
-      grid.classList.toggle('cols3', Catalog.density === 3);
-    });
 
     await load();
   },
 };
+
+/** Compact page list. With a known total: 1 … 4 5 6 … 39.
+    Guests (no total): a fixed 5-wide sliding window — never grows as you browse. */
+function pagerNumbers(current, totalPages, hasMore) {
+  const WINDOW = 5;
+  if (totalPages != null) {
+    if (totalPages <= 1) return [1];
+    if (totalPages <= 7) return Array.from({ length: totalPages }, (_, i) => i + 1);
+    const set = new Set([1, totalPages, current]);
+    for (let i = current - 1; i <= current + 1; i++) {
+      if (i >= 1 && i <= totalPages) set.add(i);
+    }
+    // Prefer a denser window near the ends
+    if (current <= 3) [2, 3, 4].forEach(n => { if (n < totalPages) set.add(n); });
+    if (current >= totalPages - 2) {
+      [totalPages - 1, totalPages - 2, totalPages - 3].forEach(n => { if (n > 1) set.add(n); });
+    }
+    const sorted = [...set].sort((a, b) => a - b);
+    const out = [];
+    for (let i = 0; i < sorted.length; i++) {
+      if (i > 0 && sorted[i] - sorted[i - 1] > 1) out.push('…');
+      out.push(sorted[i]);
+    }
+    return out;
+  }
+  // Guest / unknown total — sliding window only (max ~5 nums + optional 1 …)
+  let start = Math.max(1, current - Math.floor(WINDOW / 2));
+  let end = start + WINDOW - 1;
+  if (current <= Math.ceil(WINDOW / 2)) { start = 1; end = WINDOW; }
+  if (!hasMore) end = Math.max(current, Math.min(end, current));
+  const mid = [];
+  for (let i = start; i <= end; i++) mid.push(i);
+  if (!mid.length) return [1];
+  if (start <= 1) return mid;
+  if (start === 2) return [1, ...mid];
+  return [1, '…', ...mid];
+}
 
 function funnelIcon() {
   return `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
@@ -272,6 +308,9 @@ function productCard(p) {
   const hoverImg = p.images?.[1]
     || p.variations.map(v => v.image).filter(Boolean).find(img => img && img !== mainImg)
     || null;
+  const { gallery, colorAt } = productGallery(p);
+  // Which photo is currently shown (thumb pick or default). Lightbox opens here.
+  let selectedSrc = mainImg || thumbs[0]?.image || gallery[0] || null;
 
   const card = h(`<div class="pcard2">
     ${sellerBadge(p)}
@@ -295,9 +334,20 @@ function productCard(p) {
     ${u.guest ? `<button class="orderbtn">Log in to order</button>` : orderButton(p, hide)}
   </div>`);
 
+  const imgBox = card.querySelector('.imgbox2');
+  const setMainPhoto = (src) => {
+    selectedSrc = src;
+    imgBox.innerHTML = imgOr(src);
+    // If the cursor is still over the card, the hover overlay would hide this
+    // swap. Suppress it only until the pointer leaves — then normal hover
+    // resumes (including after picking another colour and going back).
+    card.classList.add('thumb-swapping');
+  };
+  card.addEventListener('mouseleave', () => card.classList.remove('thumb-swapping'));
+
   card.querySelectorAll('.vthumbs img').forEach(t => t.onclick = (e) => {
     e.stopPropagation();
-    card.querySelector('.imgbox2').innerHTML = imgOr(t.dataset.src);
+    setMainPhoto(t.dataset.src);
     card.querySelectorAll('.vthumbs img').forEach(x => x.classList.toggle('sel', x === t));
   });
   card.querySelector('.share').onclick = (e) => {
@@ -315,15 +365,22 @@ function productCard(p) {
   card.querySelector('.orderbtn').onclick = (e) => {
     e.stopPropagation();
     if (catalogUser().guest) { location.hash = '#/login'; return; }
-    productModal(p);
+    productModal(p, selectedSrc);
   };
-  // Old-site behavior: guests clicking the card get the image viewer directly
-  // (arrows through the photos); customers get the ordering modal.
+  // Main photo → fullscreen of the currently selected thumb/image.
+  card.querySelector('.photo-wrap').onclick = (e) => {
+    e.stopPropagation();
+    if (!gallery.length) return;
+    const start = Math.max(0, gallery.indexOf(selectedSrc));
+    imageLightbox(gallery, start < 0 ? 0 : start, p.name, colorAt);
+  };
+  // Name / empty areas: guests still get the viewer; customers get the order modal
+  // opened on the colour they already picked on the card.
   card.onclick = () => {
     if (catalogUser().guest) {
-      const { gallery, colorAt } = productGallery(p);
-      imageLightbox(gallery, 0, p.name, colorAt);
-    } else productModal(p);
+      const start = Math.max(0, gallery.indexOf(selectedSrc));
+      imageLightbox(gallery, start < 0 ? 0 : start, p.name, colorAt);
+    } else productModal(p, selectedSrc);
   };
   return card;
 }
@@ -365,7 +422,7 @@ function variationOrderControls(v) {
   return `<span class="vactions">${qtyBox(0, 0, max)}${v.qty === 0 ? notify : ''}</span>`;
 }
 
-function productModal(p) {
+function productModal(p, startSrc = null) {
   const u = catalogUser();
   const hide = u.hidePrices;
   const guest = !!u.guest;
@@ -377,15 +434,17 @@ function productModal(p) {
   ].filter(x => x[1]);
   // gallery = product images + any per-variation images (deduped)
   const { gallery, colorAt } = productGallery(p);
+  // Honour the colour the customer already picked on the product card.
+  const startIdx = Math.max(0, startSrc ? gallery.indexOf(startSrc) : 0);
   const m = modal(`
     <div class="pdetail">
       <div class="pdetail-img">
         <div class="imgbox big" id="mainImg" title="Click to enlarge">
-          ${imgOr(gallery[0])}
+          ${imgOr(gallery[startIdx] || gallery[0])}
           <span class="zoom-hint">⤢</span>
         </div>
         ${gallery.length > 1 ? `<div class="thumbstrip">
-          ${gallery.map((src, i) => `<img src="${esc(src)}" data-i="${i}" class="${i === 0 ? 'sel' : ''}"/>`).join('')}
+          ${gallery.map((src, i) => `<img src="${esc(src)}" data-i="${i}" class="${i === startIdx ? 'sel' : ''}"/>`).join('')}
         </div>` : ''}
       </div>
       <div class="pdetail-info">
@@ -428,7 +487,7 @@ function productModal(p) {
     </div>`);
 
   const mainBox = m.querySelector('#mainImg');
-  let curIdx = 0;
+  let curIdx = startIdx;
   function setMain(i) {
     curIdx = i;
     mainBox.innerHTML = imgOr(gallery[i]) + '<span class="zoom-hint">⤢</span>';
