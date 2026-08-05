@@ -1,0 +1,42 @@
+---
+import '../styles/tokens.css';
+import '../styles/base.css';
+
+interface Props {
+  title: string;
+  description?: string;
+}
+
+const { title, description } = Astro.props;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    {description && <meta name="description" content={description} />}
+    <!--
+      Blanket noindex while every route is a development skeleton (B1.2)
+      carrying a placeholder notice rather than approved content — a real
+      per-route indexing disposition (index/follow, canonical, query-state
+      handling) is src/lib/indexing.ts, B1's WP-04, deliberately not built
+      yet. This one static tag is a safety default, not a policy engine;
+      WP-04 replaces it.
+    -->
+    <meta name="robots" content="noindex, follow" />
+    <!--
+      Named slots for later batches: the full metadata framework (canonical,
+      OG/Twitter, robots) is B1's WP-04, out of scope here; JSON-LD is B7.
+      Both slots exist now so those batches extend this file rather than
+      reopening it.
+    -->
+    <slot name="head" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">Skip to main content</a>
+    <slot />
+    <slot name="structured-data" />
+  </body>
+</html>

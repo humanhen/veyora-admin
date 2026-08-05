@@ -608,3 +608,237 @@ the two new untracked directories (`platform/server/web/` and
 `docs/public-website-rebuild/baseline/`) plus this one modified document. No commit was made,
 nothing was pushed, no Docker image was built, and no production, staging or live Veyora system
 was contacted at any point in either pass.
+
+---
+
+## 10. B1.2 implementation result — 2026-08-05
+
+**Scope executed:** shared public layouts (`Base.astro`, `Page.astro`), the central navigation
+config, a desktop header, an accessible mobile menu (Astro + vanilla browser JavaScript only), a
+footer, breadcrumbs, and skeleton routes for all 25 public routes in
+`05_ROUTE_TEMPLATE_MATRIX.md`, with source-level and HTTP-level tests. Executed from
+`mathew/public-website-rebuild` at starting commit `6cc73e0` (B1.1 committed). Per the task brief,
+this run did not inspect, duplicate, alter or merge the other developer's concurrent storefront
+bug-fix branch — that branch was never referenced, read, or touched.
+
+Explicitly **not** built, per scope: the full metadata framework, `indexing.ts`, custom 404/500
+pages, the legacy hash bridge, database migrations, the `/public/*` API surface, catalogue
+functionality, forms, CRM, sitemaps (XML), structured data, and production deployment. These
+remain open — B1's WP-04/WP-05 and B2 onward.
+
+### Files created
+
+```
+platform/server/web/
+├── public/
+│   ├── logo-black.svg          copied (not moved/modified) from storefront/assets — header
+│   └── logo-white.svg          copied (not moved/modified) from storefront/assets — footer
+├── src/
+│   ├── lib/
+│   │   ├── nav.ts               primary/utility nav + 4 footer groups — single source of truth
+│   │   └── routes.ts             breadcrumb tree, humanizeSlug(), BreadcrumbItem type
+│   ├── layouts/
+│   │   ├── Base.astro            html/head shell, skip link, head + structured-data slots
+│   │   └── Page.astro            Header + optional Breadcrumbs + main#main-content + Footer
+│   ├── components/
+│   │   ├── nav/
+│   │   │   ├── Header.astro      sticky translucent header, desktop nav, menu trigger
+│   │   │   ├── MobileMenu.astro  ivory overlay panel + vanilla-JS open/close/focus-trap script
+│   │   │   ├── Footer.astro      dark footer, 4 groups from nav.ts, dynamic copyright year
+│   │   │   └── Breadcrumbs.astro <ol>, aria-label="Breadcrumb", current page as non-link <span>
+│   │   └── dev/
+│   │       └── SkeletonNotice.astro  shared placeholder body used by all 25 route skeletons
+│   └── pages/                    24 files implementing all 25 routes (see below)
+└── test/
+    ├── nav.test.ts
+    ├── components.test.ts
+    ├── routes.test.ts
+    └── http-routes.test.ts
+```
+
+**Existing files modified:**
+
+- `src/pages/index.astro` — rewritten from B1.1's temporary foundation notice to the real home
+  route skeleton (`Page` layout, documented H1, `SkeletonNotice`).
+- `astro.config.mjs` — added `trailingSlash: 'always'`; also reworked its `site` default (see
+  "Known limitations" — a real regression was found and fixed here, not merely a style change).
+- `src/styles/base.css` — added `body.mobile-menu-open { overflow: hidden; }`, the scroll lock the
+  mobile menu script toggles (targets `<body>`, which no component renders, so it cannot live in a
+  scoped component style).
+
+No other path was created, modified or deleted.
+
+### Route files (24 files → all 25 routes)
+
+Every route in `05_ROUTE_TEMPLATE_MATRIX.md` §1 has a skeleton. One pair shares a file:
+`/resources/{category}/` and `/resources/{slug}/` are both single-dynamic-segment siblings at
+`/resources/*/`, which Astro's file router cannot host as two separate dynamic files (`[category]`
+and `[slug]` would collide on the same pattern) — `src/pages/resources/[slug]/index.astro` stands
+in for both until Content Collections (B5) make the category/article distinction possible. See
+"Known limitations" below.
+
+| # | Route | File |
+|---|---|---|
+| 1 | `/` | `pages/index.astro` |
+| 2 | `/why-veyora/` | `pages/why-veyora/index.astro` |
+| 3 | `/brands/` | `pages/brands/index.astro` |
+| 4 | `/brands/{brand}/` | `pages/brands/[brand]/index.astro` |
+| 5 | `/collections/` | `pages/collections/index.astro` |
+| 6–8 | `/collections/{optical,sun,kids}/` | `pages/collections/{optical,sun,kids}/index.astro` |
+| 9 | `/collections/{brand}/{model}/` | `pages/collections/[brand]/[model]/index.astro` |
+| 10 | `/service-model/` | `pages/service-model/index.astro` |
+| 11 | `/private-label/` | `pages/private-label/index.astro` |
+| 12 | `/global-presence/` | `pages/global-presence/index.astro` |
+| 13 | `/resources/` | `pages/resources/index.astro` |
+| 14, 15 | `/resources/{category}/`, `/resources/{slug}/` | `pages/resources/[slug]/index.astro` (shared) |
+| 16 | `/contact/` | `pages/contact/index.astro` |
+| 17 | `/request-b2b-account/` | `pages/request-b2b-account/index.astro` |
+| 18 | `/private-label-enquiry/` | `pages/private-label-enquiry/index.astro` |
+| 19–24 | six policy routes | `pages/{shipping,warranty-and-exchanges,ordering-guide,privacy-policy,terms,accessibility}/index.astro` |
+| 25 | `/sitemap/` | `pages/sitemap/index.astro` |
+
+**H1/title policy applied uniformly:** where `05_ROUTE_TEMPLATE_MATRIX.md` §3 documents an
+approved title/H1 (routes 1, 2, 3, 5, 10, 11, 12, 13, 16, 17; route 12's title carries the
+specification's own not-yet-approved country list, used verbatim and unchanged, not invented),
+that exact text is used. Everywhere else — the three category landings, both dynamic routes, the
+enquiry route, all six policy routes, and the HTML sitemap — a neutral structural label is used
+(`"{X} page"` / `"{X} collection page"`), per the task brief's own example wording. No lorem ipsum,
+no invented Veyora fact, anywhere.
+
+### Tests run and passed
+
+`platform/server/web`: **107/107 tests passing** (`node --test`), all with the existing
+lightweight Node approach — no browser tooling installed. Breakdown: 53 carried over unchanged
+from B1.1/B1.1A, 54 new. New coverage: central nav contains every required path and no `#/` route;
+B2B Login sourced from `env.portalOrigin` (never a literal); Request B2B Account is the primary
+utility action while B2B Login is not; footer groups derive from `nav.ts` and include
+Privacy/Terms/Accessibility with no fake social URL; Base/Page provide the skip link and the
+`#main-content` landmark; Header exposes semantic, labelled navigation and the menu trigger;
+MobileMenu's script defines Escape handling, aria-expanded toggling, focus restore, `inert`
+application (not manual tabindex bookkeeping), Tab-cycling focus constraint, and a body-scroll-lock
+class, and does not wait on a `transitionend` listener; Breadcrumbs use `<ol>` and
+`aria-label="Breadcrumb"` with the current page as a non-link; all 24 route files exist and use
+`Page`; every route defines exactly one `<h1>`; no route contains lorem ipsum, a hard-coded
+`veyora.design`/`veyora.com`, or a storefront import; no component or route introduces a non-zero
+`border-radius` or an `--accent` token; and an HTTP-level suite that builds once, starts the
+standalone server directly, and requests nine representative routes (see below).
+
+One false-positive round was caught and fixed during this batch: three initial test assertions
+(`Header`/`Footer` "no storefront reference", MobileMenu "no transitionend") matched the word
+appearing in explanatory source *comments* that describe what was deliberately *not* done, not
+actual code. Narrowed each to check for a real `import ... from '...storefront...'` or a real
+`addEventListener('transitionend', ...)` — both now correctly assert on code, not prose.
+
+### Build result
+
+`astro build` (production mode, explicit `PUBLIC_SITE_ORIGIN=http://127.0.0.1:4321` /
+`PORTAL_ORIGIN=http://127.0.0.1:4322`) completed successfully across all 25 routes.
+
+### Representative HTTP route result
+
+Started the built server via the validated `npm run start` and requested the nine routes named in
+the task brief:
+
+| Route | Status | `<h1>` count | Header | Footer |
+|---|---|---|---|---|
+| `/` | 200 | 1 | present | present |
+| `/why-veyora/` | 200 | 1 | present | present |
+| `/brands/` | 200 | 1 | present | present |
+| `/brands/example-brand/` | 200 | 1 | present | present |
+| `/collections/` | 200 | 1 | present | present |
+| `/collections/example-brand/example-model/` | 200 | 1 | present | present |
+| `/contact/` | 200 | 1 | present | present |
+| `/privacy-policy/` | 200 | 1 | present | present |
+| `/sitemap/` | 200 | 1 | present | present |
+
+All nine (and, separately, all 24 route files during earlier validation) returned real HTML via
+direct path request — no hash routing, no client-side router. Breadcrumbs render the correct trail
+(verified on `/collections/optical/`: Home › Collections › Optical) and are correctly omitted on
+`/`. `/brands/example-brand/` correctly humanises the slug to "Example Brand" with no data lookup.
+Server stopped cleanly after each check (direct `node ./dist/server/entry.mjs`, not through the
+`npm`/shell wrapper — see "Known limitations").
+
+### Accessibility behaviours implemented but NOT browser-verified
+
+Playwright is out of scope for B1.2. The following are implemented and asserted at the *source*
+level (the script defines the behaviour) but not exercised in a real browser:
+
+- Escape closing the mobile menu
+- Focus moving into the panel on open and returning to the trigger (or the true previously-focused
+  element) on close
+- Tab/Shift+Tab cycling staying inside the panel while open
+- `inert` actually removing the rest of the page from the tab order and accessibility tree across
+  target browsers
+- Visual presentation of the ivory overlay, serif heading, and uppercase link treatment
+- Real touch and on-device keyboard behaviour
+
+A manual/Playwright pass against these is deferred to whenever browser tooling is introduced,
+consistent with the low-storage constraint on this batch.
+
+### Dynamic-route temporary behaviour
+
+`/brands/{brand}/`, `/collections/{brand}/{model}/`, and `/resources/{slug}/` (standing in for both
+`/resources/{category}/` and `/resources/{slug}/`) render the same neutral skeleton for **any**
+slug value, including ones that would not exist as a published record — there is no data source to
+check against until B2 (schema) and B4 (public API surface, model/brand pages). Real publication
+lookups and unknown-slug 404 behaviour are explicitly deferred to B2/B4, as instructed. The
+resources category/article file-sharing is a routing-topology consequence of the specification
+itself (two dynamic siblings at one path depth), not a data limitation — see "Route files" above.
+
+### Known limitations
+
+- **A real Vite/Astro build-time regression was found and fixed in this batch.** B1.1A's
+  `astro.config.mjs` imported `resolveEnv` from `src/env.ts` as "defense in depth." Testing this
+  batch's first real page revealed that `astro build` runs its config through Vite, which forces
+  `process.env.NODE_ENV = 'production'` while evaluating that config — regardless of the invoking
+  shell's real value — and merely *importing* `src/env.ts` (for any export) runs its top-level
+  `export const env = resolveEnv(process.env)`, which then threw on every plain local build with no
+  origins set. Fixed by removing the `src/env.ts` import from `astro.config.mjs` entirely and
+  inlining the same documented localhost default as a literal. `scripts/validate-env.mjs` (a plain,
+  separate `node` process, unaffected by Vite) remains the real, correctly-behaving fail-closed
+  gate — confirmed unaffected by rerunning the full B1.1A build/startup command-path tests, all
+  still green. `nav.ts`'s own import of `{ env }` is unaffected by this issue: page-level modules
+  are bundled, not executed, during `astro build` for `output: 'server'` — confirmed empirically by
+  the full 25-route build succeeding with no origins set.
+- No full metadata framework exists yet: every route currently carries one blanket
+  `<meta name="robots" content="noindex, follow">` in `Base.astro` as a safety default while pages
+  are placeholders, not the real per-route `indexing.ts` policy (canonical, OG/Twitter, query-state
+  handling) — that is B1's WP-04.
+- No custom 404/500 pages, redirect middleware, or legacy hash bridge exist yet (WP-04/WP-05).
+- Every route is server-rendered (no `prerender = true` anywhere), including ones the route matrix
+  ultimately marks as prerendered — deliberate simplification since no content source exists yet
+  to justify the split; revisit when B2's data model lands.
+- The resources category/article routing simplification above.
+- Mobile-menu accessibility behaviours not browser-verified (above).
+- `docker-compose.override.web.yml` (local dev compose profile) still not created — unchanged from
+  B1.1.
+
+### Deferred to B1.3
+
+Full metadata framework and canonical builder, `indexing.ts`, real 404/500 pages, redirect
+middleware, the legacy hash bridge, and — per the stop conditions — anything requiring database
+migrations, the `/public/*` API surface, catalogue functionality, forms, CRM, sitemaps (XML),
+structured data (JSON-LD; the breadcrumb data structure is ready for it), or production deployment.
+
+### Free space on C:
+
+| Checkpoint | Free space |
+|---|---|
+| Before B1.2 (Task 1) | 8.04 GB |
+| After full test suite (107/107) | 8.00 GB |
+| Final | 8.003 GB |
+
+Never approached the 4 GB floor. No new dependency was installed in this batch — zero new
+packages, matching the "prefer zero new dependencies" instruction.
+
+### Confirmation
+
+`platform/server/storefront/**`, `platform/server/api/**`, `platform/server/db/**`, the root admin
+application, `docker-compose.yml`, `Caddyfile`, `deploy.sh`, every package outside
+`platform/server/web`, and every existing API test are untouched — confirmed by `git status
+--short` showing changes confined to `platform/server/web/**` and this one document. The other
+developer's concurrent storefront branch was never inspected, referenced, or merged — this session
+worked exclusively from `mathew/public-website-rebuild` at commit `6cc73e0` forward, and the only
+storefront interaction of any kind was copying (not moving or modifying) two static SVG logo files
+already present on disk. No commit was made, nothing was pushed, no deploy or production/VPS/DNS
+access occurred.

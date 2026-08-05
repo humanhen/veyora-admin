@@ -1,0 +1,250 @@
+---
+/* Full-height ivory overlay, serif heading, uppercase links — the editorial
+   pattern described for the mobile menu in
+   docs/public-website-rebuild/09_FIRST_BUILD_PACKAGE.md WP-03, authored
+   fresh (no portal `.drawer` reused). Astro + plain browser JavaScript
+   only; no framework, no animation library.
+
+   NOT BROWSER-VERIFIED (Playwright is out of scope for B1.2 — see
+   09_FIRST_BUILD_PACKAGE.md B1.2 result): the actual open/close sequence,
+   the Tab-cycling focus trap, `inert` support across target browsers, and
+   real touch/keyboard behaviour. What IS verified here is that the source
+   defines each required behaviour (test/mobile-menu.test.ts asserts on the
+   script source), not that a browser executes it correctly end to end. */
+import { primaryNav, utilityNav } from '../../lib/nav.ts';
+
+interface Props {
+  currentPath: string;
+}
+
+const { currentPath } = Astro.props;
+---
+
+<div id="mobile-menu" class="mobile-menu" hidden>
+  <div class="mobile-menu__inner">
+    <div class="mobile-menu__top">
+      <p class="mobile-menu__heading">Menu</p>
+      <button type="button" id="mobile-menu-close" class="mobile-menu__close" aria-label="Close menu">
+        <span aria-hidden="true">Close</span>
+      </button>
+    </div>
+
+    <nav class="mobile-menu__nav" aria-label="Primary">
+      <ul>
+        {
+          primaryNav.map((item) => (
+            <li>
+              <a href={item.href} aria-current={currentPath === item.href ? 'page' : undefined}>
+                {item.label}
+              </a>
+            </li>
+          ))
+        }
+      </ul>
+    </nav>
+
+    <div class="mobile-menu__utility">
+      {
+        utilityNav.map((item) => (
+          <a
+            href={item.href}
+            class={`mobile-menu__utility-link mobile-menu__utility-link--${item.style ?? 'text'}`}
+            rel={item.external ? 'noopener' : undefined}
+          >
+            {item.label}
+          </a>
+        ))
+      }
+    </div>
+  </div>
+</div>
+
+<script>
+  // Plain browser JavaScript, no framework. Deliberately conservative:
+  // toggles `hidden` and `aria-*` directly rather than waiting on any
+  // transition, so the menu works identically whether or not
+  // prefers-reduced-motion has disabled animation (base.css already
+  // zeroes transition/animation durations under that media query — this
+  // script never depends on a transitionend event to finish opening or
+  // closing).
+  const trigger = document.getElementById('mobile-menu-trigger');
+  const panel = document.getElementById('mobile-menu');
+  const closeButton = document.getElementById('mobile-menu-close');
+  const siteRoot = document.getElementById('site');
+
+  let lastFocused: HTMLElement | null = null;
+
+  function getFocusable(container: HTMLElement): HTMLElement[] {
+    const selector =
+      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+    return Array.from(container.querySelectorAll<HTMLElement>(selector)).filter(
+      (el) => el.offsetParent !== null
+    );
+  }
+
+  function onKeydown(event: KeyboardEvent) {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      closeMenu();
+      return;
+    }
+    if (event.key === 'Tab' && panel) {
+      const focusables = getFocusable(panel);
+      if (focusables.length === 0) return;
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      // Keyboard focus is constrained to the panel while it is open — a
+      // standard Tab-cycling trap, not a bespoke focus-stealing technique.
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+  }
+
+  function openMenu() {
+    if (!panel || !trigger) return;
+    lastFocused = document.activeElement as HTMLElement | null;
+    panel.hidden = false;
+    trigger.setAttribute('aria-expanded', 'true');
+    // `inert` (not manual tabindex bookkeeping) removes the rest of the
+    // page from both the tab order and the accessibility tree while the
+    // panel is open — the well-supported, non-brittle mechanism for
+    // "background content cannot be interacted with while open".
+    siteRoot?.setAttribute('inert', '');
+    document.body.classList.add('mobile-menu-open');
+    const focusables = getFocusable(panel);
+    (focusables[0] ?? panel).focus();
+    document.addEventListener('keydown', onKeydown);
+  }
+
+  function closeMenu() {
+    if (!panel || !trigger) return;
+    panel.hidden = true;
+    trigger.setAttribute('aria-expanded', 'false');
+    siteRoot?.removeAttribute('inert');
+    document.body.classList.remove('mobile-menu-open');
+    document.removeEventListener('keydown', onKeydown);
+    // Focus returns to whatever opened the menu — normally the trigger —
+    // not merely to the trigger unconditionally, in case focus reaches
+    // here some other way in the future.
+    (lastFocused ?? trigger).focus();
+  }
+
+  trigger?.addEventListener('click', () => {
+    const isOpen = trigger.getAttribute('aria-expanded') === 'true';
+    if (isOpen) closeMenu();
+    else openMenu();
+  });
+
+  closeButton?.addEventListener('click', closeMenu);
+</script>
+
+<style>
+  .mobile-menu {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    background: var(--canvas);
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .mobile-menu__inner {
+    min-height: 100%;
+    padding: clamp(20px, 5vw, 32px) var(--gutter) calc(40px + env(safe-area-inset-bottom, 0px));
+    display: flex;
+    flex-direction: column;
+    gap: clamp(28px, 6vw, 48px);
+  }
+
+  .mobile-menu__top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .mobile-menu__heading {
+    margin: 0;
+    font-family: var(--serif);
+    font-size: var(--display-xs);
+    color: var(--ink);
+  }
+  .mobile-menu__close {
+    min-height: var(--control-h);
+    padding: 0 18px;
+    border: 1px solid var(--rule);
+    background: transparent;
+    border-radius: 0;
+    font-family: var(--sans);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: var(--track-label);
+    text-transform: uppercase;
+    color: var(--ink);
+  }
+
+  .mobile-menu__nav ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: clamp(16px, 4vw, 24px);
+    border-top: 1px solid var(--rule);
+  }
+  .mobile-menu__nav a {
+    display: block;
+    padding: clamp(12px, 2.4vw, 16px) 0 0;
+    font-family: var(--sans);
+    font-size: clamp(15px, 4vw, 18px);
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--ink);
+    text-decoration: none;
+  }
+  .mobile-menu__nav a[aria-current='page'] {
+    box-shadow: inset 0 -2px 0 var(--ink);
+  }
+
+  .mobile-menu__utility {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding-top: clamp(16px, 3vw, 24px);
+    border-top: 1px solid var(--rule);
+  }
+  .mobile-menu__utility-link {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: var(--control-h);
+    padding: 0 20px;
+    font-family: var(--sans);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: var(--track-label);
+    text-transform: uppercase;
+    text-decoration: none;
+    border-radius: 0;
+  }
+  .mobile-menu__utility-link--primary {
+    background: var(--ink);
+    border: 1px solid var(--ink);
+    color: #fff;
+  }
+  .mobile-menu__utility-link--bordered,
+  .mobile-menu__utility-link--text {
+    border: 1px solid var(--rule);
+    color: var(--ink);
+  }
+
+  @media (min-width: 901px) {
+    .mobile-menu {
+      display: none;
+    }
+  }
+</style>

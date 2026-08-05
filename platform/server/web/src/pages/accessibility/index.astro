@@ -1,0 +1,13 @@
+---
+// Route 24 of 25 — 05_ROUTE_TEMPLATE_MATRIX.md. No documented title/H1 and
+// no `policies` table yet (that is B2), so this is a neutral structural
+// skeleton, not policy content.
+import Page from '../../layouts/Page.astro';
+import SkeletonNotice from '../../components/dev/SkeletonNotice.astro';
+import { staticBreadcrumbs } from '../../lib/routes.ts';
+---
+
+<Page title="Accessibility page | Veyora" breadcrumbs={staticBreadcrumbs('/accessibility/')}>
+  <h1>Accessibility page</h1>
+  <SkeletonNotice />
+</Page>

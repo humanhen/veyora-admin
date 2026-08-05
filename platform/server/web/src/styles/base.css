@@ -24,6 +24,13 @@ body {
   }
 }
 
+/* Scroll lock while the mobile menu overlay is open (MobileMenu.astro toggles
+   this class). Lives here, not in a component's scoped style, because it
+   targets <body>, which no component renders. */
+body.mobile-menu-open {
+  overflow: hidden;
+}
+
 body {
   background: var(--canvas);
   color: var(--ink);

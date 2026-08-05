@@ -1,0 +1,31 @@
+---
+// Routes 14 AND 15 of 25 — 05_ROUTE_TEMPLATE_MATRIX.md lists
+// `/resources/{category}/` (ResourceCategory) and `/resources/{slug}/`
+// (Article) as separate templates at the SAME single-segment path depth.
+// Astro's file router cannot host two different dynamic routes at an
+// identical pattern (`[category]` and `[slug]` would collide), and no
+// content source exists yet to disambiguate a category slug from an
+// article slug at request time. One shared file stands in for both until
+// Astro Content Collections (B5) make that distinction possible — see
+// 09_FIRST_BUILD_PACKAGE.md's B1.2 result for the full note. This is a
+// routing-topology simplification, not invented content.
+import Page from '../../../layouts/Page.astro';
+import SkeletonNotice from '../../../components/dev/SkeletonNotice.astro';
+import { breadcrumbsWithHome, humanizeSlug } from '../../../lib/routes.ts';
+
+const { slug } = Astro.params;
+const slugLabel = humanizeSlug(slug ?? '');
+---
+
+<Page
+  title="Resource page | Veyora"
+  breadcrumbs={breadcrumbsWithHome([
+    { label: 'Resources', href: '/resources/' },
+    { label: slugLabel, href: `/resources/${slug}/` },
+  ])}
+>
+  <h1>Resource page</h1>
+  <SkeletonNotice
+    note={`Showing the temporary skeleton for slug: ${slug}. Category-vs-article disambiguation is deferred to B5.`}
+  />
+</Page>

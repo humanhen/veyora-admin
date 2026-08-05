@@ -1,0 +1,14 @@
+---
+// Route 8 of 25 — 05_ROUTE_TEMPLATE_MATRIX.md. The specification marks this
+// title/H1 "*derive — must be unique*" (§3), i.e. not yet approved. Per the
+// B1.2 task brief, using a neutral structural label rather than inventing
+// marketing copy.
+import Page from '../../../layouts/Page.astro';
+import SkeletonNotice from '../../../components/dev/SkeletonNotice.astro';
+import { staticBreadcrumbs } from '../../../lib/routes.ts';
+---
+
+<Page title="Kids collection page | Veyora" breadcrumbs={staticBreadcrumbs('/collections/kids/')}>
+  <h1>Kids collection page</h1>
+  <SkeletonNotice />
+</Page>

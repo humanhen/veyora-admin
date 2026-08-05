@@ -1,0 +1,37 @@
+---
+import Base from './Base.astro';
+import Header from '../components/nav/Header.astro';
+import Footer from '../components/nav/Footer.astro';
+import Breadcrumbs from '../components/nav/Breadcrumbs.astro';
+import MobileMenu from '../components/nav/MobileMenu.astro';
+import type { BreadcrumbItem } from '../lib/routes.ts';
+
+interface Props {
+  title: string;
+  description?: string;
+  /** Omit entirely for the home route, which carries no breadcrumb trail. */
+  breadcrumbs?: BreadcrumbItem[];
+}
+
+const { title, description, breadcrumbs } = Astro.props;
+const currentPath = Astro.url.pathname;
+---
+
+<Base title={title} description={description}>
+  <!--
+    #site is the inert target while the mobile menu is open (see
+    MobileMenu.astro's script) — everything a visitor could otherwise tab
+    into or click behind the open panel lives inside it. The panel itself
+    is deliberately rendered as a sibling, outside #site, so making #site
+    inert never hides the menu that is currently open.
+  -->
+  <div id="site">
+    <Header currentPath={currentPath} />
+    {breadcrumbs && breadcrumbs.length > 0 && <Breadcrumbs items={breadcrumbs} />}
+    <main id="main-content">
+      <slot />
+    </main>
+    <Footer />
+  </div>
+  <MobileMenu currentPath={currentPath} />
+</Base>

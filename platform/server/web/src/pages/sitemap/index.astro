@@ -1,0 +1,15 @@
+---
+// Route 25 of 25 — 05_ROUTE_TEMPLATE_MATRIX.md: the HTML sitemap
+// (`HtmlSitemap` template), distinct from the XML sitemaps generated in
+// B7. No documented title/H1, and the real version groups links from
+// published records that do not exist until B2 — this is a neutral
+// structural skeleton.
+import Page from '../../layouts/Page.astro';
+import SkeletonNotice from '../../components/dev/SkeletonNotice.astro';
+import { staticBreadcrumbs } from '../../lib/routes.ts';
+---
+
+<Page title="Site map page | Veyora" breadcrumbs={staticBreadcrumbs('/sitemap/')}>
+  <h1>Site map page</h1>
+  <SkeletonNotice />
+</Page>

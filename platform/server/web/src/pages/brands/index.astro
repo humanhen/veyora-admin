@@ -1,0 +1,15 @@
+---
+// Route 3 of 25 — 05_ROUTE_TEMPLATE_MATRIX.md. Title/H1 are the
+// specification's own documented values (§3).
+import Page from '../../layouts/Page.astro';
+import SkeletonNotice from '../../components/dev/SkeletonNotice.astro';
+import { staticBreadcrumbs } from '../../lib/routes.ts';
+---
+
+<Page
+  title="Wholesale Eyewear Brands for Every Retail Segment | Veyora"
+  breadcrumbs={staticBreadcrumbs('/brands/')}
+>
+  <h1>A wholesale eyewear portfolio structured for every retail role.</h1>
+  <SkeletonNotice />
+</Page>

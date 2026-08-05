@@ -1,0 +1,25 @@
+---
+// Route 4 of 25 — 05_ROUTE_TEMPLATE_MATRIX.md: `/brands/{brand}/`.
+// No brand data source exists until B2 (the `brands` table) / B4 (the
+// public API surface), so this renders the same neutral skeleton for any
+// slug — including one that would not exist as a published brand. Real
+// publication lookups and unknown-slug 404 behaviour are deferred to
+// B2/B4; see 09_FIRST_BUILD_PACKAGE.md's B1.2 result for the full note.
+import Page from '../../../layouts/Page.astro';
+import SkeletonNotice from '../../../components/dev/SkeletonNotice.astro';
+import { breadcrumbsWithHome, humanizeSlug } from '../../../lib/routes.ts';
+
+const { brand } = Astro.params;
+const brandLabel = humanizeSlug(brand ?? '');
+---
+
+<Page
+  title={`Brand detail page | Veyora`}
+  breadcrumbs={breadcrumbsWithHome([
+    { label: 'Brands', href: '/brands/' },
+    { label: brandLabel, href: `/brands/${brand}/` },
+  ])}
+>
+  <h1>Brand detail page</h1>
+  <SkeletonNotice note={`Showing the temporary skeleton for slug: ${brand}`} />
+</Page>

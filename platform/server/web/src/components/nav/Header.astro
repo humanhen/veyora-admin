@@ -1,0 +1,211 @@
+---
+/* Extends the storefront's editorial `.hm-nav` language (sticky, translucent
+   warm-ivory, hairline lower border, uppercase letter-spaced links) as a
+   fresh, independent component — no portal/storefront source is imported or
+   copied. Reference only: platform/server/storefront/css/store.css
+   `.hm-nav*` rules (read, not touched) and
+   docs/public-website-rebuild/02_VISUAL_SYSTEM_INVENTORY.md §5.3. */
+import { primaryNav, utilityNav } from '../../lib/nav.ts';
+
+interface Props {
+  currentPath: string;
+}
+
+const { currentPath } = Astro.props;
+
+function isCurrent(href: string, external?: boolean): 'page' | undefined {
+  return !external && currentPath === href ? 'page' : undefined;
+}
+---
+
+<header class="site-header">
+  <div class="site-header__inner">
+    <a class="site-header__logo" href="/" aria-label="Veyora — home">
+      <img src="/logo-black.svg" width="180" height="24" alt="" />
+    </a>
+
+    <nav class="site-header__nav" aria-label="Primary">
+      <ul class="site-header__nav-list">
+        {
+          primaryNav.map((item) => (
+            <li>
+              <a href={item.href} aria-current={isCurrent(item.href)}>
+                {item.label}
+              </a>
+            </li>
+          ))
+        }
+      </ul>
+    </nav>
+
+    <div class="site-header__utility">
+      {
+        utilityNav.map((item) => (
+          <a
+            href={item.href}
+            class={`site-header__utility-link site-header__utility-link--${item.style ?? 'text'}`}
+            aria-current={isCurrent(item.href, item.external)}
+            rel={item.external ? 'noopener' : undefined}
+          >
+            {item.label}
+          </a>
+        ))
+      }
+    </div>
+
+    <button
+      type="button"
+      id="mobile-menu-trigger"
+      class="site-header__menu-trigger"
+      aria-expanded="false"
+      aria-controls="mobile-menu"
+      aria-label="Open menu"
+    >
+      <span aria-hidden="true">Menu</span>
+    </button>
+  </div>
+</header>
+
+<style>
+  .site-header {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    background: rgba(245, 242, 236, 0.93);
+    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--rule);
+  }
+
+  .site-header__inner {
+    max-width: var(--container);
+    margin: 0 auto;
+    padding: clamp(11px, 1.2vw, 14px) clamp(20px, 5.6vw, 40px);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: clamp(12px, 2vw, 24px);
+  }
+
+  .site-header__logo {
+    display: block;
+    min-width: 0;
+    flex: 0 1 auto;
+  }
+  .site-header__logo img {
+    display: block;
+    width: auto;
+    height: clamp(17px, 4.8vw, 24px);
+    max-width: 100%;
+  }
+
+  .site-header__nav-list {
+    display: flex;
+    align-items: center;
+    gap: clamp(10px, 2vw, 26px);
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .site-header__nav-list a {
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--link-h);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: clamp(10px, 1.4vw, 11.5px);
+    font-weight: 600;
+    letter-spacing: var(--track-nav);
+    text-transform: uppercase;
+    white-space: nowrap;
+    text-decoration: none;
+  }
+  .site-header__nav-list a:hover {
+    color: #000;
+  }
+  .site-header__nav-list a[aria-current='page'] {
+    box-shadow: inset 0 -2px 0 var(--ink);
+  }
+
+  .site-header__utility {
+    display: flex;
+    align-items: center;
+    gap: clamp(8px, 1.4vw, 16px);
+  }
+  .site-header__utility-link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: var(--control-h);
+    padding: 0 clamp(14px, 1.6vw, 22px);
+    font-family: var(--sans);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: var(--track-label);
+    text-transform: uppercase;
+    text-decoration: none;
+    white-space: nowrap;
+    border-radius: 0;
+    transition: background var(--motion), border-color var(--motion), color var(--motion);
+  }
+  .site-header__utility-link--primary {
+    background: var(--ink);
+    border: 1px solid var(--ink);
+    color: #fff;
+  }
+  .site-header__utility-link--primary:hover {
+    background: #000;
+    border-color: #000;
+  }
+  .site-header__utility-link--bordered {
+    border: 1px solid var(--rule);
+    color: var(--ink);
+    min-height: var(--link-h);
+    padding: 0 clamp(10px, 1.4vw, 16px);
+  }
+  .site-header__utility-link--bordered:hover {
+    border-color: var(--ink);
+  }
+  .site-header__utility-link--text {
+    min-height: var(--link-h);
+    color: var(--ink);
+    box-shadow: inset 0 -1px 0 var(--rule);
+  }
+  .site-header__utility-link--text:hover {
+    box-shadow: inset 0 -1px 0 var(--ink);
+  }
+
+  .site-header__menu-trigger {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    min-height: var(--control-h);
+    min-width: var(--control-h);
+    padding: 0 16px;
+    border: 1px solid var(--rule);
+    background: transparent;
+    border-radius: 0;
+    font-family: var(--sans);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: var(--track-label);
+    text-transform: uppercase;
+    color: var(--ink);
+  }
+
+  /* Primary nav loses room before the utility actions do, so it collapses
+     first — matching the documented "collapse to a menu button below 900px"
+     requirement, while Request B2B Account / B2B Login stay reachable
+     outside the menu. */
+  @media (max-width: 900px) {
+    .site-header__nav {
+      display: none;
+    }
+    .site-header__menu-trigger {
+      display: inline-flex;
+    }
+    .site-header__utility-link--text {
+      display: none;
+    }
+  }
+</style>

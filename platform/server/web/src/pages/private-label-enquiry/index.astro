@@ -1,0 +1,17 @@
+---
+// Route 18 of 25 — 05_ROUTE_TEMPLATE_MATRIX.md §1 note: an addition
+// required by REQ-PL-009, named by requirement but not given a route by
+// the specification. No documented title/H1 exists, so this uses a
+// neutral structural label rather than inventing marketing copy.
+import Page from '../../layouts/Page.astro';
+import SkeletonNotice from '../../components/dev/SkeletonNotice.astro';
+import { staticBreadcrumbs } from '../../lib/routes.ts';
+---
+
+<Page
+  title="Private label enquiry page | Veyora"
+  breadcrumbs={staticBreadcrumbs('/private-label-enquiry/')}
+>
+  <h1>Private label enquiry page</h1>
+  <SkeletonNotice />
+</Page>

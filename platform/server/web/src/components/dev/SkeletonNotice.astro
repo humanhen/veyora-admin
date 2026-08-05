@@ -1,0 +1,54 @@
+---
+/* Shared development-only placeholder body for every B1.2 route skeleton,
+   so the same notice isn't hand-typed 25 times and drifting each time.
+   Deliberately plain: a hairline rule, no shadow, no radius, no colour
+   outside the token set — quiet enough that nobody could mistake it for an
+   approved commercial claim. Remove the import in each route file when
+   real content lands in B3/B4/B5; nothing else references this component.
+ */
+interface Props {
+  /** Route-specific context, e.g. echoing a dynamic slug. Never invents a fact. */
+  note?: string;
+}
+
+const { note } = Astro.props;
+---
+
+<div class="skeleton-notice">
+  <p class="skeleton-notice__eyebrow">Development placeholder — B1.2</p>
+  <p class="skeleton-notice__body">
+    This route is a structural skeleton only. Approved page content, imagery and copy will be
+    supplied in a later build batch.
+    {note && <span class="skeleton-notice__note">{note}</span>}
+  </p>
+</div>
+
+<style>
+  .skeleton-notice {
+    max-width: 46ch;
+    margin: clamp(28px, 5vw, 48px) 0;
+    padding: clamp(16px, 2.4vw, 22px) clamp(18px, 2.6vw, 24px);
+    border: 1px solid var(--rule);
+    border-left: 2px solid var(--rule);
+  }
+  .skeleton-notice__eyebrow {
+    margin: 0 0 8px;
+    font-family: var(--sans);
+    font-size: var(--eyebrow);
+    font-weight: 600;
+    letter-spacing: var(--track-eyebrow);
+    text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+  .skeleton-notice__body {
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.7;
+    color: var(--ink-soft);
+  }
+  .skeleton-notice__note {
+    display: block;
+    margin-top: 8px;
+    color: var(--ink-faint);
+  }
+</style>
