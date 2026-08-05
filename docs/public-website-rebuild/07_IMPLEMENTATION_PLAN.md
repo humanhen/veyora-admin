@@ -477,3 +477,44 @@ would have required modifying admin/Zoho modules the brief placed out of scope.
 
 Full detail: `docs/public-website-rebuild/15_B2_PUBLIC_API_CONTRACT.md`;
 `04_TARGET_ARCHITECTURE.md` §13; `09_FIRST_BUILD_PACKAGE.md`'s B2.2 section.
+
+---
+
+## 12. B2.3 implementation result — 2026-08-06
+
+**Scope executed:** the Astro site now consumes the `/public/*` API server-side. This is the
+consuming half of WP-07's value — the router and serializer landed in B2.2; B2.3 connects the
+website to them and proves the boundary holds in **rendered HTML**, which is where §6's public-data
+gate actually has to hold.
+
+**310/310 web tests passing** (221 pre-existing B1 tests all still green, plus 89 new or updated).
+No API test was run and no API file changed.
+
+### 12.1 Effect on §6's gate table
+
+| Gate | Status after B2.3 |
+|---|---|
+| Public data boundary | **Materially advanced.** The forbidden-key scan now runs against *rendered HTML* for the eight integrated routes, not only against API responses — a mock API deliberately serves fixtures carrying price, cost, margin, stock, warehouse, Zoho ids, fact-owner ids, a customer email, a `label:*` tag, an address and coordinates, and the tests assert none reaches the HTML. Still **not** covering JSON-LD (does not exist) and still not wired as a merge gate. |
+| Route contract | Partially advanced: status, title, description, canonical, H1 and robots verified over real HTTP for the integrated routes. |
+| Crawl (JS-disabled reachability) | Advanced: every integrated route, including filters and pagination, works with no client JavaScript — pagination is plain links. |
+| Structured data, accessibility, visual regression, performance, placeholder, forms | Unchanged. |
+
+### 12.2 Work packages
+
+- **WP-07** — now complete in substance on both sides (API + consuming client). Its remaining
+  deferred piece is cache invalidation wiring, which belongs to WP-09.
+- **WP-08** (slug generation + backfill) and **WP-09** (admin editing surfaces) — **still not
+  started**, unchanged from the B2.1/B2.2 notes above.
+- **WP-16** (`FilterPanel` island, B4) is unblocked but not started: `getFacets()` is implemented
+  and tested, and no route consumes it yet. B2.3 deliberately built no filter UI — filters work by
+  URL only.
+
+### 12.3 One finding worth carrying forward
+
+Setting `Astro.response.status` from inside a nested Astro component does not affect the response;
+it must be set in page frontmatter. This shaped B2.3's design (shared logic as a function, not a
+component) and is worth knowing for every later batch that adds a data-backed route — a listing
+that delegated its status to a child component would silently answer 200 during an outage.
+
+Full detail: `docs/public-website-rebuild/17_B2_WEB_API_INTEGRATION.md`;
+`04_TARGET_ARCHITECTURE.md` §14; `05_ROUTE_TEMPLATE_MATRIX.md` §11.

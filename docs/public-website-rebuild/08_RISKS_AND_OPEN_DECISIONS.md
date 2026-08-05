@@ -123,6 +123,33 @@ no live database was contacted, so the boundary has been proven against fixtures
 clients rather than real rows. **Score unchanged pending those items**; revisit at B9, when the
 crawl/QA suite can run the same scanner across rendered output and the gate can be wired.
 
+**Implementation update — 2026-08-06 (B2.3).** Both entries above are retained as written. B2.3
+closed one of the four surfaces the original mitigation named, and added a second independent
+enforcement layer:
+
+- *Now covered:* **rendered HTML**. `platform/server/web/test/public-render.test.ts` builds the real
+  Astro server, points it at a mock API whose fixtures deliberately carry price, sale price,
+  purchase cost, margin, wholesale, qty, stock status, warehouse, shelf, Zoho id, fact-owner id,
+  approver id, a customer email, a `label:*` tag, media rights holder, a street address and
+  coordinates — then requests every integrated route over HTTP and asserts none of those planted
+  literals appears in the HTML. This is the surface the original entry cared about most ("on a
+  public, indexed, crawled site a leaked price is permanent").
+- *Second enforcement layer:* the website re-validates every API response into fresh objects built
+  from named fields (`src/lib/public-types.ts`), never spreading the parsed payload. The API's
+  serializer is no longer the only thing standing between a database row and a public page. This
+  is not redundant: it caught a real gap during B2.3 — internal `label:*` tags survived web-side
+  validation on first implementation, and while the API already strips them so nothing would have
+  leaked in practice, the layer exists precisely so an upstream regression cannot.
+- *Adopted throughout:* no availability in any form on any integrated route.
+
+**Why the risk still cannot close.** Two of the four named surfaces remain: **JSON-LD does not
+exist yet** (B7), and **inline JSON** is not rendered by any route. The scan is still part of the
+test suite rather than a wired CI merge gate. And no real published data exists anywhere — every
+table is empty and every product is unpublished — so the boundary has been proven against
+adversarial fixtures, not against a real row that could carry a field nobody anticipated. **Score
+unchanged**; the B9 revisit condition stated above is unchanged, now with rendered HTML already
+demonstrated.
+
 ---
 
 ### R-07 · Visual drift from the approved design · L3 × I4 = **12**

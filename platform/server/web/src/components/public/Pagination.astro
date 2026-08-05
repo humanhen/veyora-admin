@@ -1,0 +1,84 @@
+---
+/* Previous/next pagination for catalogue listings (B2.3).
+
+   Plain links, no JavaScript — the B2.3 brief requires filters and paging
+   to work without it, and 05_ROUTE_TEMPLATE_MATRIX.md §9 requires every
+   navigation link to be present and crawlable with JS disabled.
+
+   Only previous/next, deliberately: the API returns `hasMore`, not a total
+   count (a deliberate B2.2 decision — a full count across ~4,000 SKUs is
+   commercially useful to a competitor), so numbered pages and a "page N of
+   M" label are not derivable. Showing them would require inventing a total
+   this site is not given. */
+interface Props {
+  page: number;
+  hasMore: boolean;
+  /** Both hrefs are pre-built by the caller via buildCatalogueHref(), so
+   * every supported filter is preserved across pages by construction. */
+  previousHref: string | null;
+  nextHref: string | null;
+}
+
+const { page, hasMore, previousHref, nextHref } = Astro.props;
+const showPrevious = page > 1 && previousHref !== null;
+const showNext = hasMore && nextHref !== null;
+---
+
+{
+  (showPrevious || showNext) && (
+    <nav class="pagination" aria-label="Pagination">
+      {showPrevious ? (
+        <a class="pagination__link" rel="prev" href={previousHref}>
+          Previous
+        </a>
+      ) : (
+        <span />
+      )}
+      <p class="pagination__page">Page {page}</p>
+      {showNext ? (
+        <a class="pagination__link" rel="next" href={nextHref}>
+          Next
+        </a>
+      ) : (
+        <span />
+      )}
+    </nav>
+  )
+}
+
+<style>
+  .pagination {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin: clamp(32px, 5vw, 56px) 0 0;
+    padding-top: clamp(16px, 2.4vw, 24px);
+    border-top: 1px solid var(--rule);
+  }
+  .pagination__link {
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--link-h);
+    font-family: var(--sans);
+    font-size: var(--label);
+    font-weight: 600;
+    letter-spacing: var(--track-label);
+    text-transform: uppercase;
+    color: var(--ink);
+    text-decoration: none;
+    box-shadow: inset 0 -1px 0 var(--rule);
+  }
+  .pagination__link:hover {
+    box-shadow: inset 0 -1px 0 var(--ink);
+  }
+  .pagination__page {
+    margin: 0;
+    font-family: var(--sans);
+    font-size: var(--eyebrow);
+    font-weight: 600;
+    letter-spacing: var(--track-eyebrow);
+    text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+</style>

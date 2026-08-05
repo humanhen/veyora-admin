@@ -110,9 +110,51 @@ test('no route skeleton imports portal or storefront CSS or JS', () => {
   }
 });
 
-test('every route skeleton shows the development-only content notice', () => {
+/* B2.3 replaced the placeholder body of six routes with real, API-backed
+   content. Those routes no longer show a development notice — showing one
+   alongside genuine published data would be misleading. Every OTHER route
+   is still a skeleton and must still say so, which is what the assertion
+   below now checks. This list shrinks as later batches integrate more
+   routes; it is deliberately explicit so integrating a route without
+   removing its notice fails here. */
+const API_BACKED_ROUTES = [
+  'brands/index.astro',
+  'brands/[brand]/index.astro',
+  'collections/index.astro',
+  'collections/optical/index.astro',
+  'collections/sun/index.astro',
+  'collections/kids/index.astro',
+  'collections/[brand]/[model]/index.astro',
+  'global-presence/index.astro',
+];
+
+test('every route that is still a skeleton shows the development-only content notice', () => {
   for (const rel of ROUTE_FILES) {
+    if (API_BACKED_ROUTES.includes(rel)) continue;
     assert.match(readRoute(rel), /SkeletonNotice/, `${rel} does not render SkeletonNotice`);
+  }
+});
+
+test('an API-backed route shows no development-only notice alongside real published data', () => {
+  for (const rel of API_BACKED_ROUTES) {
+    assert.doesNotMatch(
+      readRoute(rel),
+      /SkeletonNotice/,
+      `${rel} is API-backed but still renders the development placeholder`
+    );
+  }
+});
+
+test('every API-backed route sets its response status from the API result', () => {
+  // The status must be set in the PAGE frontmatter: Astro ignores
+  // Astro.response.status set from inside a nested component, so a route
+  // that delegated it would silently answer 200 during an outage.
+  for (const rel of API_BACKED_ROUTES) {
+    assert.match(
+      readRoute(rel),
+      /Astro\.response\.status\s*=/,
+      `${rel} does not set a response status from its API result`
+    );
   }
 });
 
@@ -130,13 +172,22 @@ test('category-landing routes reference their own central metadata record', () =
 });
 
 test('dynamic routes read their params and pass them through only as an echoed note, not an invented fact', () => {
+  /* B2.3: the brand and model routes now look their slug up through the
+     public API and build metadata from the VALIDATED record instead of
+     humanising the slug. The humanised-slug fallback survives only for
+     the non-404 failure page (a 503 still needs a title, and inventing a
+     brand name for one would be worse than a neutral label) — so these
+     two now assert the API lookup is what drives the page, which is the
+     stronger property. */
   const brand = readRoute('brands/[brand]/index.astro');
   assert.match(brand, /Astro\.params/);
-  assert.match(brand, /humanizeSlug/);
+  assert.match(brand, /getBrand\(/);
+  assert.match(brand, /brandDetailMetadataFromRecord/);
 
   const model = readRoute('collections/[brand]/[model]/index.astro');
   assert.match(model, /Astro\.params/);
-  assert.match(model, /humanizeSlug/);
+  assert.match(model, /getModel\(/);
+  assert.match(model, /modelDetailMetadataFromRecord/);
 
   const resource = readRoute('resources/[slug]/index.astro');
   assert.match(resource, /Astro\.params/);

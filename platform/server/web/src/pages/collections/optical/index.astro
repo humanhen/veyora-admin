@@ -1,14 +1,20 @@
 ---
-// Route 6 of 25 — 05_ROUTE_TEMPLATE_MATRIX.md. Metadata/H1 come from the
-// central registry (src/lib/metadata.ts); marked pendingContent there
-// since the specification leaves this title/H1 "*derive — must be
-// unique*" (§3), i.e. not yet approved.
+// Route 6 of 25 — 05_ROUTE_TEMPLATE_MATRIX.md. API-backed as of B2.3.
+// Metadata/H1 come from the central registry, still marked pendingContent
+// there (the specification leaves these category titles/H1s "*derive —
+// must be unique*"). The category filter is INJECTED into the shared
+// loader rather than this route duplicating any fetching logic.
 import Page from '../../../layouts/Page.astro';
-import SkeletonNotice from '../../../components/dev/SkeletonNotice.astro';
+import CatalogueListing from '../../../components/public/CatalogueListing.astro';
 import { STATIC_ROUTE_METADATA } from '../../../lib/metadata.ts';
 import { staticBreadcrumbs } from '../../../lib/routes.ts';
+import { loadCataloguePage } from '../../../lib/catalogue-page.ts';
+
+const basePath = '/collections/optical/';
+const state = await loadCataloguePage(Astro.url, { basePath, forcedCategory: 'Optical' });
+Astro.response.status = state.status;
 ---
 
 <Page meta={STATIC_ROUTE_METADATA['/collections/optical/']} breadcrumbs={staticBreadcrumbs('/collections/optical/')}>
-  <SkeletonNotice />
+  <CatalogueListing state={state} basePath={basePath} subject="optical models" />
 </Page>

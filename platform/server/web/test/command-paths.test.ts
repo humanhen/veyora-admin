@@ -87,6 +87,8 @@ test('production build rejects missing PUBLIC_SITE_ORIGIN', () => {
     NODE_ENV: 'production',
     PUBLIC_SITE_ORIGIN: undefined,
     PORTAL_ORIGIN: 'http://127.0.0.1:4322',
+    // B2.3: a third origin is now required in production.
+    PUBLIC_API_ORIGIN: 'http://127.0.0.1:4399',
   });
   assert.notEqual(result.status, 0, 'build must exit non-zero');
   assert.match(result.stdout + result.stderr, /PUBLIC_SITE_ORIGIN/);
@@ -107,16 +109,20 @@ test('production build rejects a malformed, non-HTTP(S) origin', () => {
     NODE_ENV: 'production',
     PUBLIC_SITE_ORIGIN: 'not-a-url',
     PORTAL_ORIGIN: 'http://127.0.0.1:4322',
+    // B2.3: a third origin is now required in production.
+    PUBLIC_API_ORIGIN: 'http://127.0.0.1:4399',
   });
   assert.notEqual(result.status, 0, 'build must exit non-zero');
   assert.match(result.stdout + result.stderr, /PUBLIC_SITE_ORIGIN/);
 });
 
-test('production build succeeds with two valid explicit origins', () => {
+test('production build succeeds with every required origin supplied', () => {
   const result = runNpm(['run', 'build'], {
     NODE_ENV: 'production',
     PUBLIC_SITE_ORIGIN: 'http://127.0.0.1:4321',
     PORTAL_ORIGIN: 'http://127.0.0.1:4322',
+    // B2.3: a third origin is now required in production.
+    PUBLIC_API_ORIGIN: 'http://127.0.0.1:4399',
   });
   assert.equal(result.status, 0, `build must succeed. output:\n${result.stdout}\n${result.stderr}`);
   assert.ok(
@@ -150,6 +156,8 @@ test('production startup rejects missing PUBLIC_SITE_ORIGIN before listening', a
     PORT: String(TEST_PORT),
     PUBLIC_SITE_ORIGIN: undefined,
     PORTAL_ORIGIN: 'http://127.0.0.1:4322',
+    // B2.3: a third origin is now required in production.
+    PUBLIC_API_ORIGIN: 'http://127.0.0.1:4399',
   });
   let output = '';
   child.stdout?.on('data', (d) => (output += String(d)));
@@ -188,6 +196,8 @@ test('production startup succeeds with valid explicit origins and serves /health
     PORT: String(TEST_PORT),
     PUBLIC_SITE_ORIGIN: 'http://127.0.0.1:4321',
     PORTAL_ORIGIN: 'http://127.0.0.1:4322',
+    // B2.3: a third origin is now required in production.
+    PUBLIC_API_ORIGIN: 'http://127.0.0.1:4399',
   };
   const env = buildEnv(overrides);
 

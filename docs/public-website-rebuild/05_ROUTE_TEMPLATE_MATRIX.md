@@ -334,3 +334,55 @@ shared `Base.astro` layout — meaning every one of the 25 routes in §1, not on
 carries it. The allowlist, the "must not accept an arbitrary target" rule, and the dedicated
 security test named in §6.3 are all unchanged in substance; only the loading location moved. Full
 detail: `04_TARGET_ARCHITECTURE.md` §11.
+
+---
+
+## 11. B2.3 implementation result — 2026-08-06
+
+Eight of the twenty-five routes in §1 are now backed by the read-only `/public/*` API rather than
+by a placeholder body. §1's route set, rendering strategy and indexing dispositions are unchanged —
+this records which rows are now real.
+
+| # | Route | Status after B2.3 |
+|---|---|---|
+| 3 | `/brands/` | API-backed — `listBrands()` |
+| 4 | `/brands/{brand}/` | API-backed — `getBrand()`; metadata/breadcrumbs from the validated record |
+| 5 | `/collections/` | API-backed — `listModels()` |
+| 6–8 | `/collections/{optical,sun,kids}/` | API-backed — same loader with an injected category |
+| 9 | `/collections/{brand}/{model}/` | API-backed — `getModel()`; metadata/breadcrumbs from the record |
+| 12 | `/global-presence/` | API-backed — `listLocations()` |
+| all others | unchanged — still development skeletons |
+
+### 11.1 §3's dynamic metadata rows are now populated from data
+
+§3 specified `/brands/{brand}/` as `{Brand}: {approved distinctive positioning statement}` and
+`/collections/{brand}/{model}/` as `{Brand} {Model/SKU}`. Both now build title, description, H1 and
+breadcrumb label from the **validated API record** rather than a humanised slug. Where a record
+carries no approved headline or summary, the description falls back to a factual sentence naming
+only the brand/model and that Veyora distributes it — it never asserts a positioning claim nobody
+approved. The humanised-slug builders survive only for the non-404 failure page, where a 503 still
+needs a title and inventing a brand name would be worse than a neutral label.
+
+### 11.2 §2's query-state dispositions are unchanged and verified
+
+The filter/sort/page states in §2 continue to be decided solely by `src/lib/indexing.ts`. B2.3
+added no indexing logic. Verified live: `?page=2` → `index, follow` with a self-canonical including
+the page; `?brand=` and `?sort=` → `noindex, follow` canonical to the clean path.
+
+The three category landing routes inject their category server-side and omit it from their own
+pagination links, because it is already in the path — repeating it as a query parameter would
+create a second URL for identical content, which §2's canonical rules exist to prevent. A category
+route also cannot be repointed to a different category by query string.
+
+### 11.3 §9's acceptance criteria — which now hold, and which still cannot
+
+Of §9's fourteen route acceptance checks, B2.3 verifies 1, 2, 3, 4, 5 (partially — OG/Twitter tags
+are present; `og:image` is still unset), 6 and 7 on the eight integrated routes, over real HTTP
+against a mock API. Checks 8 (JSON-LD), 11 (placeholder tokens), 12 (axe), 13 (visual baseline) and
+14 (Lighthouse) remain out of scope and unchanged. Check 10 (zero forbidden keys) is verified for
+rendered **HTML** on these routes but **not** for JSON-LD, which does not exist yet.
+
+Site-wide, §9's "unknown paths return 404" now also covers unknown **entity** slugs on the two
+dynamic API-backed routes — a previously documented B1.2 limitation (arbitrary slugs returned 200)
+that B2.3 closes for brands and models. Unknown resource slugs still return 200, since
+`/resources/{slug}/` remains a skeleton until B5.

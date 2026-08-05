@@ -1,0 +1,46 @@
+---
+/* Rendered on a successful (200) API response that legitimately contained
+   no records (B2.3).
+
+   Distinct from PublicDataUnavailable by design — see that component's
+   comment. This one is an authoritative statement ("nothing is published
+   here yet"), which is only ever true because the API said so.
+
+   Deliberately neutral wording: it never states or implies a count, a
+   launch date, or that content is "coming soon", because no such fact has
+   been approved (06_CONTENT_AND_PLACEHOLDER_REGISTER.md's rule that
+   nothing is invented). */
+interface Props {
+  /** e.g. "brands", "models matching these filters". */
+  subject: string;
+}
+
+const { subject } = Astro.props;
+---
+
+<div class="empty-state">
+  <p class="empty-state__body">There are no published {subject} to show at the moment.</p>
+  <p class="empty-state__links">
+    <a href="/contact/">Contact our team</a> for help finding what you need.
+  </p>
+</div>
+
+<style>
+  .empty-state {
+    max-width: 46ch;
+    margin: clamp(28px, 5vw, 48px) 0;
+    padding: clamp(16px, 2.4vw, 22px) 0;
+    border-top: 1px solid var(--rule);
+  }
+  .empty-state__body,
+  .empty-state__links {
+    margin: 0;
+    font-size: var(--body);
+    line-height: 1.8;
+    color: var(--ink-soft);
+  }
+  .empty-state__links {
+    margin-top: 10px;
+    font-size: 14px;
+  }
+</style>

@@ -25,9 +25,16 @@ private boundary this preserves.
 |---|---|---|
 | `PUBLIC_SITE_ORIGIN` | yes — throws at startup if missing or malformed | `http://localhost:4321` |
 | `PORTAL_ORIGIN` | yes — throws at startup if missing or malformed | `http://localhost:4322` |
+| `PUBLIC_API_ORIGIN` | yes — throws at startup if missing or malformed | `http://localhost:3000` |
 | `NODE_ENV` | — | `development` |
 
-Both origins must be absolute `http`/`https` URLs with no path, query or
+`PUBLIC_API_ORIGIN` is **server-side only**: the internal origin this server
+calls to reach the read-only `/public/*` API (`http://api:3000` inside the
+deployed Docker stack). It is never sent to a browser, never rendered into a
+page, and never read through `import.meta.env` — only `src/lib/public-api.ts`,
+itself server-only, ever uses it.
+
+All three origins must be absolute `http`/`https` URLs with no path, query or
 fragment; trailing slashes normalise to the same value either way. See
 `src/env.ts` for the full contract and `.env.example` for a template. No
 real Veyora domain is hard-coded anywhere in this application — the

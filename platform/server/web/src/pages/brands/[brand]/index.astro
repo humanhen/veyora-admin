@@ -1,26 +1,231 @@
 ---
 // Route 4 of 25 — 05_ROUTE_TEMPLATE_MATRIX.md: `/brands/{brand}/`.
-// No brand data source exists until B2 (the `brands` table) / B4 (the
-// public API surface), so this renders the same neutral skeleton for any
-// slug — including one that would not exist as a published brand. Real
-// publication lookups and unknown-slug 404 behaviour are deferred to
-// B2/B4; see 09_FIRST_BUILD_PACKAGE.md's B1.2/B1.3 results.
+// API-backed as of B2.3. Metadata and breadcrumbs are now built from the
+// validated API record, not from a humanised slug.
 import Page from '../../../layouts/Page.astro';
-import SkeletonNotice from '../../../components/dev/SkeletonNotice.astro';
-import { brandDetailMetadata } from '../../../lib/metadata.ts';
-import { breadcrumbsWithHome, humanizeSlug } from '../../../lib/routes.ts';
+import ModelGrid from '../../../components/public/ModelGrid.astro';
+import PublicImage from '../../../components/public/PublicImage.astro';
+import PublicDataUnavailable from '../../../components/public/PublicDataUnavailable.astro';
+import NotFound from '../../../components/public/NotFound.astro';
+import { brandDetailMetadata, brandDetailMetadataFromRecord, NOT_FOUND_METADATA } from '../../../lib/metadata.ts';
+import { NOT_FOUND_ROBOTS } from '../../../lib/indexing.ts';
+import { breadcrumbsWithHome } from '../../../lib/routes.ts';
+import { getBrand, PUBLIC_API_FAILURE_STATUS } from '../../../lib/public-api.ts';
 
-const { brand } = Astro.params;
-const meta = brandDetailMetadata(brand ?? '');
-const brandLabel = humanizeSlug(brand ?? '');
+const slug = Astro.params.brand ?? '';
+const result = await getBrand(slug);
+
+// A 404 and an upstream failure are rendered as genuinely different pages
+// with different statuses — never collapsing an outage into "this brand
+// does not exist", which would tell a crawler to drop a real, published
+// brand from the index.
+if (!result.ok) {
+  Astro.response.status = PUBLIC_API_FAILURE_STATUS[result.kind];
+}
+
+const brand = result.ok ? result.data : null;
+const meta = brand
+  ? brandDetailMetadataFromRecord(brand)
+  : result.ok || result.kind === 'not-found'
+    ? NOT_FOUND_METADATA
+    : brandDetailMetadata(slug);
+
+const breadcrumbs = brand
+  ? breadcrumbsWithHome([
+      { label: 'Brands', href: '/brands/' },
+      { label: brand.name, href: `/brands/${brand.slug}/` },
+    ])
+  : undefined;
+
+// Only facts the brand record actually carries. Each is omitted entirely
+// when absent rather than rendered as an empty row.
+const facts = brand
+  ? ([
+      ['Segment', brand.segment],
+      ['Price tier', brand.priceTierLabel],
+      ['Design origin', brand.designOrigin],
+      ['Manufacturing origin', brand.manufacturingOrigin],
+      ['Ideal retailer', brand.idealRetailer],
+    ] as const).filter(([, value]) => Boolean(value))
+  : [];
 ---
 
 <Page
   meta={meta}
-  breadcrumbs={breadcrumbsWithHome([
-    { label: 'Brands', href: '/brands/' },
-    { label: brandLabel, href: `/brands/${brand}/` },
-  ])}
+  breadcrumbs={breadcrumbs}
+  fixedRobots={!brand && result.ok === false && result.kind === 'not-found' ? NOT_FOUND_ROBOTS : undefined}
 >
-  <SkeletonNotice note={`Showing the temporary skeleton for slug: ${brand}`} />
+  {!result.ok && result.kind === 'not-found' && <NotFound subject="brand" />}
+  {!result.ok && result.kind !== 'not-found' && <PublicDataUnavailable subject="this brand" />}
+
+  {
+    brand && (
+      <>
+        {brand.heroMedia && (
+          <div class="brand-hero">
+            <PublicImage media={brand.heroMedia} fallbackAlt={brand.name} loading="eager" />
+          </div>
+        )}
+
+        {brand.headline && <p class="brand-lead">{brand.headline}</p>}
+        {brand.summary && <p class="brand-body">{brand.summary}</p>}
+        {brand.story && <p class="brand-body">{brand.story}</p>}
+
+        {facts.length > 0 && (
+          <dl class="brand-facts">
+            {facts.map(([label, value]) => (
+              <div class="brand-facts__row">
+                <dt>{label}</dt>
+                <dd>{value}</dd>
+              </div>
+            ))}
+          </dl>
+        )}
+
+        {brand.bestFor.length > 0 && (
+          <section class="brand-section">
+            <h2>Best for</h2>
+            <ul class="brand-list">
+              {brand.bestFor.map((item) => (
+                <li>{item}</li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        {brand.styleTraits.length > 0 && (
+          <section class="brand-section">
+            <h2>Style</h2>
+            <ul class="brand-list">
+              {brand.styleTraits.map((item) => (
+                <li>{item}</li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        {brand.approvedMaterials.length > 0 && (
+          <section class="brand-section">
+            <h2>Materials</h2>
+            <ul class="brand-list">
+              {brand.approvedMaterials.map((item) => (
+                <li>{item}</li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        {brand.featuredModels.length > 0 && (
+          <section class="brand-section">
+            <h2>Featured models</h2>
+            <ModelGrid models={brand.featuredModels} headingLevel={3} />
+          </section>
+        )}
+
+        <p class="brand-more">
+          <a href={`/collections/?brand=${encodeURIComponent(brand.slug)}`}>
+            View all {brand.name} models
+          </a>
+        </p>
+      </>
+    )
+  }
 </Page>
+
+<style>
+  .brand-hero {
+    margin: clamp(20px, 3vw, 32px) 0;
+    aspect-ratio: 4 / 5;
+    max-height: min(70vh, 680px);
+    background: var(--stone);
+  }
+  .brand-hero :global(img) {
+    height: 100%;
+    object-fit: cover;
+  }
+  @media (max-width: 900px) {
+    .brand-hero {
+      aspect-ratio: 5 / 4;
+    }
+  }
+
+  .brand-lead {
+    max-width: 44ch;
+    font-size: var(--lead);
+    line-height: 1.75;
+    color: var(--ink-soft);
+  }
+  .brand-body {
+    max-width: 46ch;
+    font-size: var(--body);
+    line-height: 1.8;
+    color: var(--ink-soft);
+  }
+
+  .brand-facts {
+    margin: clamp(28px, 4vw, 44px) 0;
+    padding: 0;
+    max-width: 46ch;
+  }
+  .brand-facts__row {
+    display: grid;
+    grid-template-columns: minmax(0, 0.6fr) minmax(0, 1fr);
+    gap: 16px;
+    padding: 12px 0;
+    border-top: 1px solid var(--rule);
+  }
+  .brand-facts dt {
+    font-family: var(--sans);
+    font-size: var(--eyebrow);
+    font-weight: 600;
+    letter-spacing: var(--track-eyebrow);
+    text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+  .brand-facts dd {
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.6;
+    color: var(--ink-soft);
+  }
+
+  .brand-section {
+    margin: clamp(32px, 5vw, 56px) 0;
+  }
+  .brand-section h2 {
+    font-family: var(--serif);
+    font-size: var(--display-xs);
+    font-weight: 400;
+    color: var(--ink);
+  }
+  .brand-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    max-width: 46ch;
+  }
+  .brand-list li {
+    padding: 10px 0;
+    border-top: 1px solid var(--rule);
+    font-size: 14px;
+    line-height: 1.6;
+    color: var(--ink-soft);
+  }
+
+  .brand-more {
+    margin: clamp(32px, 5vw, 56px) 0 0;
+    font-family: var(--sans);
+    font-size: var(--label);
+    font-weight: 600;
+    letter-spacing: var(--track-label);
+    text-transform: uppercase;
+  }
+  .brand-more a {
+    color: var(--ink);
+    text-decoration: none;
+    box-shadow: inset 0 -1px 0 var(--rule);
+  }
+  .brand-more a:hover {
+    box-shadow: inset 0 -1px 0 var(--ink);
+  }
+</style>

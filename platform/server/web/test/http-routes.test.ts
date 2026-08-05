@@ -18,22 +18,34 @@ import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { startMockApi, type MockApi } from './helpers/mock-public-api.ts';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const TEST_PORT = 4320; // distinct from other suites' ports and dev defaults
 const SITE_ORIGIN = 'http://127.0.0.1:4321';
 const PORTAL_ORIGIN = 'http://127.0.0.1:4322';
 
-const ENV = {
-  NODE_ENV: 'production',
-  HOST: '127.0.0.1',
-  PORT: String(TEST_PORT),
-  PUBLIC_SITE_ORIGIN: SITE_ORIGIN,
-  PORTAL_ORIGIN,
-} as const;
+/* B2.3: several of the representative routes below are now backed by the
+   read-only /public/* API, so this suite starts a controlled local mock of
+   it (test/helpers/mock-public-api.ts) and points PUBLIC_API_ORIGIN at it.
+   Without one, /brands/ and /collections/* would correctly answer 503 —
+   the "upstream unavailable" path — and this suite would be asserting the
+   failure behaviour rather than the route contract it exists to check.
+   No real API is contacted. */
+let mockApi: MockApi | undefined;
 
 function buildEnv(): NodeJS.ProcessEnv {
-  return { ...process.env, ...ENV };
+  return {
+    ...process.env,
+    NODE_ENV: 'production',
+    HOST: '127.0.0.1',
+    PORT: String(TEST_PORT),
+    PUBLIC_SITE_ORIGIN: SITE_ORIGIN,
+    PORTAL_ORIGIN,
+    // Falls back to an unused port only for the build step, which never
+    // issues a request; the server start below uses the real mock origin.
+    PUBLIC_API_ORIGIN: mockApi?.origin ?? 'http://127.0.0.1:4399',
+  };
 }
 
 async function get(routePath: string): Promise<Response> {
@@ -66,6 +78,9 @@ test('setup: production build succeeds so a real dist/ exists', () => {
 });
 
 test('setup: start the validated standalone server directly', async () => {
+  // Start the mock public API first so buildEnv() picks up its origin.
+  mockApi = await startMockApi();
+
   const gate = spawnSync('node', ['./scripts/validate-env.mjs'], {
     cwd: root,
     env: buildEnv(),
@@ -220,14 +235,16 @@ test('the legacy hash-bridge script and its portal-origin meta tag are present o
   assert.match(body, /location\.replace/);
 });
 
-test('teardown: stop the server cleanly, leaving no orphaned process', async () => {
-  if (!serverProcess) return;
-  serverProcess.kill();
-  await new Promise<void>((resolve) => {
-    const timer = setTimeout(resolve, 5_000);
-    serverProcess!.once('exit', () => {
-      clearTimeout(timer);
-      resolve();
+test('teardown: stop the server and mock API cleanly, leaving no orphaned process', async () => {
+  if (serverProcess) {
+    serverProcess.kill();
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(resolve, 5_000);
+      serverProcess!.once('exit', () => {
+        clearTimeout(timer);
+        resolve();
+      });
     });
-  });
+  }
+  if (mockApi) await mockApi.close();
 });

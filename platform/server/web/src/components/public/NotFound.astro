@@ -1,0 +1,64 @@
+---
+/* The in-page body for a dynamic route whose entity genuinely does not
+   exist or is not published (B2.3).
+
+   Distinct from both PublicDataUnavailable (upstream problem, 5xx) and
+   EmptyPublishedContent (a valid empty collection, 200). This one
+   accompanies a real 404 status set by the route.
+
+   It deliberately does NOT echo the requested slug back into the page.
+   Reflecting arbitrary URL input into HTML is a needless XSS-shaped
+   habit even where the templating engine escapes it, and a visitor who
+   mistyped a URL is not helped by seeing their typo repeated. */
+interface Props {
+  /** "brand" or "model" — what was looked for. */
+  subject: string;
+}
+
+const { subject } = Astro.props;
+---
+
+<div class="not-found">
+  <p class="not-found__body">
+    We could not find that {subject}. It may have been renamed, or it may not be published.
+  </p>
+  <ul class="not-found__links">
+    <li><a href="/brands/">Browse all brands</a></li>
+    <li><a href="/collections/">Browse the collections</a></li>
+    <li><a href="/contact/">Contact our team</a></li>
+  </ul>
+</div>
+
+<style>
+  .not-found {
+    max-width: 46ch;
+    margin: clamp(24px, 4vw, 40px) 0;
+  }
+  .not-found__body {
+    margin: 0;
+    font-size: var(--body);
+    line-height: 1.8;
+    color: var(--ink-soft);
+  }
+  .not-found__links {
+    margin: clamp(16px, 2.4vw, 24px) 0 0;
+    padding: 0;
+    list-style: none;
+  }
+  .not-found__links li {
+    padding: 10px 0;
+    border-top: 1px solid var(--rule);
+  }
+  .not-found__links a {
+    font-family: var(--sans);
+    font-size: var(--label);
+    font-weight: 600;
+    letter-spacing: var(--track-label);
+    text-transform: uppercase;
+    color: var(--ink);
+    text-decoration: none;
+  }
+  .not-found__links a:hover {
+    box-shadow: inset 0 -1px 0 var(--ink);
+  }
+</style>

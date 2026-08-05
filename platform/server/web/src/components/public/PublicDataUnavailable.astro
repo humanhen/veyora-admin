@@ -1,0 +1,62 @@
+---
+/* Rendered when the upstream public API could not be reached, timed out,
+   or returned something we could not trust (B2.3).
+
+   This is deliberately NOT the same component as EmptyPublishedContent:
+   "we cannot currently load this" and "there is nothing published here"
+   are different facts, and conflating them is the specific failure the
+   B2.3 brief warns about — an outage rendering as an authoritative empty
+   catalogue. The page rendering this also returns a non-200 status (503 or
+   502), so crawlers and monitoring see the difference too.
+
+   Carries no diagnostic detail: no internal origin, no upstream status
+   code, no stack trace. A visitor cannot act on any of that, and it would
+   disclose internal topology. */
+interface Props {
+  /** What the visitor was trying to see, e.g. "brands". Kept neutral and
+   * non-committal — never asserts how many records exist. */
+  subject: string;
+}
+
+const { subject } = Astro.props;
+---
+
+<div class="unavailable" role="status">
+  <p class="unavailable__eyebrow">Temporarily unavailable</p>
+  <p class="unavailable__body">
+    We could not load {subject} right now. This is a temporary problem on our side — please try again
+    shortly.
+  </p>
+  <p class="unavailable__links">
+    <a href="/contact/">Contact us</a> if you need help in the meantime.
+  </p>
+</div>
+
+<style>
+  .unavailable {
+    max-width: 46ch;
+    margin: clamp(28px, 5vw, 48px) 0;
+    padding: clamp(16px, 2.4vw, 22px) clamp(18px, 2.6vw, 24px);
+    border: 1px solid var(--rule);
+    border-left: 2px solid var(--ink);
+  }
+  .unavailable__eyebrow {
+    margin: 0 0 8px;
+    font-family: var(--sans);
+    font-size: var(--eyebrow);
+    font-weight: 600;
+    letter-spacing: var(--track-eyebrow);
+    text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+  .unavailable__body,
+  .unavailable__links {
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.7;
+    color: var(--ink-soft);
+  }
+  .unavailable__links {
+    margin-top: 10px;
+  }
+</style>

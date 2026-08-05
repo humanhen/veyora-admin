@@ -1,0 +1,94 @@
+---
+/* One published model, as a card in a grid (B2.3).
+
+   Editorial language per 02_VISUAL_SYSTEM_INVENTORY.md §5.2: the editorial
+   layer has NO card component, and its nearest ancestor is the value
+   strip — hairline separation, measure-capped type, no box. So this is a
+   hairline-ruled article, not a bordered/rounded/shadowed panel, and it
+   deliberately does not reuse the portal's `.pcard2` (which carries seller
+   badges, favourite toggles and an Order button — all portal-only).
+
+   Renders only fields the API supplies. Every optional field is omitted
+   when absent rather than printed as an empty label or a placeholder. */
+import type { PublicModelCard } from '../../lib/public-types.ts';
+import PublicImage from './PublicImage.astro';
+
+interface Props {
+  model: PublicModelCard;
+  /** Heading level, so a grid can sit under an h1 (h2) or under an h2
+   * section heading (h3) without breaking document outline. */
+  headingLevel?: 2 | 3;
+}
+
+const { model, headingLevel = 2 } = Astro.props;
+const Heading = `h${headingLevel}` as 'h2' | 'h3';
+const href = `/collections/${model.brandSlug}/${model.slug}/`;
+/* Attribute line: only what exists, joined — never "Line: —" or an empty
+   segment. */
+const attributes = [model.line, model.shape, model.size].filter(Boolean);
+---
+
+<article class="model-card">
+  <a class="model-card__link" href={href}>
+    <span class="model-card__media">
+      <PublicImage media={model.primaryMedia} fallbackAlt={model.name} />
+    </span>
+    {model.brandName && <span class="model-card__brand">{model.brandName}</span>}
+    <Heading class="model-card__name">{model.name}</Heading>
+  </a>
+  {model.sku && <p class="model-card__sku">{model.sku}</p>}
+  {attributes.length > 0 && <p class="model-card__attributes">{attributes.join(' · ')}</p>}
+</article>
+
+<style>
+  .model-card {
+    display: flex;
+    flex-direction: column;
+    padding-top: clamp(14px, 2vw, 18px);
+    border-top: 1px solid var(--rule);
+  }
+  .model-card__link {
+    display: block;
+    text-decoration: none;
+    color: inherit;
+  }
+  .model-card__media {
+    display: block;
+    margin-bottom: clamp(12px, 1.6vw, 16px);
+    aspect-ratio: 1 / 1;
+    background: var(--stone);
+  }
+  .model-card__media :global(img) {
+    height: 100%;
+    object-fit: contain;
+    mix-blend-mode: multiply;
+  }
+  .model-card__brand {
+    display: block;
+    font-family: var(--sans);
+    font-size: var(--eyebrow);
+    font-weight: 600;
+    letter-spacing: var(--track-eyebrow);
+    text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+  .model-card__name {
+    margin: 6px 0 0;
+    font-family: var(--serif);
+    font-size: clamp(17px, 1.6vw, 20px);
+    font-weight: 400;
+    line-height: 1.25;
+    color: var(--ink);
+  }
+  .model-card__link:hover .model-card__name {
+    box-shadow: inset 0 -1px 0 var(--ink);
+  }
+  .model-card__sku,
+  .model-card__attributes {
+    margin: 6px 0 0;
+    font-family: var(--sans);
+    font-size: 12.5px;
+    line-height: 1.6;
+    color: var(--ink-soft);
+  }
+</style>

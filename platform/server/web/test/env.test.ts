@@ -4,6 +4,7 @@ import {
   resolveEnv,
   DEV_DEFAULT_SITE_ORIGIN,
   DEV_DEFAULT_PORTAL_ORIGIN,
+  DEV_DEFAULT_API_ORIGIN,
 } from '../src/env.ts';
 
 test('development: valid origins are accepted and passed through', () => {
@@ -55,14 +56,50 @@ test('production: rejects both missing', () => {
   assert.throws(() => resolveEnv({ NODE_ENV: 'production' }));
 });
 
-test('production: accepts a fully configured pair', () => {
+test('production: accepts a fully configured set', () => {
+  // B2.3 added a third required production origin, PUBLIC_API_ORIGIN — the
+  // internal address this server calls to reach /public/*. A production
+  // deployment missing it would render every catalogue page as an outage,
+  // so it fails closed at startup like the other two.
   const result = resolveEnv({
     NODE_ENV: 'production',
     PUBLIC_SITE_ORIGIN: 'https://example.com',
     PORTAL_ORIGIN: 'https://portal.example.com',
+    PUBLIC_API_ORIGIN: 'http://api:3000',
   });
   assert.equal(result.siteOrigin, 'https://example.com');
   assert.equal(result.portalOrigin, 'https://portal.example.com');
+  assert.equal(result.apiOrigin, 'http://api:3000');
+});
+
+test('production: rejects a missing PUBLIC_API_ORIGIN', () => {
+  assert.throws(
+    () =>
+      resolveEnv({
+        NODE_ENV: 'production',
+        PUBLIC_SITE_ORIGIN: 'https://example.com',
+        PORTAL_ORIGIN: 'https://portal.example.com',
+      }),
+    /PUBLIC_API_ORIGIN.*required/
+  );
+});
+
+test('development: PUBLIC_API_ORIGIN falls back to a documented localhost default', () => {
+  const result = resolveEnv({ NODE_ENV: 'development' });
+  assert.equal(result.apiOrigin, DEV_DEFAULT_API_ORIGIN);
+  assert.match(result.apiOrigin, /^http:\/\/localhost:\d+$/);
+  assert.doesNotMatch(result.apiOrigin, /veyora/i);
+});
+
+test('a malformed PUBLIC_API_ORIGIN is rejected like any other origin', () => {
+  assert.throws(
+    () => resolveEnv({ NODE_ENV: 'development', PUBLIC_API_ORIGIN: 'not-a-url' }),
+    /PUBLIC_API_ORIGIN/
+  );
+  assert.throws(
+    () => resolveEnv({ NODE_ENV: 'development', PUBLIC_API_ORIGIN: 'ftp://api:3000' }),
+    /PUBLIC_API_ORIGIN must use http or https/
+  );
 });
 
 test('production: an empty string is treated the same as missing', () => {

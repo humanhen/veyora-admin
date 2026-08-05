@@ -1,0 +1,39 @@
+---
+/* A responsive grid of published model cards (B2.3).
+
+   4 → 2 → 1 columns, the reduction 02_VISUAL_SYSTEM_INVENTORY.md §4.3
+   requires for the specification's brand/model grids, expressed as
+   `repeat(auto-fill, minmax(...))` on the ivory canvas with hairline-ruled
+   cards rather than boxed panels. `minmax(0, ...)` prevents the grid
+   blowout the same section documents as a repository-wide pattern. */
+import type { PublicModelCard } from '../../lib/public-types.ts';
+import ModelCard from './ModelCard.astro';
+
+interface Props {
+  models: PublicModelCard[];
+  headingLevel?: 2 | 3;
+}
+
+const { models, headingLevel = 2 } = Astro.props;
+---
+
+<div class="model-grid">
+  {models.map((model) => <ModelCard model={model} headingLevel={headingLevel} />)}
+</div>
+
+<style>
+  .model-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(240px, 100%), 1fr));
+    gap: clamp(24px, 3vw, 40px);
+    margin: clamp(24px, 4vw, 40px) 0;
+  }
+
+  /* At 375px a single column is the only honest layout — two 160px cards
+     would render the frame photography uselessly small. */
+  @media (max-width: 560px) {
+    .model-grid {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+</style>

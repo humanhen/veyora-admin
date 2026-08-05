@@ -1370,3 +1370,128 @@ test, and every authenticated `/user` route shape are unchanged — confirmed by
 showing changes confined to `platform/server/api/src/**`, `platform/server/api/test/**` and
 `docs/public-website-rebuild/**`. The other developer's concurrent branch was never inspected,
 referenced or merged. No commit was made and nothing was pushed.
+
+---
+
+## 14. B2.3 implementation result — 2026-08-06
+
+**Scope executed:** the Astro public website now consumes the read-only `/public/*` API
+server-side. Starting commit `4fa3f7c` (completed B2.2). No backfill, no publication of any
+record, no admin editing, no forms/CRM, no pricing, no stock/availability, no JSON-LD, no XML
+sitemap, no asset ingestion, no deployment.
+
+### Files created
+
+```
+platform/server/web/src/lib/
+├── public-types.ts        types + hand-written runtime validation for every consumed response
+├── public-api.ts          server-only client: 7 allowlisted endpoint functions
+├── catalogue-query.ts     local query allowlist, bounds and pagination-href building
+└── catalogue-page.ts      shared catalogue loader (a function, not a component — see below)
+
+platform/server/web/src/components/public/
+├── BrandSummary.astro          PublicImage.astro         Pagination.astro
+├── ModelCard.astro             ModelGrid.astro           NotFound.astro
+├── CatalogueListing.astro      EmptyPublishedContent.astro
+└── PublicDataUnavailable.astro
+
+platform/server/web/test/
+├── helpers/mock-public-api.ts   controlled local mock + adversarial fixtures
+├── public-api.test.ts     (19)  public-types.test.ts    (22)
+├── catalogue-query.test.ts (18) public-render.test.ts   (25)
+
+docs/public-website-rebuild/17_B2_WEB_API_INTEGRATION.md
+```
+
+### Files modified
+
+`src/env.ts` (+ `.env.example`, `README.md`) — added `PUBLIC_API_ORIGIN`; `src/lib/metadata.ts` —
+added `brandDetailMetadataFromRecord()` and `modelDetailMetadataFromRecord()`; eight route files
+(`/brands/`, `/brands/{brand}/`, `/collections/`, three category routes,
+`/collections/{brand}/{model}/`, `/global-presence/`); four existing test files updated for the new
+env contract and the skeleton→API-backed transition; four audit documents.
+
+### Environment and client
+
+`PUBLIC_API_ORIGIN` is server-side only, validated as an absolute http(s) origin, fail-closed in
+production through the existing `validate-env.mjs` gate, with a documented localhost dev default.
+It is never read through `import.meta.env` and never rendered into a page.
+
+The client is native `fetch`, no dependency: seven allowlisted endpoint functions with **no generic
+fetch-any-path escape hatch**, no function accepting an origin/host/absolute path, slugs
+`encodeURIComponent`-ed into fixed templates, a 5s `AbortController` timeout, content-type checked,
+body bounded at 4 MB, `credentials: 'omit'` explicit. Four outcomes — `bad-request`, `not-found`,
+`unavailable`, `malformed` — map to 400/404/503/502 through one shared table.
+
+### Validation
+
+Hand-written validators (no schema library) build **fresh objects from named fields**, never
+spreading the parsed payload, so an unknown field is dropped by construction. Wrong primitive types
+are rejected rather than coerced; media paths are scheme-checked (`javascript:`, `data:`,
+protocol-relative and bare relative paths are dropped); internal `label:*` tags are stripped.
+
+### Routes integrated
+
+`/brands/`, `/brands/{brand}/`, `/collections/`, `/collections/{optical,sun,kids}/`,
+`/collections/{brand}/{model}/`, `/global-presence/`. The two dynamic routes build title,
+description, H1 and breadcrumbs from the **validated API record** rather than a humanised slug —
+closing the B1.2 limitation where any arbitrary slug returned 200.
+
+### Status policy
+
+200 success · 200 with an authoritative empty state · 400 malformed local query (**the API is never
+called**) · 404 unknown/unpublished entity · 503 timeout/connection failure/5xx · 502 malformed
+payload. Two properties verified end-to-end over real HTTP: **an outage never renders as an empty
+catalogue**, and **an outage never becomes a false 404**. No failure page exposes the internal API
+origin, an upstream status, a stack trace or SQL detail.
+
+### Test and validation results
+
+**310/310 web tests passing** — 221 pre-existing B1 tests all still green, plus 89 new or updated.
+Production build succeeded with explicit safe localhost origins. Live HTTP verification against a
+mock API confirmed for all ten representative routes: correct status, exactly one H1, correct
+title/description/canonical/robots, breadcrumbs present, pagination preserving filters, category
+isolation, 400 handling without an upstream call, zero hash routing, and **zero planted private
+values in any rendered route**. Both servers stopped cleanly with no orphaned process.
+
+### Two findings worth recording
+
+1. **`Astro.response.status` set from inside a nested component has no effect.** An earlier draft
+   had the shared listing component set its own status; `/brands/` (page frontmatter) returned 503
+   during an outage while `/collections/` returned 200. Fixed by making the shared logic a plain
+   function called from page frontmatter. Caught only because the render tests exercised the
+   failure path over real HTTP.
+2. **`label:*` tags survived web-side validation initially.** The API already strips them, so
+   nothing would have leaked in practice — but this layer exists precisely so an upstream
+   regression cannot leak, and the adversarial fixture caught it.
+
+### Known limitations
+
+- **No real data exists anywhere** — every table is empty and every product is unpublished, so all
+  verification is against fixtures. This integration has never rendered a real Veyora record.
+- `audience`/`material` are forwarded but are documented API no-ops until a backing column exists.
+- `getFacets()`/`getSitemapData()` are implemented and tested but consumed by no route (B4/B7).
+- No faceted filter UI — filters work by URL only.
+- Single-record routes are uncached on both sides.
+- **No JSON-LD**, so the forbidden-key scan still does not cover a structured-data surface, and
+  **R-06 cannot close** (see `08_RISKS_AND_OPEN_DECISIONS.md`).
+
+### Deferred to B2.4 and later
+
+**B2.4:** slug generation and backfill (WP-08), admin editing surfaces (WP-09), the
+application-level publication gate, and wiring `invalidatePublicCache()` to admin/Zoho actions.
+**B4:** the `FilterPanel` island consuming `getFacets()`. **B7:** JSON-LD, XML sitemaps consuming
+`getSitemapData()`, and the responsive image pipeline. **B9:** extending the forbidden-key scan
+across rendered HTML and JSON-LD as a wired merge gate.
+
+### Final storage
+
+Started 8.731 GB free; ended 8.72 GB. Never approached the 4 GB floor. **Zero new dependencies.**
+
+### Confirmation
+
+No live database, real API, VPS, production system or DNS was contacted — every test runs against a
+controlled mock on `127.0.0.1`. `platform/server/api/**`, `platform/server/db/**`,
+`platform/server/storefront/**`, the root admin application, `docker-compose.yml`, `Caddyfile`,
+`deploy.sh` and every `.env` file are unchanged. The other developer's branch was never inspected,
+referenced or merged. No commit was made and nothing was pushed.

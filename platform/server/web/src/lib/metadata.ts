@@ -272,8 +272,14 @@ export const STATIC_ROUTE_METADATA: Record<string, RouteMetadata> = {
   },
 };
 
-/** `/brands/{brand}/` — no brand data source exists until B2/B4, so the
- * humanised slug stands in as a visibly temporary display value. */
+/** `/brands/{brand}/` — the humanised-slug fallback, used ONLY when there
+ * is no validated API record (which in practice means the page is about to
+ * render an error state, not a brand). When a record exists, callers use
+ * brandDetailMetadataFromRecord() below instead.
+ *
+ * B2.3 note: this is deliberately retained rather than deleted. A 503/502
+ * page still needs a title, and inventing a brand name for one would be
+ * worse than a neutral slug-derived label. */
 export function brandDetailMetadata(brand: string): RouteMetadata {
   const label = humanizeSlug(brand);
   return {
@@ -285,6 +291,37 @@ export function brandDetailMetadata(brand: string): RouteMetadata {
     indexingCategory: 'brand-detail',
     sitemapEligible: true,
     pendingContent: true,
+  };
+}
+
+/** Metadata built from a VALIDATED public API brand record (B2.3).
+ *
+ * Every value here comes from an approved, published database field — the
+ * name, and the headline/summary the brand record itself carries. Nothing
+ * is invented: when a brand has no approved headline or summary, the
+ * description falls back to a factual, non-promotional sentence naming only
+ * the brand and what the page is, rather than asserting a positioning
+ * claim nobody approved (06_CONTENT_AND_PLACEHOLDER_REGISTER.md's rule).
+ *
+ * `pendingContent` is false because this IS the approved content — the
+ * flag exists to mark placeholder copy, and these values are real. */
+export function brandDetailMetadataFromRecord(brand: {
+  slug: string;
+  name: string;
+  headline: string | null;
+  summary: string | null;
+}): RouteMetadata {
+  const approvedDescription = brand.summary ?? brand.headline;
+  return {
+    path: '/brands/:brand/',
+    title: `${brand.name} Wholesale Eyewear for Optical Retailers | Veyora`,
+    description:
+      approvedDescription ?? `${brand.name} wholesale eyewear, distributed by Veyora for optical retailers.`,
+    h1: brand.name,
+    breadcrumbLabel: brand.name,
+    indexingCategory: 'brand-detail',
+    sitemapEligible: true,
+    pendingContent: false,
   };
 }
 
@@ -304,6 +341,36 @@ export function modelDetailMetadata(brand: string, model: string): RouteMetadata
     indexingCategory: 'catalogue-detail',
     sitemapEligible: true,
     pendingContent: true,
+  };
+}
+
+/** Metadata built from a VALIDATED public API model record (B2.3).
+ *
+ * Same discipline as brandDetailMetadataFromRecord(): the title, H1 and
+ * description are built only from approved published fields (brand name,
+ * model name, display SKU, and the model's own approved public
+ * description). When no approved description exists, the fallback states
+ * only verifiable facts — brand, model, and that Veyora distributes it —
+ * and claims nothing about the product itself. */
+export function modelDetailMetadataFromRecord(model: {
+  brandName: string | null;
+  name: string;
+  sku: string | null;
+  publicDescription: string | null;
+}): RouteMetadata {
+  const brandLabel = model.brandName?.trim();
+  const displayName = brandLabel ? `${brandLabel} ${model.name}` : model.name;
+  return {
+    path: '/collections/:brand/:model/',
+    title: `${displayName} | Wholesale Eyewear | Veyora`,
+    description:
+      model.publicDescription ??
+      `${displayName}${model.sku ? ` (${model.sku})` : ''} — wholesale eyewear distributed by Veyora for optical retailers.`,
+    h1: displayName,
+    breadcrumbLabel: displayName,
+    indexingCategory: 'catalogue-detail',
+    sitemapEligible: true,
+    pendingContent: false,
   };
 }
 

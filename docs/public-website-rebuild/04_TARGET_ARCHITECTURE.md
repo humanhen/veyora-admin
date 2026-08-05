@@ -624,3 +624,64 @@ mount, purely additive. `platform/server/storefront/**`, `platform/server/web/**
 `platform/server/db/**`, the root admin application, `docker-compose.yml`, `Caddyfile`,
 `deploy.sh`, all `.env` files, and every existing API test are unchanged. Full endpoint contract:
 `docs/public-website-rebuild/15_B2_PUBLIC_API_CONTRACT.md`.
+
+---
+
+## 14. B2.3 implementation result — 2026-08-06
+
+**Scope executed:** the Astro public website now consumes the read-only `/public/*` API described
+in §4, server-side. Starting commit `4fa3f7c` (completed B2.2). No backfill, no publication, no
+admin editing, no forms/CRM, no JSON-LD, no XML sitemap, no asset ingestion, no deployment — all
+explicitly out of scope and deferred.
+
+### 14.1 §5.1's `PUBLIC_API_ORIGIN` is now real
+
+§5.1's compose sketch listed `PUBLIC_API_ORIGIN: http://api:3000` for the `web` service. That
+variable now exists in the application: validated by the same `normalizeOrigin()` as the other two
+origins, fail-closed in production through the existing `scripts/validate-env.mjs` gate, and
+documented in `.env.example` and the web README. It is server-side only — read from `process.env`
+in a server-only module, never through `import.meta.env` (the only mechanism that would inline a
+value into a client bundle), and never rendered into a page.
+
+Adding a third required production origin legitimately changed the startup contract, so the B1.1A
+command-path tests and B1.3 route-contract tests were updated to supply it. That is a contract
+change, not a regression.
+
+### 14.2 The client honours §4's boundary in the direction this batch controls
+
+§4.1 required the enforcement to be structural rather than conventional. On the consuming side
+that means: one allowlisted function per endpoint with **no generic fetch-any-path escape hatch**;
+no function anywhere accepting an origin, host or absolute path (so an SSRF through a route
+parameter is impossible by construction); slugs `encodeURIComponent`-ed into fixed path templates;
+`credentials: 'omit'` explicit so no visitor identity is ever forwarded to an API that has no use
+for one; and a 5-second `AbortController` timeout.
+
+Runtime validation rebuilds every response into fresh objects from named fields — never spreading
+the parsed payload — so an unexpected field cannot survive even if the API sent one. This is
+deliberately redundant with the API's own serializer: the boundary is a network hop, and "the
+server we called is the version we think it is" is an assumption.
+
+### 14.3 One architectural finding, recorded because it shaped the design
+
+**Setting `Astro.response.status` from inside a nested component has no effect on the response.**
+An earlier draft had the shared catalogue listing component set its own status; `/brands/` (which
+sets it in page frontmatter) correctly returned 503 during an outage while `/collections/`
+returned 200. The shared logic is therefore a plain function (`src/lib/catalogue-page.ts`) called
+from page frontmatter, not a component — which satisfies both "category routes must not duplicate
+fetching logic" and "an outage must not return 200."
+
+### 14.4 The failure-mode distinction §4 implies is now enforced end to end
+
+Four upstream outcomes map to four different rendered statuses: API 400 → 400, API 404 → 404,
+timeout/connection failure/5xx → 503, malformed 200 payload → 502. Verified over real HTTP against
+a mock API that an outage renders as "temporarily unavailable" with a 5xx — **never** as an empty
+catalogue, and **never** as a false 404 on a detail route that would tell a crawler to drop a real
+published record.
+
+### 14.5 Confirmed untouched
+
+No live database, real API, VPS, production system or DNS was contacted — every test runs against a
+controlled mock on `127.0.0.1`. `platform/server/api/**`, `platform/server/db/**`,
+`platform/server/storefront/**`, the root admin application, `docker-compose.yml`, `Caddyfile`,
+`deploy.sh` and every `.env` file are unchanged. Full integration detail:
+`docs/public-website-rebuild/17_B2_WEB_API_INTEGRATION.md`.

@@ -1,13 +1,20 @@
 ---
-// Route 5 of 25 — 05_ROUTE_TEMPLATE_MATRIX.md. Metadata/H1 come from the
-// central registry (src/lib/metadata.ts). This is the one route B1.3's
-// query-state indexing rules (page/filter/sort) are validated against.
+// Route 5 of 25 — 05_ROUTE_TEMPLATE_MATRIX.md. API-backed as of B2.3.
+// Metadata/H1 come from the central registry; the listing is loaded by the
+// shared loadCataloguePage() and rendered by the shared CatalogueListing.
+// Query-state canonical/robots behaviour continues to be decided by
+// src/lib/indexing.ts via Page.astro — not reimplemented here.
 import Page from '../../layouts/Page.astro';
-import SkeletonNotice from '../../components/dev/SkeletonNotice.astro';
+import CatalogueListing from '../../components/public/CatalogueListing.astro';
 import { STATIC_ROUTE_METADATA } from '../../lib/metadata.ts';
 import { staticBreadcrumbs } from '../../lib/routes.ts';
+import { loadCataloguePage } from '../../lib/catalogue-page.ts';
+
+const basePath = '/collections/';
+const state = await loadCataloguePage(Astro.url, { basePath });
+Astro.response.status = state.status;
 ---
 
 <Page meta={STATIC_ROUTE_METADATA['/collections/']} breadcrumbs={staticBreadcrumbs('/collections/')}>
-  <SkeletonNotice />
+  <CatalogueListing state={state} basePath={basePath} subject="models" />
 </Page>

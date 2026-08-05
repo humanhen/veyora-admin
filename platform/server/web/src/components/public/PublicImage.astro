@@ -1,0 +1,50 @@
+---
+/* One place that turns a validated PublicMedia into an <img> (B2.3).
+
+   Everything here assumes the media object already passed
+   validateMedia() (src/lib/public-types.ts), which is what guarantees the
+   path is a rooted relative path or an http(s) URL — this component never
+   re-checks the scheme, because doing so in two places invites the two
+   checks drifting apart. It only handles presentation.
+
+   Assets are referenced, never downloaded or processed: B2.3 explicitly
+   excludes asset ingestion and image optimisation (that is B7's responsive
+   image pipeline). */
+import type { PublicMedia } from '../../lib/public-types.ts';
+
+interface Props {
+  media: PublicMedia | null;
+  /** Used when the API supplied no alt text. A model/brand name is a
+   * genuinely better accessible name than an empty string here, because
+   * these images ARE the content — they are not decorative. */
+  fallbackAlt: string;
+  loading?: 'lazy' | 'eager';
+  sizesClass?: string;
+}
+
+const { media, fallbackAlt, loading = 'lazy', sizesClass } = Astro.props;
+const alt = media?.alt?.trim() ? media.alt : fallbackAlt;
+---
+
+{
+  media && media.kind === 'image' && (
+    <img
+      class:list={['public-image', sizesClass]}
+      src={media.path}
+      alt={alt}
+      width={media.width ?? undefined}
+      height={media.height ?? undefined}
+      loading={loading}
+      decoding="async"
+    />
+  )
+}
+
+<style>
+  .public-image {
+    display: block;
+    width: 100%;
+    height: auto;
+    background: var(--stone);
+  }
+</style>

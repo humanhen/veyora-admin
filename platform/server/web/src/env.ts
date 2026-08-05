@@ -16,10 +16,24 @@
 
 export const DEV_DEFAULT_SITE_ORIGIN = 'http://localhost:4321';
 export const DEV_DEFAULT_PORTAL_ORIGIN = 'http://localhost:4322';
+/* The internal API origin the SERVER calls to reach /public/*. In the
+   deployed stack this is the Docker-internal `http://api:3000`
+   (04_TARGET_ARCHITECTURE.md §5.1) — never a public hostname, and never
+   reachable from a browser. Locally it is the API's own dev port. */
+export const DEV_DEFAULT_API_ORIGIN = 'http://localhost:3000';
 
 export interface PublicEnv {
   siteOrigin: string;
   portalOrigin: string;
+  /* SERVER-SIDE ONLY. Deliberately NOT named with Astro's `PUBLIC_` client
+     -exposure prefix semantics in mind: Astro only inlines `import.meta.env.
+     PUBLIC_*` into client bundles, and nothing in this application reads
+     this value through `import.meta.env` — it is read from `process.env`
+     here, in a module only ever imported by server-side code (src/lib/
+     public-api.ts, itself server-only). The name matches the one the
+     architecture document already specified for the compose service, so
+     operators configure one variable, not two. */
+  apiOrigin: string;
   nodeEnv: string;
 }
 
@@ -61,6 +75,7 @@ export function resolveEnv(rawEnv: Record<string, string | undefined> = {}): Pub
 
   const rawSite = rawEnv.PUBLIC_SITE_ORIGIN?.trim();
   const rawPortal = rawEnv.PORTAL_ORIGIN?.trim();
+  const rawApi = rawEnv.PUBLIC_API_ORIGIN?.trim();
 
   if (isProduction && !rawSite) {
     throw new Error(
@@ -72,11 +87,17 @@ export function resolveEnv(rawEnv: Record<string, string | undefined> = {}): Pub
       'PORTAL_ORIGIN is required in production and was not set. Refusing to start.'
     );
   }
+  if (isProduction && !rawApi) {
+    throw new Error(
+      'PUBLIC_API_ORIGIN is required in production and was not set. Refusing to start.'
+    );
+  }
 
   const siteOrigin = normalizeOrigin(rawSite || DEV_DEFAULT_SITE_ORIGIN, 'PUBLIC_SITE_ORIGIN');
   const portalOrigin = normalizeOrigin(rawPortal || DEV_DEFAULT_PORTAL_ORIGIN, 'PORTAL_ORIGIN');
+  const apiOrigin = normalizeOrigin(rawApi || DEV_DEFAULT_API_ORIGIN, 'PUBLIC_API_ORIGIN');
 
-  return { siteOrigin, portalOrigin, nodeEnv };
+  return { siteOrigin, portalOrigin, apiOrigin, nodeEnv };
 }
 
 /* Evaluated once, against the real process environment, the moment any

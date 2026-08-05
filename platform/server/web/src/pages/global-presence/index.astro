@@ -1,14 +1,108 @@
 ---
-// Route 12 of 25 — 05_ROUTE_TEMPLATE_MATRIX.md. Metadata/H1 come from the
-// central registry (src/lib/metadata.ts). The title's country list is the
-// specification's own text, carried verbatim — see metadata.ts's comment
-// on this entry for why pendingContent is nonetheless true.
+// Route 12 of 25 — 05_ROUTE_TEMPLATE_MATRIX.md. API-backed as of B2.3.
+// Metadata/H1 come from the central registry (still pendingContent there:
+// the title carries an unresolved country list, DECISION-12).
+//
+// Renders ONLY the fields /public/locations returns — slug, name,
+// function, regionsServed, hours. The API deliberately does not expose
+// address, contact or coordinates (15_B2_PUBLIC_API_CONTRACT.md §6), so
+// nothing here infers a street address, a distributor, a local phone
+// number or a map position.
 import Page from '../../layouts/Page.astro';
-import SkeletonNotice from '../../components/dev/SkeletonNotice.astro';
+import EmptyPublishedContent from '../../components/public/EmptyPublishedContent.astro';
+import PublicDataUnavailable from '../../components/public/PublicDataUnavailable.astro';
 import { STATIC_ROUTE_METADATA } from '../../lib/metadata.ts';
 import { staticBreadcrumbs } from '../../lib/routes.ts';
+import { listLocations, PUBLIC_API_FAILURE_STATUS } from '../../lib/public-api.ts';
+
+const result = await listLocations();
+
+if (!result.ok) {
+  Astro.response.status = PUBLIC_API_FAILURE_STATUS[result.kind];
+}
+
+const locations = result.ok ? result.data : [];
+
+/* The API returns a machine value (`supply_base`); this maps the known
+   enum to neutral display wording. An unknown value falls back to the raw
+   string rather than being hidden — REQ-GP-002 requires every location
+   card to state its function, so silently dropping an unrecognised one
+   would be worse than showing it verbatim. No wording here claims a
+   capability the function label does not itself assert. */
+const FUNCTION_LABELS: Record<string, string> = {
+  warehouse: 'Warehouse',
+  supply_base: 'Supply base',
+  service_hub: 'Service hub',
+  office: 'Office',
+  support: 'Support',
+};
 ---
 
 <Page meta={STATIC_ROUTE_METADATA['/global-presence/']} breadcrumbs={staticBreadcrumbs('/global-presence/')}>
-  <SkeletonNotice />
+  {!result.ok && <PublicDataUnavailable subject="our locations" />}
+  {result.ok && locations.length === 0 && <EmptyPublishedContent subject="locations" />}
+
+  {
+    result.ok && locations.length > 0 && (
+      <div class="location-list">
+        {locations.map((location) => (
+          <article class="location">
+            <h2 class="location__name">{location.name}</h2>
+            {location.function && (
+              <p class="location__function">{FUNCTION_LABELS[location.function] ?? location.function}</p>
+            )}
+            {location.regionsServed.length > 0 && (
+              <p class="location__regions">Serving {location.regionsServed.join(', ')}</p>
+            )}
+            {location.hours && <p class="location__hours">{location.hours}</p>}
+          </article>
+        ))}
+      </div>
+    )
+  }
 </Page>
+
+<style>
+  .location-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr));
+    gap: clamp(24px, 3.2vw, 44px);
+    margin: clamp(24px, 4vw, 40px) 0;
+  }
+
+  @media (max-width: 560px) {
+    .location-list {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+
+  .location {
+    padding-top: clamp(14px, 2vw, 18px);
+    border-top: 1px solid var(--rule);
+  }
+  .location__name {
+    margin: 0;
+    font-family: var(--serif);
+    font-size: var(--display-xs);
+    font-weight: 400;
+    line-height: 1.2;
+    color: var(--ink);
+  }
+  .location__function {
+    margin: 8px 0 0;
+    font-family: var(--sans);
+    font-size: var(--eyebrow);
+    font-weight: 600;
+    letter-spacing: var(--track-eyebrow);
+    text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+  .location__regions,
+  .location__hours {
+    margin: 10px 0 0;
+    max-width: 44ch;
+    font-size: 14px;
+    line-height: 1.7;
+    color: var(--ink-soft);
+  }
+</style>

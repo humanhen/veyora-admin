@@ -1,12 +1,52 @@
 ---
-// Route 3 of 25 — 05_ROUTE_TEMPLATE_MATRIX.md. Metadata/H1 come from the
-// central registry (src/lib/metadata.ts).
+// Route 3 of 25 — 05_ROUTE_TEMPLATE_MATRIX.md. API-backed as of B2.3.
+// Metadata/H1 still come from the central registry (src/lib/metadata.ts);
+// only the BODY is now data-driven.
 import Page from '../../layouts/Page.astro';
-import SkeletonNotice from '../../components/dev/SkeletonNotice.astro';
+import BrandSummary from '../../components/public/BrandSummary.astro';
+import EmptyPublishedContent from '../../components/public/EmptyPublishedContent.astro';
+import PublicDataUnavailable from '../../components/public/PublicDataUnavailable.astro';
 import { STATIC_ROUTE_METADATA } from '../../lib/metadata.ts';
 import { staticBreadcrumbs } from '../../lib/routes.ts';
+import { listBrands, PUBLIC_API_FAILURE_STATUS } from '../../lib/public-api.ts';
+
+const result = await listBrands();
+
+// An upstream failure must NOT render as "no brands published" — that
+// would present an outage as an authoritative empty catalogue. A non-200
+// status is set so crawlers and monitoring see the difference too.
+if (!result.ok) {
+  Astro.response.status = PUBLIC_API_FAILURE_STATUS[result.kind];
+}
+
+const brands = result.ok ? result.data : [];
 ---
 
 <Page meta={STATIC_ROUTE_METADATA['/brands/']} breadcrumbs={staticBreadcrumbs('/brands/')}>
-  <SkeletonNotice />
+  {!result.ok && <PublicDataUnavailable subject="our brand portfolio" />}
+  {result.ok && brands.length === 0 && <EmptyPublishedContent subject="brands" />}
+  {
+    result.ok && brands.length > 0 && (
+      <div class="brand-index">
+        {brands.map((brand) => (
+          <BrandSummary brand={brand} />
+        ))}
+      </div>
+    )
+  }
 </Page>
+
+<style>
+  .brand-index {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr));
+    gap: clamp(28px, 4vw, 52px);
+    margin: clamp(24px, 4vw, 40px) 0;
+  }
+
+  @media (max-width: 560px) {
+    .brand-index {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+</style>

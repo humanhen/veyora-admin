@@ -1,25 +1,284 @@
 ---
 // Route 9 of 25 — 05_ROUTE_TEMPLATE_MATRIX.md: `/collections/{brand}/{model}/`.
-// No catalogue data source exists until B2/B4, so this renders the same
-// neutral skeleton for any brand/model slug pair. Real publication lookups
-// and unknown-slug 404 behaviour are deferred to B2/B4.
+// API-backed as of B2.3. Metadata and breadcrumbs come from the validated
+// API record. No order controls, no login-dependent UI, no price, no
+// stock, no availability — none of those fields exist in the public API
+// response at all (15_B2_PUBLIC_API_CONTRACT.md §5), so there is nothing
+// here to accidentally render.
 import Page from '../../../../layouts/Page.astro';
-import SkeletonNotice from '../../../../components/dev/SkeletonNotice.astro';
-import { modelDetailMetadata } from '../../../../lib/metadata.ts';
-import { breadcrumbsWithHome, humanizeSlug } from '../../../../lib/routes.ts';
+import ModelGrid from '../../../../components/public/ModelGrid.astro';
+import PublicImage from '../../../../components/public/PublicImage.astro';
+import PublicDataUnavailable from '../../../../components/public/PublicDataUnavailable.astro';
+import NotFound from '../../../../components/public/NotFound.astro';
+import {
+  modelDetailMetadata,
+  modelDetailMetadataFromRecord,
+  NOT_FOUND_METADATA,
+} from '../../../../lib/metadata.ts';
+import { NOT_FOUND_ROBOTS } from '../../../../lib/indexing.ts';
+import { breadcrumbsWithHome } from '../../../../lib/routes.ts';
+import { getModel, PUBLIC_API_FAILURE_STATUS } from '../../../../lib/public-api.ts';
 
-const { brand, model } = Astro.params;
-const meta = modelDetailMetadata(brand ?? '', model ?? '');
-const brandLabel = humanizeSlug(brand ?? '');
-const modelLabel = humanizeSlug(model ?? '');
+const brandSlug = Astro.params.brand ?? '';
+const modelSlug = Astro.params.model ?? '';
+const result = await getModel(brandSlug, modelSlug);
+
+if (!result.ok) {
+  Astro.response.status = PUBLIC_API_FAILURE_STATUS[result.kind];
+}
+
+const model = result.ok ? result.data : null;
+const meta = model
+  ? modelDetailMetadataFromRecord(model)
+  : !result.ok && result.kind === 'not-found'
+    ? NOT_FOUND_METADATA
+    : modelDetailMetadata(brandSlug, modelSlug);
+
+const breadcrumbs = model
+  ? breadcrumbsWithHome([
+      { label: 'Collections', href: '/collections/' },
+      ...(model.brandName
+        ? [{ label: model.brandName, href: `/brands/${model.brandSlug}/` }]
+        : []),
+      { label: model.name, href: `/collections/${model.brandSlug}/${model.slug}/` },
+    ])
+  : undefined;
+
+// Attribute rows: only what the record carries. `size` is the public
+// frame-size label; lens type comes from the one validated field the API
+// extracts from its attributes bag.
+const attributes = model
+  ? ([
+      ['Brand', model.brandName],
+      ['Model SKU', model.sku],
+      ['Line', model.line],
+      ['Shape', model.shape],
+      ['Size', model.size],
+      ['Segment', model.segment],
+      ['Lens type', model.lensType],
+    ] as const).filter(([, value]) => Boolean(value))
+  : [];
 ---
 
 <Page
   meta={meta}
-  breadcrumbs={breadcrumbsWithHome([
-    { label: 'Collections', href: '/collections/' },
-    { label: `${brandLabel} ${modelLabel}`, href: `/collections/${brand}/${model}/` },
-  ])}
+  breadcrumbs={breadcrumbs}
+  fixedRobots={!model && !result.ok && result.kind === 'not-found' ? NOT_FOUND_ROBOTS : undefined}
 >
-  <SkeletonNotice note={`Showing the temporary skeleton for brand: ${brand}, model: ${model}`} />
+  {!result.ok && result.kind === 'not-found' && <NotFound subject="model" />}
+  {!result.ok && result.kind !== 'not-found' && <PublicDataUnavailable subject="this model" />}
+
+  {
+    model && (
+      <>
+        {model.primaryMedia && (
+          <div class="model-hero">
+            <PublicImage media={model.primaryMedia} fallbackAlt={model.name} loading="eager" />
+          </div>
+        )}
+
+        {model.publicDescription && <p class="model-lead">{model.publicDescription}</p>}
+
+        {attributes.length > 0 && (
+          <dl class="model-attributes">
+            {attributes.map(([label, value]) => (
+              <div class="model-attributes__row">
+                <dt>{label}</dt>
+                <dd>{value}</dd>
+              </div>
+            ))}
+          </dl>
+        )}
+
+        {model.categories.length > 0 && (
+          <p class="model-categories">{model.categories.join(' · ')}</p>
+        )}
+
+        {model.variations.length > 0 && (
+          <section class="model-section">
+            <h2>Colours</h2>
+            <ul class="colour-list">
+              {model.variations.map((variation) => (
+                <li class="colour-list__item">
+                  {variation.swatchMedia && (
+                    <span class="colour-list__swatch">
+                      <PublicImage
+                        media={variation.swatchMedia}
+                        fallbackAlt={variation.colorName ?? model.name}
+                      />
+                    </span>
+                  )}
+                  <span class="colour-list__text">
+                    {variation.colorName && <span class="colour-list__name">{variation.colorName}</span>}
+                    {variation.colorCode && <span class="colour-list__code">{variation.colorCode}</span>}
+                    {variation.sku && <span class="colour-list__sku">{variation.sku}</span>}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        {model.media.length > 1 && (
+          <section class="model-section">
+            <h2>Gallery</h2>
+            <div class="model-gallery">
+              {model.media.slice(1).map((item) => (
+                <PublicImage media={item} fallbackAlt={model.name} />
+              ))}
+            </div>
+          </section>
+        )}
+
+        <section class="model-section">
+          <h2>Trade access</h2>
+          <p class="model-body">
+            Wholesale pricing and live availability are available to approved Veyora trade accounts.
+          </p>
+          <p class="model-links">
+            <a href="/request-b2b-account/">Request a B2B account</a>
+          </p>
+        </section>
+
+        {model.relatedModels.length > 0 && (
+          <section class="model-section">
+            <h2>Related models</h2>
+            <ModelGrid models={model.relatedModels} headingLevel={3} />
+          </section>
+        )}
+      </>
+    )
+  }
 </Page>
+
+<style>
+  .model-hero {
+    margin: clamp(20px, 3vw, 32px) 0;
+    aspect-ratio: 1 / 1;
+    max-width: 720px;
+    background: var(--stone);
+  }
+  .model-hero :global(img) {
+    height: 100%;
+    object-fit: contain;
+    mix-blend-mode: multiply;
+  }
+
+  .model-lead {
+    max-width: 46ch;
+    font-size: var(--lead);
+    line-height: 1.75;
+    color: var(--ink-soft);
+  }
+  .model-body {
+    max-width: 46ch;
+    font-size: var(--body);
+    line-height: 1.8;
+    color: var(--ink-soft);
+  }
+
+  .model-attributes {
+    margin: clamp(28px, 4vw, 44px) 0;
+    padding: 0;
+    max-width: 46ch;
+  }
+  .model-attributes__row {
+    display: grid;
+    grid-template-columns: minmax(0, 0.6fr) minmax(0, 1fr);
+    gap: 16px;
+    padding: 12px 0;
+    border-top: 1px solid var(--rule);
+  }
+  .model-attributes dt {
+    font-family: var(--sans);
+    font-size: var(--eyebrow);
+    font-weight: 600;
+    letter-spacing: var(--track-eyebrow);
+    text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+  .model-attributes dd {
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.6;
+    color: var(--ink-soft);
+  }
+
+  .model-categories {
+    font-family: var(--sans);
+    font-size: var(--eyebrow);
+    font-weight: 600;
+    letter-spacing: var(--track-eyebrow);
+    text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+
+  .model-section {
+    margin: clamp(32px, 5vw, 56px) 0;
+  }
+  .model-section h2 {
+    font-family: var(--serif);
+    font-size: var(--display-xs);
+    font-weight: 400;
+    color: var(--ink);
+  }
+
+  .colour-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    max-width: 46ch;
+  }
+  .colour-list__item {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 12px 0;
+    border-top: 1px solid var(--rule);
+  }
+  .colour-list__swatch {
+    display: block;
+    width: 44px;
+    flex: 0 0 44px;
+  }
+  .colour-list__text {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 14px;
+    align-items: baseline;
+    font-size: 14px;
+    color: var(--ink-soft);
+  }
+  .colour-list__name {
+    color: var(--ink);
+  }
+  .colour-list__code,
+  .colour-list__sku {
+    font-size: 12.5px;
+    color: var(--ink-faint);
+  }
+
+  .model-gallery {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(220px, 100%), 1fr));
+    gap: clamp(12px, 1.6vw, 22px);
+    margin-top: clamp(16px, 2.4vw, 24px);
+  }
+
+  .model-links {
+    margin: clamp(16px, 2.4vw, 24px) 0 0;
+    font-family: var(--sans);
+    font-size: var(--label);
+    font-weight: 600;
+    letter-spacing: var(--track-label);
+    text-transform: uppercase;
+  }
+  .model-links a {
+    color: var(--ink);
+    text-decoration: none;
+    box-shadow: inset 0 -1px 0 var(--rule);
+  }
+  .model-links a:hover {
+    box-shadow: inset 0 -1px 0 var(--ink);
+  }
+</style>
