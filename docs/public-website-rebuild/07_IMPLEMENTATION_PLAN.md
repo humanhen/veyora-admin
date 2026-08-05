@@ -723,3 +723,67 @@ R-17 is unchanged by this batch: the mechanism and its interfaces exist, the gra
 Full detail: `docs/public-website-rebuild/21_PUBLIC_CONTENT_EDITOR.md`;
 `04_TARGET_ARCHITECTURE.md` §18; `18_B2_ADMIN_PUBLICATION_API.md` §14;
 `19_ACCOUNT_PERMISSION_SYSTEM.md` §12; `09_FIRST_BUILD_PACKAGE.md`'s B2.4B2A section.
+
+---
+
+## 17. B2.4B2B implementation result — publication evaluation, publish and unpublish — 2026-08-06
+
+Second half of B2.4B2, completing the public-content administration surface.
+
+### 17.1 Delivered
+
+A **Publication** panel on brand, product and variation records: explicit publication-readiness
+evaluation, deterministic gate-result presentation, publish and unpublish decisions gated on
+`public_content.publish`, confirmation UX, concurrency-safe decisions, a dirty-edit policy, and
+translated `400`/`401`/`403`/`404`/`409`/`422` handling. Nine narrow client functions. 42 new
+frontend tests and 22 new API regression tests, plus
+`22_PUBLICATION_WORKFLOW_INTERFACE.md`.
+
+**API suite: 845 passing. Frontend suite: 141 passing.** No schema change, no new API route, no
+changed response shape.
+
+### 17.2 A deadlock found, and why it had to be fixed here
+
+B2.4B2A's boundary fix was correct but exposed a latent defect that made the governed path
+**impossible**: the publication gate required `publication_state === 'published'` before it would
+allow a publish. For brands — whose `publication_state` *is* the live flag — the only route to that
+state was the publish endpoint whose own gate demanded it first, so no brand could ever be published.
+It also made unpublication one-way for every entity type, because `unpublishEntity` returns records
+to `approved`, which the same rule then refused.
+
+This met the batch's stop condition ("the existing publication API cannot support a safe UI"), and
+the brief permits minimal corrections in `publication-gate.js` where a genuine defect is found. Fixed
+there: `approved` and `published` both pass, the reason code was kept stable, and one existing test
+that pinned `approved` as blocked was updated. A publish/unpublish/republish round-trip test now
+guards it.
+
+Reporting without fixing would have shipped a publication interface whose Publish button could never
+succeed.
+
+### 17.3 Deliberately deferred to B2.4C
+
+Approval history (the rows are written, but no read endpoint exists and building one was out of
+scope), bulk publication, cascading a product publish to its variations, publish-time preview, and
+scheduled publication. Also still outstanding from B2.4B2A: server-side catalogue search, a brand
+picker, and a media picker.
+
+### 17.4 Sequencing consequence — unchanged and still blocking
+
+**The bootstrap remains the gate on everything, and now blocks more.** With `account_permissions`
+empty, `/capabilities` returns all false for every account, so review, editing *and* publication are
+unreachable by everyone including every administrator. Before any of it is usable:
+
+1. perform the controlled bootstrap in `19_ACCOUNT_PERMISSION_SYSTEM.md` §8;
+2. grant `permissions.manage` to a second active account;
+3. grant `public_content.view`/`.edit` to editorial staff and `public_content.publish` to whoever is
+   authorised to put content on the public website.
+
+Beyond that, a real publication run still needs content to exist and be signed off — catalogue
+backfill and record creation remain out of scope.
+
+R-17 is unchanged by this batch: the mechanism and all its interfaces exist; the grants do not.
+
+Full detail: `docs/public-website-rebuild/22_PUBLICATION_WORKFLOW_INTERFACE.md`;
+`04_TARGET_ARCHITECTURE.md` §19; `18_B2_ADMIN_PUBLICATION_API.md` §15;
+`19_ACCOUNT_PERMISSION_SYSTEM.md` §13; `21_PUBLIC_CONTENT_EDITOR.md` §15;
+`09_FIRST_BUILD_PACKAGE.md`'s B2.4B2B section.

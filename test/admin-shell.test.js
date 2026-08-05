@@ -119,6 +119,8 @@ test('every change is inside the admin frontend, the permitted API paths, tests 
   const API_ALLOWED = [
     'platform/server/api/src/routes/admin-public-content.js',
     'platform/server/api/src/index.js',
+    'platform/server/api/src/publication-gate.js',
+    'platform/server/api/src/admin-public-serialize.js',
   ];
   const allowed = (f) =>
     SHIPPED.some(s => f === s || f.startsWith(s + '/')) ||   // the deployed admin panel

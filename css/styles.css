@@ -514,3 +514,30 @@ pre.payload{background:#faf7f0;border:1px solid var(--line);border-radius:10px;p
 .pc-notice.ok{border-left-color:var(--green);background:var(--green-soft)}
 
 @media(max-width:760px){.pc-tabs .btn{flex:1}}
+
+/* ============ Publication workflow (B2.4B2B) ============ */
+.pc-publication .btn:disabled{opacity:.55;cursor:not-allowed}
+.pc-blocked-note{color:var(--yellow-ink);background:var(--yellow-soft);
+  border-left:3px solid var(--yellow-ink);padding:8px 10px;border-radius:6px;margin-bottom:10px}
+
+.pc-gate{margin-top:10px;padding:10px 12px;border-radius:8px;border-left:4px solid var(--line)}
+.pc-gate.ok{border-left-color:var(--green);background:var(--green-soft)}
+.pc-gate.blocked{border-left-color:var(--red);background:var(--red-soft)}
+
+.pc-reasons{list-style:none;margin:8px 0 0;padding:0}
+.pc-reason{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px;
+  padding:6px 0;border-top:1px solid rgba(0,0,0,.06);font-size:12.5px}
+.pc-reason:first-child{border-top:0}
+.pc-reason-msg{flex:1 1 240px}
+/* The field path and the stable code are shown but visually secondary — an
+   editor reads the message; the code is what they quote in a bug report. */
+.pc-reason-field{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11.5px;
+  background:rgba(0,0,0,.06);padding:1px 6px;border-radius:4px}
+.pc-reason-code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;opacity:.75}
+.pc-reason-jump{font-size:12px;text-decoration:underline;width:auto;display:inline}
+.pc-reason-jump:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+.pc-advisories{margin-top:12px;padding:10px 12px;border-radius:8px;
+  border-left:4px solid var(--yellow-ink);background:var(--yellow-soft)}
+
+@media(max-width:760px){.pc-publication .flex .btn{flex:1 1 100%}}

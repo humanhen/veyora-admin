@@ -366,6 +366,11 @@ const DB = (function(){
       replacementProductId: idOrNull(p.replacementProductId),
       isActiveInPortal: p.isActiveInPortal === true,
       governance: shapeGovernance(p.governance),
+      /* Advisories are NON-blocking notes and are returned only on the
+         product detail — never by the evaluate endpoint. Kept separate from
+         gate reasons so the screen can never present a note as a blocker or
+         a blocker as a note. */
+      advisories: Array.isArray(p.advisories) ? p.advisories.map(shapeGateReason) : [],
       variations: Array.isArray(p.variations) ? p.variations.map(shapeAdminVariation) : [],
       concurrencyToken: idOrNull(p.concurrencyToken),
       updatedAt: idOrNull(p.updatedAt), createdAt: idOrNull(p.createdAt),
@@ -380,6 +385,60 @@ const DB = (function(){
       isPublished: v.isPublished === true, isActiveInPortal: v.isActiveInPortal === true,
       concurrencyToken: idOrNull(v.concurrencyToken), createdAt: idOrNull(v.createdAt),
     };
+  }
+
+  /* ---------- publication gate shaping (B2.4B2B) ----------
+
+     A gate reason is {code, message, field}. The API sorts reasons by code so
+     two evaluations of the same record are byte-identical; that ORDER IS PART
+     OF THE CONTRACT and is preserved exactly here — nothing is re-sorted,
+     re-grouped, deduplicated or reworded. A code the browser does not
+     recognise still renders, carrying the server's own message.
+
+     `allowed` is read strictly: only an explicit `true` permits publication,
+     so a malformed or partial verdict reads as blocked. */
+  function shapeGateReason(r){
+    return {
+      code: str(r && r.code),
+      message: str(r && r.message),
+      field: (r && r.field) == null ? null : String(r.field),
+    };
+  }
+
+  function shapeGate(g){
+    if (!g || typeof g !== 'object' || !Array.isArray(g.reasons)) return null;
+    return {
+      allowed: g.allowed === true,
+      reasons: g.reasons.map(shapeGateReason),   // server order preserved
+    };
+  }
+
+  /* The three segment names the administrative router mounts, and the
+     serializer for each. Fixed here so no caller can name a path. */
+  const PC_SEGMENTS = { brands:'brand', products:'product', variations:'variation' };
+  const PC_SHAPERS = { brand:shapeAdminBrand, product:shapeAdminProduct, variation:shapeAdminVariation };
+
+  function pcPath(segment, id, action){
+    if (!Object.prototype.hasOwnProperty.call(PC_SEGMENTS, segment)) throw malformed();
+    return '/admin/public-content/'+segment+'/'+encodeURIComponent(id)+'/'+action;
+  }
+
+  /** Runs the publication gate. Read-only: no body, no token, no mutation. */
+  async function gateCall(segment, id){
+    const res = await apiCall('POST', pcPath(segment, id, 'evaluate'));
+    const gate = shapeGate(res && res.gate);
+    if (!gate) throw malformed();
+    return gate;
+  }
+
+  /** Publish or unpublish. The body carries the token and an optional note —
+      never an identity, a state or a flag. */
+  async function decide(segment, action, id, concurrencyToken, note, entity){
+    const body = { concurrencyToken };
+    if (typeof note === 'string' && note.trim() !== '') body.note = note.trim().slice(0, 2000);
+    const res = await apiCall('POST', pcPath(segment, id, action), body);
+    if (!res || !res[entity]) throw malformed();
+    return PC_SHAPERS[entity](res[entity]);
   }
 
   /* ---------- lookups ---------- */
@@ -550,6 +609,39 @@ const DB = (function(){
       if (!res || !res.variation) throw malformed();
       return shapeAdminVariation(res.variation);
     },
+
+    /* ---- publication workflow (B2.4B2B) ----
+
+       Nine calls against the governed B2.4A endpoints. Fixed paths, `apiCall`
+       still private, no generic helper.
+
+       EVALUATE IS A READ. It runs the gate against stored server state and
+       mutates nothing — it does not publish, does not write, and does not
+       return a refreshed concurrency token, so callers must leave their token
+       untouched across an evaluation.
+
+       PUBLISH AND UNPUBLISH send only the concurrency token and an optional
+       note. There is deliberately no way to send an actor, an approver, an
+       approval timestamp, `is_published` or `publication_state`: the server
+       takes the decision-maker from the authenticated session and writes the
+       content_approvals row itself. Crossing the publication boundary is
+       possible ONLY through these two endpoints (see the boundary guard in
+       routes/admin-public-content.js).
+
+       Nothing is retried automatically — a publication decision that may
+       already have been applied must never be replayed by a machine. */
+
+    async evaluateBrand(id){ return gateCall('brands', id); },
+    async evaluateProduct(id){ return gateCall('products', id); },
+    async evaluateVariation(id){ return gateCall('variations', id); },
+
+    async publishBrand(id, token, note){ return decide('brands', 'publish', id, token, note, 'brand'); },
+    async publishProduct(id, token, note){ return decide('products', 'publish', id, token, note, 'product'); },
+    async publishVariation(id, token, note){ return decide('variations', 'publish', id, token, note, 'variation'); },
+
+    async unpublishBrand(id, token, note){ return decide('brands', 'unpublish', id, token, note, 'brand'); },
+    async unpublishProduct(id, token, note){ return decide('products', 'unpublish', id, token, note, 'product'); },
+    async unpublishVariation(id, token, note){ return decide('variations', 'unpublish', id, token, note, 'variation'); },
 
     get d(){ return load(); },
     user(id){ return load().users.find(u=>u.id===id); },

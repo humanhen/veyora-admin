@@ -67,11 +67,34 @@ function governanceReasons(record, prefix) {
   if (record.publication_state === 'retired') {
     out.push(reason(`${prefix}_RETIRED`, 'A retired record cannot be published.', 'publication_state'));
   }
-  if (record.publication_state !== 'published') {
+  /* DEADLOCK FIX (B2.4B2B). This required `publication_state === 'published'`
+     before a record could be published — that is, a record had to already be
+     published in order to be publishable.
+
+     For brands that was circular and, after B2.4B2A closed the PATCH
+     publication-boundary bypass, unsatisfiable: brands have no `is_published`
+     column, so `publication_state = 'published'` IS their live flag, and the
+     only route to it is the publish endpoint whose own gate demanded it
+     first. No brand could ever be published.
+
+     For every entity type it also made unpublication one-way, because
+     `unpublishEntity` returns a record to `'approved'` — which this rule then
+     refused to re-publish. That `'approved'` is precisely the state unpublish
+     leaves behind is the evidence for what the rule was always meant to say:
+     the record must have been SIGNED OFF, not already live.
+
+     So: `approved` (signed off, not live) and `published` (already live, making
+     a republish idempotent) both pass. `draft` and `verified` are not yet
+     signed off; `retired` is refused by its own reason above.
+
+     The reason CODE is left unchanged deliberately — it is a stable part of
+     the API contract and consumers key on it — even though the name now reads
+     slightly narrowly. The message carries the accurate requirement. */
+  if (record.publication_state !== 'approved' && record.publication_state !== 'published') {
     out.push(
       reason(
         `${prefix}_STATE_NOT_PUBLISHED`,
-        `Publication state must be "published" (currently "${record.publication_state ?? 'unset'}").`,
+        `Publication state must be "approved" or "published" before publishing (currently "${record.publication_state ?? 'unset'}").`,
         'publication_state'
       )
     );

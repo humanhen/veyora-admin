@@ -159,7 +159,11 @@ test('each missing product requirement produces its own stable reason code', () 
     [{ public_slug: null }, {}, 'PRODUCT_INVALID_SLUG'],
     [{ sku: '' }, {}, 'PRODUCT_NO_DISPLAY_SKU'],
     [{ public_description: '' }, {}, 'PRODUCT_NO_PUBLIC_DESCRIPTION'],
-    [{ publication_state: 'approved' }, {}, 'PRODUCT_STATE_NOT_PUBLISHED'],
+    /* B2.4B2B: 'approved' now PASSES — it is the signed-off state that
+       unpublish returns a record to, so refusing it made unpublication
+       one-way and made brands unpublishable entirely. 'verified' is the
+       nearest state that is genuinely not yet signed off. */
+    [{ publication_state: 'verified' }, {}, 'PRODUCT_STATE_NOT_PUBLISHED'],
     [{ publication_state: 'retired' }, {}, 'PRODUCT_RETIRED'],
     [{ verification_status: 'unverified' }, {}, 'PRODUCT_NOT_VERIFIED'],
     [{ source_reference: '' }, {}, 'PRODUCT_NO_SOURCE_REFERENCE'],

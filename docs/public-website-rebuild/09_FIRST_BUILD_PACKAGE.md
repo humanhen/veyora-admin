@@ -1873,3 +1873,92 @@ change was made. `platform/server/db/**`, `platform/server/web/**`, `platform/se
 every `.env` file are unchanged, as are all public API response shapes and all pricing, inventory,
 ordering and Zoho behaviour. The other developer's branch was never inspected, referenced or merged.
 No commit was made and nothing was pushed.
+
+---
+
+## 19. B2.4B2B implementation result — publication evaluation, publish and unpublish — 2026-08-06
+
+### Files
+
+**Added**
+| Path | Purpose |
+|---|---|
+| `test/publication-workflow.test.js` | 42 tests — evaluation, publish, unpublish, capabilities, concurrency, errors, accessibility. |
+| `platform/server/api/test/publication-boundary.test.js` | 22 tests — the publication boundary and the publish/unpublish round trip. |
+| `docs/public-website-rebuild/22_PUBLICATION_WORKFLOW_INTERFACE.md` | Full contract. |
+
+**Modified**
+| Path | Change |
+|---|---|
+| `platform/server/api/src/publication-gate.js` | Deadlock fix: `approved` and `published` both satisfy the state requirement. |
+| `js/pages_public_content.js` | Publication panel: evaluation, publish, unpublish, confirmation, dirty policy. |
+| `js/data.js` | Nine publication client functions, gate shaping, product advisories. |
+| `css/styles.css` | Publication panel, gate result and reason styling. |
+| `platform/server/api/test/publication-gate.test.js` | One case repinned from `approved` to `verified`. |
+| `test/public-content.test.js`, `test/admin-shell.test.js` | Updated for capability-gated publication controls and action-neutral error wording. |
+
+### Deadlock fixed
+
+**The publication gate required a record to be already published in order to be publishable.** For
+brands — whose `publication_state` *is* the live flag — the only route into that state was the
+publish endpoint whose own gate demanded it first, so after B2.4B2A closed the PATCH bypass **no
+brand could ever be published**. It also made unpublication one-way for every entity type, because
+`unpublishEntity` returns records to `approved`. Now `approved` and `published` both pass; the reason
+code was kept stable and only the message changed.
+
+### Capability mapping
+
+| Action | Capability |
+|---|---|
+| `POST …/{brands\|products\|variations}/:id/evaluate` | `public_content.view` (a read — writes nothing) |
+| `POST …/:id/publish` · `POST …/:id/unpublish` | `public_content.publish` (does not require `edit`) |
+
+No new route was added and no response shape changed.
+
+### Behaviour summary
+
+- **Evaluation is explicit.** Opening a record never evaluates and never mutates; the readiness check
+  is a deliberate action with a visible checking state.
+- **Gate reasons render in the server's own order**, with message, field path (including nested paths
+  like `variations[0].color`) and stable code. Advisories are shown separately and never block.
+  No raw JSON.
+- **Publish** requires a fresh allowed verdict, an explicit confirmation naming the record, and the
+  current token. The confirm button disables on first click. A blocked record offers **no bypass** —
+  and the publication-state select never offers `published` at any capability level.
+- **Unpublish** requires no readiness check, is confirmed explicitly, and is **never presented as
+  deletion**: content, approvals and URLs are preserved and the record can be published again.
+- **Unsaved edits block evaluation and both decisions**, explained in place, and are never silently
+  discarded. Any verdict is discarded when the record changes.
+- **The decision body carries only a token and an optional note.** Actor, approver, `is_published` and
+  `publication_state` are structurally unsendable; the server records the approver from the session.
+- `409` never reports success, never retries, and offers a reload that drops the stale verdict.
+  `422` renders the gate's own reasons and leaves state unchanged.
+
+### Verification
+
+- **API suite: 845 passing, 0 failing** (823 baseline + 22).
+- **Frontend suite: 141 passing, 0 failing** (99 baseline + 42), loading the real shipped scripts.
+- **No frontend build exists.** Production equivalent run instead: every shipped script parses, every
+  `index.html` reference resolves, and the `deploy.sh` tar payload assembles (1.4 MB).
+- Diff sweep: no role bypass, no client-side publication-state or `is_published` mutation, no publish
+  control without the capability, no client-supplied actor or approver, no automatic mutation retry,
+  no raw error rendering, no delete language, no bootstrap SQL, no secrets, no production hostnames,
+  no `TODO`/`FIXME`, no merge markers. `git diff --check` clean.
+
+### Required before this is usable
+
+**Unchanged, and now blocking more.** `account_permissions` is empty, so `/capabilities` returns all
+false and review, editing and publication are all unreachable by every account. Perform the bootstrap
+in `19_ACCOUNT_PERMISSION_SYSTEM.md` §8, then grant `public_content.view`/`.edit` to editorial staff
+and `public_content.publish` to whoever is authorised to publish.
+
+### Confirmation
+
+No live database, production system, VPS or DNS was contacted. **No record was published or
+unpublished, no permission was granted to any real account, and no bootstrap SQL was executed.** No
+schema change, no new API route and no changed response shape. `platform/server/db/**`,
+`platform/server/web/**`, `platform/server/storefront/**`, `api/src/index.js`, `api/src/migrate.js`,
+`api/src/routes/public.js`, `docker-compose.yml`, `Caddyfile`, `deploy.sh` and every `.env` file are
+unchanged, as are all public API response shapes and all pricing, inventory, ordering and Zoho
+behaviour. The other developer's branch was never inspected, referenced or merged. No commit was made
+and nothing was pushed.

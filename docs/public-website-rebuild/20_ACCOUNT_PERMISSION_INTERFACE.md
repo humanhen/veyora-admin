@@ -350,3 +350,28 @@ requests by name, which is a stronger statement of the same property.
 
 The **bootstrap prerequisite in §10 and §13 is unchanged**, and now blocks more: with no grants,
 neither this screen nor the Public Content section is reachable by any account.
+
+---
+
+## 16. B2.4B2B update — 2026-08-06
+
+`public_content.publish` — grantable here since B2.4P, and noted in §15 as having no interface — now
+has one. Granting it on this screen gives an account the publish and unpublish decisions described in
+[22_PUBLICATION_WORKFLOW_INTERFACE.md](22_PUBLICATION_WORKFLOW_INTERFACE.md).
+
+**All four capabilities are now consequential, so grant them deliberately:**
+
+| Capability | What granting it actually allows |
+|---|---|
+| `permissions.manage` | Grant and revoke capabilities on any account, including this one. |
+| `public_content.view` | Read public-content records, and run the publication readiness check. |
+| `public_content.edit` | Change public copy on records — including records already live. |
+| `public_content.publish` | Put a record on the public website, and withdraw it. **Does not require, and is not implied by, `edit`.** |
+
+§6's statement that editing and publishing are independent is now observable rather than
+theoretical: an account with `edit` alone sees no publication control, and an account with `publish`
+alone gets the decisions with every form control disabled. Both are enforced by the API regardless of
+what this screen shows.
+
+The access model, concurrency handling, last-manager protection and bootstrap prerequisite in §2,
+§7, §9 and §10 are unchanged.

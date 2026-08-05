@@ -8,6 +8,12 @@ publication evaluation, no approval decision, no backfill, no record creation an
 No permission was granted to any real account, no bootstrap SQL was executed, and nothing was
 published.**
 
+> **Partly superseded by B2.4B2B (2026-08-06).** The publish, unpublish and evaluation controls
+> deferred here were built on these same screens — see §15 and
+> [22_PUBLICATION_WORKFLOW_INTERFACE.md](22_PUBLICATION_WORKFLOW_INTERFACE.md). Everything else in
+> this document still describes current behaviour. Backfill, record creation and media upload remain
+> out of scope, and nothing has been published.
+
 ---
 
 ## 1. A defect found and fixed
@@ -301,3 +307,40 @@ capability-gated; this batch simply ships no control for them.
 - **No draft/preview of how content will look** on the public site.
 - **Capability state is per session.** A capability revoked mid-session is not pushed to an open tab;
   the entry stays visible and every request is refused until the next sign-in.
+
+---
+
+## 15. B2.4B2B update — the publication workflow landed — 2026-08-06
+
+§14 deferred publish and unpublish controls, gate-evaluation display and approval decisions to
+B2.4B2B. They are now built, on the same screens, in a **Publication** panel below the edit form —
+see [22_PUBLICATION_WORKFLOW_INTERFACE.md](22_PUBLICATION_WORKFLOW_INTERFACE.md).
+
+What changed on the screens this document describes:
+
+- **A Publication panel** on brand, product and variation records: an explicit readiness check, and
+  Publish/Unpublish decisions gated on `public_content.publish`.
+- **Three client functions became nine more.** §5's deliberate omission of publish, unpublish and
+  evaluate no longer applies; they are now present, each with a fixed path and a body that can carry
+  only a concurrency token and an optional note.
+- **`pcDescribe()` gained a `422` branch** and its wording became action-neutral, because the same
+  function now serves save, evaluate, publish and unpublish. Its guarantee is unchanged: no raw API
+  body, stack, SQL, hostname or port is ever rendered.
+- **The dirty-state handling in §8 was extended.** Unsaved edits now also block evaluation and both
+  publication decisions, and `paintDirty()` updates those controls in place so the field being typed
+  into keeps the caret.
+- **The publication-state select is unchanged** and still offers only `draft`, `verified`,
+  `approved`, `retired`. §6's statement that this screen offers no way to publish through the form
+  remains exactly true — publication happens through the governed endpoints in the panel, never
+  through `PATCH`.
+
+§12's test counts are superseded: the frontend suite is now **141 passing** (99 from B2.4B2A, 42 from
+B2.4B2B), and the API suite **845 passing**.
+
+§13's bootstrap prerequisite is **unchanged and now blocks more**: with no grants, review, editing
+and publication are all unreachable by every account.
+
+One correction to §1's account of B2.4B2A's fix: closing the PATCH publication bypass was correct,
+but it turned a latent gate defect into a hard deadlock — the gate required a record to be *already
+published* before permitting publication. Fixed in B2.4B2B; see
+[22_PUBLICATION_WORKFLOW_INTERFACE.md](22_PUBLICATION_WORKFLOW_INTERFACE.md) §1.

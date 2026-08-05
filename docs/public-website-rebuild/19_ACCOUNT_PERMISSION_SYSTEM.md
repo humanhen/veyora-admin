@@ -474,3 +474,44 @@ No account holds any capability. `/capabilities` returns all false for everyone,
 governance screens are unreachable and public content can be neither read nor edited by anyone,
 including every existing administrator. The §8 procedure remains the only way in, and nothing in
 either interface can perform or bypass it.
+
+---
+
+## 13. All four capabilities now have an interface — B2.4B2B, 2026-08-06
+
+| Capability | Consumed by |
+|---|---|
+| `permissions.manage` | Account Permissions screen (B2.4B1) — [20_ACCOUNT_PERMISSION_INTERFACE.md](20_ACCOUNT_PERMISSION_INTERFACE.md) |
+| `public_content.view` | Public Content lists, read-only editors, and the publication readiness check (B2.4B2A/B) |
+| `public_content.edit` | Draft editing (B2.4B2A) |
+| `public_content.publish` | Publish and unpublish decisions (B2.4B2B) — [22_PUBLICATION_WORKFLOW_INTERFACE.md](22_PUBLICATION_WORKFLOW_INTERFACE.md) |
+
+§12 recorded that `public_content.publish` had no interface. It now has one, and the four
+capabilities are demonstrably independent end to end: an editor cannot publish, a publisher cannot
+edit, and neither can grant themselves anything.
+
+Note that the **readiness check is gated on `view`, not `publish`** — the evaluate route is a read
+that computes a verdict and writes nothing, so a reviewer can see why a record is not ready without
+being able to act on it. §5's capability table is unchanged; this is simply how the existing gating
+reads in practice.
+
+### A second defect, following from the first
+
+§12 recorded the publish bypass B2.4B2A closed. Closing it exposed a deadlock: the gate required a
+record to be **already published** before it would allow publishing, which for brands — whose
+`publication_state` *is* the live flag — became unsatisfiable once PATCH could no longer reach that
+state. It also made unpublication one-way for every entity type, because unpublish returns a record
+to `approved`. Fixed in `publication-gate.js`: `approved` and `published` both pass. Detail:
+[18_B2_ADMIN_PUBLICATION_API.md](18_B2_ADMIN_PUBLICATION_API.md) §15 and
+[22_PUBLICATION_WORKFLOW_INTERFACE.md](22_PUBLICATION_WORKFLOW_INTERFACE.md) §1.
+
+Both defects are worth remembering against §5: **a capability split is only as strong as the state
+machine underneath it.** The first merged two capabilities into one; the second made the governed
+path impossible, which is the failure mode that would have pushed an operator back toward the bypass.
+
+### The bootstrap requirement is STILL unchanged
+
+No account holds any capability. `/capabilities` returns all false for everyone, so every
+public-content screen — review, editing and now publication — is unreachable by every account,
+including every existing administrator. §8 remains the only way in, and no interface can perform or
+bypass it.

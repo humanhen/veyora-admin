@@ -410,3 +410,39 @@ their flag is the separate, already-immutable `is_published` column. 13 tests co
 
 **§3 and §10 should be read with this guard in place:** `publication_state` is editable, but not
 across the published boundary.
+
+---
+
+## 15. B2.4B2B amendment — publication gate deadlock fixed — 2026-08-06
+
+**§5's gate contained a circular requirement.** `governanceReasons()` emitted `*_STATE_NOT_PUBLISHED`
+unless `publication_state === 'published'` — that is, a record had to already be published in order
+to pass the gate that permits publishing.
+
+For brands this was unsatisfiable once B2.4B2A closed the PATCH publication-boundary bypass (§14.2):
+brands have no `is_published` column, so `publication_state = 'published'` **is** their live flag,
+and the only route to it is the publish endpoint whose own gate demanded it first. **No brand could
+be published.**
+
+For all three entity types it also made unpublication one-way: §7's `unpublishEntity` returns a
+record to `'approved'`, which the same rule then refused to re-publish. That `'approved'` is exactly
+the state unpublish leaves behind is the evidence for what the rule was meant to say — the record
+must have been **signed off**, not already live.
+
+**Corrected:** `approved` and `published` both pass. `draft` and `verified` are not yet signed off;
+`retired` keeps its own separate reason.
+
+```
+draft → verified → approved ──POST …/publish──▶ published
+                      ▲                            │
+                      └───── POST …/unpublish ─────┘
+```
+
+The reason **code `*_STATE_NOT_PUBLISHED` is unchanged** — it is a stable part of this contract and
+consumers key on it — while the message now reads *"Publication state must be "approved" or
+"published" before publishing (currently "…")"*. §3's allowlists, §4's response fields, §6's
+concurrency and §9's error shapes are all unchanged.
+
+One existing gate test that pinned `approved` as blocked was updated to `verified`. 22 regression
+tests now cover the boundary and the full publish/unpublish round trip; see
+[22_PUBLICATION_WORKFLOW_INTERFACE.md](22_PUBLICATION_WORKFLOW_INTERFACE.md) §1.

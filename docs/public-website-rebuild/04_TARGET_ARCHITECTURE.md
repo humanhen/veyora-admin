@@ -927,3 +927,76 @@ change. `platform/server/db/**`, `platform/server/web/**`, `platform/server/stor
 every `.env` file are unchanged, as are all public API response shapes and all pricing, inventory,
 ordering and Zoho behaviour. Full contract:
 `docs/public-website-rebuild/21_PUBLIC_CONTENT_EDITOR.md`.
+
+---
+
+## 19. B2.4B2B implementation result — publication evaluation, publish and unpublish — 2026-08-06
+
+The governed publication workflow, completing the public-content administration surface. Every
+endpoint already existed in B2.4A; this batch adds no route and changes no response shape.
+
+### 19.1 A deadlock found and fixed
+
+B2.4B2A closed the PATCH publication bypass. That was correct — and it made a latent gate defect
+fatal.
+
+**The gate required a record to be already published in order to be publishable.**
+`governanceReasons()` demanded `publication_state === 'published'`. For brands, whose
+`publication_state` *is* the live flag (no `is_published` column), the only route to that state was
+the publish endpoint whose own gate demanded it first: **no brand could ever be published.** For all
+three entity types it also made unpublication one-way, because `unpublishEntity` returns a record to
+`approved` — which the same rule refused to re-publish.
+
+That `approved` is exactly what unpublish leaves behind is the evidence for the intended rule: the
+record must have been **signed off**, not already live. `approved` and `published` now both pass.
+
+```
+draft → verified → approved ──publish endpoint──▶ published
+                      ▲                              │
+                      └────── unpublish endpoint ────┘
+```
+
+The two defects together are the architectural lesson of this sequence: **a capability split is only
+as strong as the state machine underneath it.** The first merged `edit` and `publish` into one; the
+second made the governed path impossible — which is precisely what pushes an operator back toward a
+bypass.
+
+### 19.2 Capability mapping
+
+| Action | Capability | Note |
+|---|---|---|
+| Readiness check (`evaluate`) | `public_content.view` | A read. Computes a verdict, writes nothing — a reviewer can see why a record is blocked without being able to act. |
+| Publish / Unpublish | `public_content.publish` | Does **not** require `edit`, and is not implied by it. |
+
+A publish-only account gets the decisions with every form control disabled; an edit-only account gets
+the form with no publication control. Both enforced by the API independently of the UI.
+
+### 19.3 Workflow invariants
+
+- **Evaluation is explicit** — opening a record never evaluates and never mutates. The detail
+  response happens to embed a verdict; the interface ignores it, so what is shown is always a verdict
+  the operator asked for.
+- **Server reason order is preserved exactly**; nothing is re-sorted, regrouped or reworded, and an
+  unrecognised code still renders with the server's message. Advisories stay separate from blockers.
+- **A decision requires a fresh verdict**, an explicit confirmation naming the record, and the
+  current concurrency token. The confirm button disables on first click; nothing is retried
+  automatically.
+- **Unsaved edits block evaluation and both decisions**, and are never silently discarded — a
+  decision acts on the stored record, so acting while the screen shows different copy is refused.
+- **Any verdict is discarded** the moment the record changes: a save, a reload, or a decision.
+- **The browser can neither set the flag nor supply the approver.** The decision body carries only a
+  token and an optional note; the server takes the approver from the session and writes
+  `content_approvals` itself.
+- **Unpublish is never presented as deletion** — content, approvals and URLs are preserved, and the
+  record can be published again.
+
+### 19.4 Confirmed untouched
+
+No live database, production system, VPS or DNS was contacted. **No record was published or
+unpublished, no permission was granted to any account, and no bootstrap SQL was executed.** No schema
+change, no new route, no changed response shape. `platform/server/db/**`, `platform/server/web/**`,
+`platform/server/storefront/**`, `api/src/index.js`, `api/src/migrate.js`,
+`api/src/routes/public.js`, `docker-compose.yml`, `Caddyfile`, `deploy.sh` and every `.env` file are
+unchanged, as are all public API response shapes and all pricing, inventory, ordering and Zoho
+behaviour. Full contract:
+`docs/public-website-rebuild/22_PUBLICATION_WORKFLOW_INTERFACE.md`.

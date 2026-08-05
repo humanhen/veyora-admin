@@ -257,41 +257,54 @@ test('10 — a view-only account sees the record with every control disabled', a
   assert.match(el.textContent, /read-only access/i);
 });
 
-test('11 — an edit account can edit, and no publish control exists anywhere', async () => {
-  const { el } = await render('/brands/br_1', { caps: [true, true, false] });
-  assert.equal(field(el, 'headline').disabled, false);
-
-  for (const path of ['/brands/br_1', '/products/p_1', '/products/p_1/variations/v_1']) {
-    const r = await render(path, { caps: [true, true, true] });
-    assert.deepEqual(publishControls(r.el), [], `${path} has a publish control`);
-    assert.equal(r.el.querySelector('[data-pc-field="is_published"]'), null);
-  }
-});
-
-/** Any element that would actually trigger a publish: a button, or an option
- *  that could set the published state. Prose explaining that publishing is
- *  unavailable is not a control, so this looks at elements, not words. */
+/** Identifies anything that would actually trigger publication: a button or
+ *  link whose label is Publish/Unpublish, or a select option that could set
+ *  the published state. Returns SHORT STRINGS, never DOM nodes — a failing
+ *  deepEqual on Element objects would try to diff the whole cyclic document.
+ *  Prose explaining that publishing is elsewhere is not a control, so this
+ *  looks at elements, not words. */
 function publishControls(el) {
-  const buttons = el.querySelectorAll('button').concat(el.querySelectorAll('a'))
-    .filter(b => /^\s*(un)?publish\b/i.test(b.textContent.trim()));
-  const options = el.querySelectorAll('option').filter(o => o.getAttribute('value') === 'published');
-  return buttons.concat(options);
+  const labelled = el.querySelectorAll('button').concat(el.querySelectorAll('a'))
+    .filter(b => /^\s*(un)?publish\b/i.test(b.textContent.trim()))
+    .map(b => `${b.tagName.toLowerCase()}:${b.textContent.trim()}`);
+  const options = el.querySelectorAll('option')
+    .filter(o => o.getAttribute('value') === 'published')
+    .map(() => 'option:published');
+  return labelled.concat(options);
 }
 
-test('12 — edit does not imply publish: holding edit alone still shows no publish action', async () => {
+test('11 — an edit account can edit, and edit alone exposes no publication control', async () => {
+  /* B2.4B2B added the publication panel. Its controls are gated on
+     `public_content.publish`, so an editor must still see none of them —
+     which is the property that matters and is asserted here. The panel's own
+     behaviour is covered in publication-workflow.test.js. */
+  for (const path of ['/brands/br_1', '/products/p_1', '/products/p_1/variations/v_1']) {
+    const r = await render(path, { caps: [true, true, false] });
+    assert.deepEqual(publishControls(r.el), [], `${path} exposes publication to an editor`);
+    assert.equal(r.el.querySelector('[data-pc-field="is_published"]'), null);
+  }
+  const { el } = await render('/brands/br_1', { caps: [true, true, false] });
+  assert.equal(field(el, 'headline').disabled, false, 'but editing still works');
+});
+
+test('12 — edit does not imply publish, and the state select is never a publish control', async () => {
   const { el, sandbox } = await render('/brands/br_1', { caps: [true, true, false] });
   assert.equal(sandbox.App.can('public_content.publish'), false);
   assert.deepEqual(publishControls(el), [], 'no control may trigger publication');
 
-  // The state select never offers the published state.
-  const options = field(el, 'publication_state').querySelectorAll('option').map(o => o.getAttribute('value'));
-  assert.deepEqual(options, ['draft', 'verified', 'approved', 'retired']);
+  // The state select never offers the published state, at ANY capability.
+  for (const caps of [[true, true, false], [true, true, true]]) {
+    const r = await render('/brands/br_1', { caps });
+    const options = field(r.el, 'publication_state').querySelectorAll('option').map(o => o.getAttribute('value'));
+    assert.deepEqual(options, ['draft', 'verified', 'approved', 'retired']);
+  }
 });
 
-test('even with publish capability this screen offers no publish action', async () => {
+test('the editor form itself never publishes — that is the panel’s job', async () => {
   const { el } = await render('/brands/br_1', { caps: [true, true, true] });
-  assert.deepEqual(publishControls(el), [], 'publish is B2.4B2B, not this screen');
-  assert.match(el.textContent, /Publication is a separate, gated action/i);
+  const form = el.querySelector('#pc-form');
+  assert.deepEqual(publishControls(form), [], 'the edit form must contain no publication control');
+  assert.match(el.textContent, /separate, gated action with its own capability/i);
 });
 
 // ---------------------------------------------------------------------------
@@ -462,7 +475,7 @@ test('23 — a 400 renders field-level errors against the relevant controls', as
 
 test('24 — a 409 never reports success and never silently retries', async () => {
   const { el, calls } = await saveWith(409, { error: 'stale', code: 'STALE_TOKEN' });
-  assert.match(el.textContent, /Another editor changed this brand/);
+  assert.match(el.textContent, /Another administrator changed this brand/);
   assert.doesNotMatch(el.textContent, /Saved\./);
   assert.equal(calls.filter(c => c.method === 'PATCH').length, 1, 'exactly one attempt');
   assert.ok(el.querySelector('[data-pc-reload]'), 'a reload action must be offered');
@@ -494,7 +507,7 @@ test('25 — reloading after a conflict retrieves the current stored version', a
 
 test('26 — 401, 403 and 404 render safe states', async () => {
   assert.match((await saveWith(401, {})).el.textContent, /session has expired/i);
-  assert.match((await saveWith(403, {})).el.textContent, /does not have permission to edit/i);
+  assert.match((await saveWith(403, {})).el.textContent, /does not have permission to perform this action/i);
   assert.match((await saveWith(404, {})).el.textContent, /no longer exists/i);
 });
 
@@ -512,7 +525,7 @@ test('27 — a generic failure leaks no API detail, stack or infrastructure hint
     stack: 'at Object.query (/srv/api/src/db.js:14:9)',
   });
   const shown = el.textContent;
-  assert.match(shown, /could not be saved/i);
+  assert.match(shown, /could not be completed/i);
   for (const leak of ['update brands', '10.0.0.4', '5432', 'db.js', 'at Object', 'connection to']) {
     assert.ok(!shown.includes(leak), `leaked "${leak}"`);
   }
