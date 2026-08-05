@@ -1,0 +1,142 @@
+/* Base rules — reset, typography defaults and the accessibility gaps this
+   batch closes before any template is built on top of it
+   (docs/public-website-rebuild/08_RISKS_AND_OPEN_DECISIONS.md R-11):
+   no :focus-visible treatment anywhere, and prefers-reduced-motion not
+   honoured. Requires tokens.css to be loaded first. */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  /* Horizontal scroll guard, with a fallback for browsers without `clip`. */
+  overflow-x: hidden;
+}
+@supports (overflow-x: clip) {
+  html,
+  body {
+    overflow-x: clip;
+  }
+}
+
+body {
+  background: var(--canvas);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: var(--body);
+  line-height: 1.8;
+  -webkit-tap-highlight-color: transparent;
+  /* Reserved for a future fixed bottom element (mobile menu, floating
+     action); not applied as visible padding on this foundation page. */
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--serif);
+  font-weight: 400;
+  color: var(--ink);
+  margin: 0 0 0.5em;
+}
+
+h1 {
+  font-size: var(--display-xs);
+  line-height: 1.18;
+  letter-spacing: -0.015em;
+}
+
+p {
+  margin: 0 0 1em;
+  max-width: 46ch;
+  color: var(--ink-soft);
+}
+
+a {
+  color: inherit;
+}
+
+/* Square-corner policy (docs §4.5 / §8.2): the editorial system has no
+   radius anywhere. No rounded-card or elevated-card utility exists in this
+   file, and none may be added — rounded cards are the single most visible
+   drift toward generic template design. Separation is background steps and
+   1px hairline rules, never a shadowed panel. */
+button,
+input,
+select,
+textarea {
+  border-radius: 0;
+}
+
+/* Skip link — visually hidden until focused. No header exists yet in B1.1
+   to place the link in; the class is defined ready for that layout work. */
+.skip-link {
+  position: absolute;
+  top: -100%;
+  left: 0;
+  z-index: 1000;
+  padding: 12px 20px;
+  background: var(--ink);
+  color: var(--on-dark);
+  font-family: var(--sans);
+  font-size: var(--label);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  text-decoration: none;
+}
+.skip-link:focus {
+  top: 0;
+}
+
+/* :focus-visible — the first of the three confirmed accessibility gaps
+   (docs §7.1). Ivory-surface default; dark sections opt in via
+   [data-surface="dark"] so the ring stays visible against --night/--void. */
+:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+[data-surface='dark'] :focus-visible {
+  box-shadow: var(--focus-ring-dark);
+}
+
+/* prefers-reduced-motion — the second confirmed gap (docs §7.1). The
+   homepage video currently autoplays with no reduced-motion check; this
+   rule is the global backstop every future template inherits. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+  video[autoplay] {
+    animation-play-state: paused !important;
+  }
+}
+
+/* Form controls: 16px minimum prevents iOS zoom-on-focus, a pattern the
+   existing app layer already relies on and the public forms must keep. */
+input,
+select,
+textarea {
+  font-size: 16px;
+  font-family: inherit;
+}
+
+/* Responsive images with intrinsic-size protection: an <img>/<video> that
+   declares width and height attributes keeps its aspect ratio reserved
+   (the UA maps the attributes to a default `aspect-ratio`), so this rule
+   does not reintroduce layout shift. */
+img,
+video {
+  max-width: 100%;
+  height: auto;
+  display: block;
+}

@@ -1,0 +1,69 @@
+/* Design tokens — ported verbatim from `body.hm-dark` in
+   platform/server/storefront/css/store.css (the editorial homepage system,
+   lines 405–647), as catalogued in
+   docs/public-website-rebuild/02_VISUAL_SYSTEM_INVENTORY.md §6.
+
+   Every value below is a literal already present in the repository except
+   the two marked NEW, which close a confirmed WCAG 2.2 AA gap (no
+   `:focus-visible` treatment exists anywhere in the current system).
+
+   Rules for extension (docs §8), non-negotiable for this file:
+   - no new colours — four warm neutrals plus two blacks, photography
+     carries the colour
+   - no radius anywhere (`--radius: 0`) — square corners are load-bearing
+   - no card shadow — only the one soft lift shadow the source uses on dark
+     objects (video frame / floating action)
+   - no new type sizes — compose from display / lead / body / eyebrow / label
+   - the serif stack is local-only; self-hosting is a pending decision
+     (CTL-040) and is not resolved by this batch */
+
+:root {
+  /* colour — lifted verbatim */
+  --canvas: #f5f2ec;
+  --paper: #fffdf9;
+  --stone: #ebe5db;
+  --ink: #191612;
+  --ink-soft: rgba(25, 22, 18, 0.64);
+  --ink-faint: rgba(25, 22, 18, 0.42);
+  --rule: rgba(25, 22, 18, 0.14);
+  --night: #141210;
+  --void: #0d0b0a; /* footer background — one step below --night */
+  --on-dark: #fff;
+  --on-dark-soft: rgba(255, 255, 255, 0.66);
+  --on-dark-faint: rgba(255, 255, 255, 0.42);
+  --rule-dark: rgba(255, 255, 255, 0.08);
+
+  /* type */
+  --serif: 'Iowan Old Style', 'Palatino Linotype', Palatino, 'Book Antiqua', Georgia,
+    'Times New Roman', serif; /* self-host decision pending — CTL-040 */
+  --sans: 'Montserrat', sans-serif;
+  --display: clamp(32px, 5.4vw, 66px);
+  --display-sm: clamp(26px, 4vw, 46px);
+  --display-xs: clamp(24px, 3vw, 34px);
+  --lead: clamp(15px, 1.1vw, 17px);
+  --body: 15.5px;
+  --label: 11.5px;
+  --eyebrow: 10.5px;
+  --track-label: 0.16em;
+  --track-eyebrow: 0.22em;
+  --track-nav: 0.14em;
+
+  /* layout */
+  --container: 1320px;
+  --gutter: clamp(20px, 4vw, 40px);
+  --section: clamp(52px, 6vw, 92px);
+  --section-tight: clamp(30px, 3.2vw, 46px);
+  --gap: clamp(32px, 4.4vw, 64px);
+
+  /* form / controls — square-corner policy: --radius is 0 and stays 0 */
+  --radius: 0;
+  --control-h: 50px;
+  --link-h: 44px;
+  --shadow-lift: 0 24px 60px rgba(25, 22, 18, 0.16);
+  --motion: 0.18s;
+  --motion-slow: 0.22s;
+
+  /* NEW — required by WCAG 2.2 AA, absent from the current system */
+  --focus-ring: 0 0 0 2px var(--canvas), 0 0 0 4px var(--ink);
+  --focus-ring-dark: 0 0 0 2px var(--night), 0 0 0 4px #fff;
+}

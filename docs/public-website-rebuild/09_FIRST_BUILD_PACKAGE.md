@@ -345,3 +345,266 @@ Of the 21 blocking placeholders, four land inside this package: `PUBLIC_SITE_ORI
 `PORTAL_ORIGIN` (engineering, WP-01/WP-04), and `PH-FAVICON-SET` and `PH-OG-DEFAULT-IMAGE` (Veyora
 design, needed before the metadata framework in WP-04 can be considered complete). The other
 seventeen belong to later batches.
+
+---
+
+## 9. B1.1 implementation result — 2026-08-05
+
+**Scope executed:** a deliberately narrow slice of B1 — Astro foundation, environment handling,
+the health endpoint, and the ported design tokens/base styles, with foundation-level tests. This
+is **not** all of WP-01–WP-05: no layouts, header, footer, navigation, breadcrumbs, metadata
+framework, indexing policy, 404/500 pages, redirect middleware or legacy-hash bridge were built.
+Those remain open work inside batch B1, to follow in a subsequent increment (informally "B1.2").
+Executed on a fresh low-storage clone on `C:`, starting from commit `2c749ec` on
+`mathew/public-website-rebuild`, per the constraints in the executing session's task brief.
+
+### 9.1 Correction — B1.1A, 2026-08-05: wire the fail-closed environment contract
+
+The original B1.1 pass implemented and fully tested `resolveEnv()` (`src/env.ts`) as a pure
+function but did not wire it into anything that actually runs during a build or a boot — the
+known limitation recorded at the time. This correction closes that gap without adding a
+dependency and without touching anything outside `platform/server/web`.
+
+**Mechanism — one script, two gates, no divergent reimplementation.**
+`scripts/validate-env.mjs` is a small new file whose only job is to dynamically import
+`resolveEnv` from `src/env.ts` and call it against `process.env`, printing a one-line
+`[env] FATAL: …` message and exiting `1` on rejection. It is run as a **separate process ahead
+of** the real command in both places that matter:
+
+- **Build** — `package.json` `"build"` is now `node ./scripts/validate-env.mjs && astro build`.
+  In development (or with `NODE_ENV` unset) the gate passes on the documented localhost defaults,
+  exactly as before, so nothing about local/dev builds changed. In production mode, a missing or
+  malformed origin exits non-zero **before `astro build` ever runs** — no partial `dist/` is
+  produced. `astro.config.mjs` also now imports the same `resolveEnv()` (not a second, separately
+  maintained default) for its own `site` value, as defence in depth for anyone invoking `astro
+  build` directly rather than through the npm script.
+- **Startup** — `package.json` `"start"` is now `node ./scripts/validate-env.mjs && node
+  ./dist/server/entry.mjs`. Because these are two separate process invocations chained with `&&`,
+  a gate failure means the server process is **never spawned at all** — not merely that it exits
+  quickly after binding a port. The Dockerfile's runtime `CMD` was changed from a bare
+  `node ./dist/server/entry.mjs` to `sh -c "node ./scripts/validate-env.mjs && exec node
+  ./dist/server/entry.mjs"`, copying `scripts/` and `src/env.ts` into the runtime image; `exec`
+  hands PID 1 to the server once validation passes, so container signal handling is unchanged
+  from before. The build stage still does not set `NODE_ENV=production` (unchanged reasoning: real
+  origins are supplied at container run time, not image build time), so the Docker image build
+  itself is unaffected — an operator who wants origins baked in at image-build time can pass
+  `NODE_ENV=production` plus both origins as build-time environment and the same gate enforces
+  them, with no separate code path.
+
+**Verified production build behaviour** (`npm run build`, from `platform/server/web`):
+
+| Scenario | Result |
+|---|---|
+| `NODE_ENV=production`, `PUBLIC_SITE_ORIGIN` missing | exits `1`, `[env] FATAL: PUBLIC_SITE_ORIGIN is required in production and was not set. Refusing to start.` — no `astro build` output at all |
+| `NODE_ENV=production`, `PORTAL_ORIGIN` missing | exits `1`, equivalent message for `PORTAL_ORIGIN` |
+| `NODE_ENV=production`, `PUBLIC_SITE_ORIGIN=not-a-url` | exits `1`, `[env] FATAL: PUBLIC_SITE_ORIGIN must be an absolute http(s) URL, got: "not-a-url"` |
+| `NODE_ENV=production`, both origins valid (`http://127.0.0.1:4321` / `:4322`) | `astro build` runs and completes, `dist/server/entry.mjs` produced |
+
+**Verified production startup behaviour** (`npm run start`, from `platform/server/web`):
+
+| Scenario | Result |
+|---|---|
+| `PUBLIC_SITE_ORIGIN` missing | exits `1` before printing anything about listening; `netstat` confirms the target port never opens |
+| `PORTAL_ORIGIN` missing | exits `1`, same confirmation — port never opens |
+| Both origins valid, explicit `127.0.0.1` values | server starts, `GET /healthz` → `200`, `application/json`, `X-Robots-Tag: noindex, nofollow`, `{"ok":true}`; process stopped cleanly afterward |
+
+**Tests.** `test/command-paths.test.ts` (new) spawns the real `npm run build` / `npm run start`
+commands as child processes with injected environments and asserts on actual exit codes,
+stdout/stderr content, and — for startup — whether the port ever opened, plus two static checks
+that `package.json` and the `Dockerfile` both reference `validate-env.mjs`. 9 tests added; full
+suite is 53/53. One issue surfaced and was fixed during this correction: the first suite run hung
+indefinitely with zero output. Diagnosis (via `Get-CimInstance Win32_Process`) traced it to the
+"startup succeeds" test's cleanup — on Windows, `spawn('npm', ['run','start'], {shell:true})`
+returns a handle to the outer `cmd.exe`/`npm.cmd` wrapper, and killing that handle does not kill
+the actual `node dist/server/entry.mjs` grandchild process, which was left running, holding the
+port and its stdio pipes, keeping that test file's worker process alive forever. The fix: that one
+test now runs the env gate via `spawnSync` and then spawns `node ./dist/server/entry.mjs`
+**directly** (no shell, no npm wrapper) — the same two commands the `start` script chains, invoked
+without an intermediate process that swallows the kill signal — so `child.kill()` terminates the
+real server process. Verified clean after the fix: full suite reruns in ~11s with no leftover
+`node.exe` processes and the test port released each time.
+
+**New files added by this correction:** `scripts/validate-env.mjs`, `test/command-paths.test.ts`.
+**Existing files modified:** `astro.config.mjs`, `package.json`, `Dockerfile`. No file outside
+`platform/server/web` and this document changed.
+
+**The known limitation recorded in the original B1.1 pass — "not yet wired into the server's
+actual boot sequence" — is now closed.** Both the build and the standalone server startup fail
+closed, before doing any real work, on a missing or malformed `PUBLIC_SITE_ORIGIN`/`PORTAL_ORIGIN`
+in production, using the one existing `resolveEnv()` implementation with no divergent copy.
+
+### Files created
+
+```
+platform/server/web/
+├── .dockerignore
+├── .env.example
+├── .gitignore
+├── Dockerfile
+├── README.md
+├── astro.config.mjs
+├── package.json
+├── package-lock.json
+├── tsconfig.json
+├── scripts/
+│   └── validate-env.mjs        the one build/startup env gate — added in the B1.1A correction below
+├── src/
+│   ├── env.ts                 environment contract — resolveEnv(), DEV_DEFAULT_*, env
+│   ├── pages/
+│   │   ├── healthz.ts          GET /healthz
+│   │   └── index.astro         temporary placeholder homepage
+│   └── styles/
+│       ├── tokens.css          ported editorial design tokens
+│       └── base.css            reset, focus-visible, reduced-motion, base typography
+└── test/
+    ├── env.test.ts
+    ├── astro-config.test.ts
+    ├── healthz.test.ts
+    ├── tokens.test.ts
+    ├── base-styles.test.ts
+    └── command-paths.test.ts   added in the B1.1A correction below
+```
+
+Also created: `docs/public-website-rebuild/baseline/README.md` (visual baseline manifest — no
+screenshots captured, per scope). No other path was created, modified or deleted.
+
+`astro.config.mjs`, `package.json` and `Dockerfile` listed above were **modified** by the B1.1A
+correction (§9.1 below), not created fresh; everything else in this tree was created in the
+original B1.1 pass.
+
+### Dependencies and exact versions
+
+| Package | Version | Why this version |
+|---|---|---|
+| `astro` | `5.18.2` | Latest Astro 5.x at time of build — spec requires Astro 5 |
+| `@astrojs/node` | `9.5.5` | Latest `@astrojs/node` whose peer range (`^5.17.3`) is satisfied by Astro 5.18.2; later majors (10.x, 11.x) require Astro 6/7 |
+
+No other dependency was installed. Playwright, `sharp`, `@astrojs/sitemap`, React and every other
+package named in `04_TARGET_ARCHITECTURE.md`/`09_FIRST_BUILD_PACKAGE.md` §4 for later work
+packages was deliberately **not** installed in this batch.
+
+### Commands run
+
+Original B1.1 pass:
+
+```
+npm install --no-audit --no-fund      (platform/server/web)
+npm test                              (platform/server/web)
+npm run build                         (platform/server/web)
+node ./dist/server/entry.mjs          (manual local run, then stopped)
+npm ci --no-audit --no-fund           (platform/server/api — to run the existing suite)
+npm test                              (platform/server/api)
+```
+
+B1.1A correction (§9.1 below) additionally ran, from `platform/server/web`:
+
+```
+npm test                                                                          (53/53, includes real build/start command-path tests)
+PUBLIC_SITE_ORIGIN=http://127.0.0.1:4321 PORTAL_ORIGIN=http://127.0.0.1:4322 NODE_ENV=production npm run build
+NODE_ENV=production PORTAL_ORIGIN=http://127.0.0.1:4322 npm run build             (rejects — PUBLIC_SITE_ORIGIN missing)
+NODE_ENV=production PUBLIC_SITE_ORIGIN=http://127.0.0.1:4321 npm run build        (rejects — PORTAL_ORIGIN missing)
+NODE_ENV=production PUBLIC_SITE_ORIGIN=not-a-url PORTAL_ORIGIN=... npm run build  (rejects — malformed)
+PUBLIC_SITE_ORIGIN=http://127.0.0.1:4321 PORTAL_ORIGIN=http://127.0.0.1:4322 NODE_ENV=production HOST=127.0.0.1 PORT=4321 npm run start   (manual run, then stopped)
+NODE_ENV=production PORTAL_ORIGIN=http://127.0.0.1:4322 PORT=4321 npm run start   (rejects — PUBLIC_SITE_ORIGIN missing, port never opened)
+NODE_ENV=production PUBLIC_SITE_ORIGIN=http://127.0.0.1:4321 PORT=4321 npm run start  (rejects — PORTAL_ORIGIN missing, port never opened)
+```
+
+The API test suite was **not** re-run for this correction, per instruction — no API source changed.
+
+### Test result
+
+`platform/server/web`: **53/53 tests passing** (`node --test`; 44 from the original B1.1 pass plus
+9 added in the B1.1A correction). Original coverage: development origin defaults and acceptance,
+production fail-closed rejection of missing `PUBLIC_SITE_ORIGIN` and `PORTAL_ORIGIN`, malformed-
+origin rejection (bad scheme, path, query, fragment, non-URL), trailing-slash normalisation
+stability, Astro config asserting `output: 'server'` and the `@astrojs/node` adapter, a full-source
+scan proving no hard-coded `veyora.design`/`veyora.com`, the `/healthz` contract (200, JSON,
+`X-Robots-Tag`, no extra body fields), and the tokens/base-CSS assertions (approved source colour
+values, serif/sans stacks, type scale, layout tokens, motion durations, control/link heights, the
+one soft-lift shadow, focus-ring tokens, the zero-radius square-corner policy with no rounded-card
+token, `:focus-visible` with a dark-surface variant, `prefers-reduced-motion`, and 16px form-
+control font size). B1.1A addition, `test/command-paths.test.ts`: spawns the actual `npm run
+build`/`npm run start` commands as child processes with injected environments and asserts on their
+real exit codes, stdout/stderr and (for startup) whether the port ever opened — see §9.1.
+
+### Build result
+
+`astro build` completed successfully in server mode with the `@astrojs/node` standalone adapter,
+producing `dist/server/entry.mjs` and `dist/client/`. As of the B1.1A correction, `npm run build`
+now runs `scripts/validate-env.mjs` first and only invokes `astro build` if it passes — see §9.1
+for the production-mode fail-closed behaviour this adds.
+
+### Health result
+
+Started the built server locally via the validated `npm run start` (`PUBLIC_SITE_ORIGIN`/
+`PORTAL_ORIGIN` set to explicit `127.0.0.1` values, `NODE_ENV=production`) and requested `/healthz`:
+
+- `HTTP/1.1 200 OK`
+- `content-type: application/json`
+- `x-robots-tag: noindex, nofollow`
+- body: `{"ok":true}`
+
+The temporary `/` route was also spot-checked and renders with the ported tokens/base styles
+inlined correctly. The local process was stopped after verification, both in the original B1.1
+pass and again after the B1.1A correction (re-verified against the now-validated start path).
+
+### Existing API test result
+
+`platform/server/api`: **501/501 tests passing**, unchanged, run from a fresh `npm ci` against the
+committed lockfile (no lockfile or package.json edits). This is a fresh clone, so `node_modules`
+did not exist yet in either application; installing it is not a change to any tracked file.
+
+### Free space on C:
+
+| Checkpoint | Free space |
+|---|---|
+| Before any work (Task 1, original B1.1 pass) | 8.25 GB |
+| Before `web` npm install | 8.26 GB |
+| After `web` npm install | 8.08 GB |
+| After `web` build | 8.08 GB |
+| After `api` npm ci + test | 8.07 GB |
+| Before B1.1A correction | 8.05 GB |
+| After B1.1A correction (final) | 8.05 GB |
+
+Never approached the 4 GB floor across either pass; the B1.1A correction added no dependency and
+consumed no measurable additional space (build output is repeatedly overwritten, not accumulated).
+
+### Known limitations
+
+- No header, footer, navigation, breadcrumbs, 404/500 pages, or metadata framework exist. The one
+  real page (`/`) is an explicitly temporary placeholder.
+- The display-serif self-hosting decision (`CTL-040`) remains open; `tokens.css` still declares
+  the platform-dependent local stack, exactly as ported from source, with the pending decision
+  noted in a comment.
+- No visual-regression baseline exists yet; `docs/public-website-rebuild/baseline/README.md` is a
+  manifest only, with no screenshots captured, per the low-storage/no-live-capture scope of this
+  session.
+- `platform/server/docker-compose.override.web.yml` (the local development compose profile
+  mentioned in WP-01) was not created — it did not appear in this session's permitted file list
+  and is deferred along with the rest of the local-orchestration work.
+- ~~The environment contract is not wired into the server's actual boot sequence.~~ **Closed by
+  the B1.1A correction — see §9.1.** Both `npm run build` and `npm run start` (and the Dockerfile's
+  runtime `CMD`) now run `scripts/validate-env.mjs` first and refuse to proceed on a production
+  misconfiguration, before `astro build` runs or any port opens.
+
+### Deferred to later work
+
+- **Rest of B1** (WP-03, WP-04, WP-05): layouts, header, mobile menu, footer, breadcrumbs,
+  navigation config, metadata framework, `indexing.ts`, 404/500 pages, redirect middleware, and the
+  legacy-hash bridge. (Wiring the environment contract into a fail-closed boot sequence — originally
+  listed here — was pulled forward and closed by the B1.1A correction, §9.1.)
+- **B2 onward**: content model migrations, the `/public/*` API surface, marketing templates,
+  catalogue/brand/model templates, policy and resource routes, forms/CRM, SEO/GEO, the placeholder
+  gate, QA automation, RC deployment, and cutover — unchanged from `07_IMPLEMENTATION_PLAN.md`.
+
+### Confirmation
+
+No protected path was created, modified or deleted, across either the original B1.1 pass or the
+B1.1A correction: `platform/server/storefront/**`, `platform/server/api/src/**` (only
+`node_modules` was installed, which is untracked and unmodified in git), `platform/server/db/**`,
+the root admin application, `docker-compose.yml`, `Caddyfile`, `deploy.sh`, and all `.env` files
+outside `platform/server/web` are all untouched — confirmed by `git status --short` showing only
+the two new untracked directories (`platform/server/web/` and
+`docs/public-website-rebuild/baseline/`) plus this one modified document. No commit was made,
+nothing was pushed, no Docker image was built, and no production, staging or live Veyora system
+was contacted at any point in either pass.

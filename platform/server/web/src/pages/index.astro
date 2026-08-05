@@ -1,0 +1,34 @@
+---
+import '../styles/tokens.css';
+import '../styles/base.css';
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>Veyora — public website foundation</title>
+  </head>
+  <body>
+    <main>
+      <p>Temporary placeholder — batch B1.1</p>
+      <h1>The public website foundation is active.</h1>
+      <p>
+        This page exists only to prove the Astro application, environment
+        handling and base design tokens are wired up correctly. It carries no
+        Veyora marketing content and will be replaced by the real homepage
+        template in a later build batch.
+      </p>
+    </main>
+  </body>
+</html>
+
+<style>
+  main {
+    max-width: var(--container);
+    margin: 0 auto;
+    padding: var(--section) var(--gutter);
+  }
+</style>
