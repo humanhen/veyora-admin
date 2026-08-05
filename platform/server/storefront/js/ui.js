@@ -65,13 +65,17 @@ function pill(status) {
 function backordersAllowed() {
   return typeof Store !== 'undefined' ? Store.features?.allowBackorders !== false : true;
 }
-function stockPill(v) {
+function stockPill(v, opts = {}) {
   // Old-site behavior: availability only, never the quantity number.
   if (v.qty > 0) return `<span class="stockpill in">in stock</span>`;
-  if (v.stockStatus === 'in production') return `<span class="stockpill prod">in production</span>`;
+  if (v.stockStatus === 'in production') {
+    return `<span class="stockpill prod">${opts.short ? 'production' : 'in production'}</span>`;
+  }
   // Nothing on the shelf, but it can still be ordered — say so plainly rather
   // than showing a dead end.
-  if (backordersAllowed()) return `<span class="stockpill back">Available to backorder</span>`;
+  if (backordersAllowed()) {
+    return `<span class="stockpill back">${opts.short ? 'Backorder' : 'Available to backorder'}</span>`;
+  }
   return `<span class="stockpill out">out of stock</span>`;
 }
 /** "Charlett · Model 2057 · SKU 2057.81" — the full product identity of a line.
@@ -130,36 +134,54 @@ function imgOr(src, cls) {
     : `<div class="noimg">∞</div>`;
 }
 function qtyBox(value, min, max) {
+  // Visible .qtynum is what the user sees (perfectly centred). The input stays
+  // for typing / form semantics but is visually overlaid and transparent.
   return `
     <div class="qtybox">
-      <button type="button" data-q="-1">−</button>
-      <input type="number" inputmode="numeric" value="${value}" min="${min ?? 0}" ${max != null ? `max="${max}"` : ''}/>
-      <button type="button" data-q="1">+</button>
+      <button type="button" data-q="-1" aria-label="Decrease">−</button>
+      <span class="qtyfield">
+        <span class="qtynum">${value}</span>
+        <input type="text" inputmode="numeric" pattern="[0-9]*" value="${value}" min="${min ?? 0}" ${max != null ? `max="${max}"` : ''} aria-label="Quantity"/>
+      </span>
+      <button type="button" data-q="1" aria-label="Increase">+</button>
     </div>`;
 }
 /** wire +/- buttons inside a .qtybox; onChange(newVal, inputEl) */
 function bindQtyBox(box, onChange) {
   const input = box.querySelector('input');
+  const num = box.querySelector('.qtynum');
+  const paint = v => {
+    input.value = String(v);
+    if (num) num.textContent = String(v);
+  };
   const clamp = v => {
     const min = parseInt(input.min || '0', 10);
-    let x = Math.max(min, parseInt(v, 10) || 0);
-    if (input.max !== '') x = Math.min(x, parseInt(input.max, 10));
+    let x = Math.max(min, parseInt(String(v).replace(/\D/g, ''), 10) || 0);
+    const maxAttr = input.getAttribute('max');
+    if (maxAttr != null && maxAttr !== '') x = Math.min(x, parseInt(maxAttr, 10));
     return x;
   };
   box.querySelectorAll('button').forEach(b => {
     b.onclick = () => {
-      input.value = clamp((parseInt(input.value, 10) || 0) + parseInt(b.dataset.q, 10));
-      onChange(parseInt(input.value, 10), input);
+      const next = clamp((parseInt(input.value, 10) || 0) + parseInt(b.dataset.q, 10));
+      paint(next);
+      onChange(next, input);
     };
   });
+  input.addEventListener('input', () => {
+    const cleaned = input.value.replace(/\D/g, '');
+    input.value = cleaned;
+    if (num) num.textContent = cleaned === '' ? '0' : cleaned;
+  });
   input.onchange = () => {
-    input.value = clamp(input.value);
-    onChange(parseInt(input.value, 10), input);
+    const next = clamp(input.value);
+    paint(next);
+    onChange(next, input);
   };
 }
 function modal(innerHtml) {
   const back = h(`<div class="modal-back"><div class="modal">
-    <button class="close" aria-label="Close">×</button>${innerHtml}</div></div>`);
+    <button class="close" type="button" aria-label="Close">×</button>${innerHtml}</div></div>`);
   back.addEventListener('click', e => { if (e.target === back) back.remove(); });
   back.querySelector('.close').onclick = () => back.remove();
   document.body.appendChild(back);

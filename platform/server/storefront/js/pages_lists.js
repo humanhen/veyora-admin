@@ -17,11 +17,14 @@ function frameCard(fr) {
   const u = Store.session?.user || { hidePrices: true, guest: true };
   const hide = u.hidePrices || u.guest;
   const a = fr.attributes || {};
-  const dims = [a.lens_w, a.bridge, a.temple].filter(Boolean).join(' · ');
+  const w = a.lens_w != null ? String(a.lens_w).trim() : '';
+  const b = a.bridge != null ? String(a.bridge).trim() : '';
+  const t = a.temple != null ? String(a.temple).trim() : '';
+  const dims = (w && b && t) ? `${w}-${b}-${t}` : '';
   const card = h(`<div class="pcard2" style="cursor:default">
     <div class="photo-wrap">
       <div class="imgbox2" style="cursor:zoom-in">${imgOr(fr.image)}</div>
-      <div class="attrline">${dims ? esc(dims) + (a.lens_h ? ` — H ${esc(a.lens_h)}` : '') : '&nbsp;'}</div>
+      <div class="attrline">${dims ? esc(dims) : '&nbsp;'}</div>
     </div>
     <div class="rowname"><span class="pname">${esc(fr.name)}</span></div>
     <div style="padding:0 14px 6px;color:#6b6660;font-size:11px;letter-spacing:.5px">

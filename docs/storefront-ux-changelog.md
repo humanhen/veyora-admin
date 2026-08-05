@@ -3,7 +3,7 @@
 Branch: `feat/storefront-catalog-ux-and-homepage`  
 Base: `mathew/public-website-rebuild`
 
-Storefront browsing and navigation updates for guests and signed-in customers.
+Storefront browsing and navigation updates for guests and signed-in customers, plus product-modal ordering polish and admin brand typography.
 
 ---
 
@@ -36,6 +36,41 @@ Instagram, Facebook, and LinkedIn icons link to the real Veyora Vision profiles:
 
 ---
 
+## Follow-up — product modal, sizing & admin fonts
+
+Shipped after `f1735e4` on the same branch. Focus: make the product order modal usable on phone and desktop, show frame size the way retailers read it, and apply Chromatic Pro type only in the admin panel.
+
+### Product modal — Colors list
+- Color rows use a full-width CSS grid: thumb · name · status · qty, with qty pinned to the trailing edge (no left-clustered controls or dead space on the right).
+- On phone, name and status stack under the thumb; qty stays on the right and the info column stretches to the modal width (fixes a shrink-wrap bug from `align-items: flex-start` on a column flex).
+- Stock pills use short labels in the modal (`Backorder` / `in stock` / `production`).
+- “Notify me” only appears when the colour is out of stock **and** backorders are disabled. When backorders are on, the qty box alone is enough.
+
+### Quantity stepper
+- The visible digit is a centred `.qtynum` span; the real input is overlaid for typing. That removes the off-centre `0` caused by number-input spinner gutters and font metrics.
+- Digits-only filtering and max clamping still work through `bindQtyBox`.
+
+### Frame size line (retailer format)
+- Spec attribute **card grid** (Lens width / height / Bridge / Temple / Lens type / Case / Size / EAN) is removed from the modal.
+- Replaced with one optical size line: **`eye-bridge-temple`** (e.g. `53-18-140`). Optional lens height shows quietly as `· H 37`.
+- Same `eye-bridge-temple` format on catalog / list card attr lines.
+
+### Modal close control
+- Floating white circle with soft shadow (brand-style exit).
+- **Phone:** close sits on the product gallery image (top-right of the photo).
+- **Desktop / tablet:** close stays on the modal’s top-right corner.
+- Placement follows `matchMedia('(max-width:760px)')` and updates if the viewport crosses that breakpoint.
+
+### Admin panel typography only
+- Admin (`/admin/`) uses Chromatic Pro faces: **Geometric Semibold** for UI/body, **Ghotic Bold** for logo, page titles, and headings.
+- Storefront stays on **Montserrat** (homepage display serif stack unchanged). Brand fonts are intentionally **not** applied to the public site.
+
+### Font assets
+- `assets/fonts/Ghotic-Bold.ttf`
+- `assets/fonts/Geometric-SemiBold.ttf`
+
+---
+
 ## Files
 
 ### `platform/server/api/src/routes/catalog.js`
@@ -49,6 +84,7 @@ Adds `productMatchesBrand()`. Brand filtering checks public brand names in `cate
 - Tracks `selectedSrc` on each card; thumb clicks call `setMainPhoto` and set a short-lived `thumb-swapping` class so hover does not cover the chosen colour.
 - Photo / guest click opens the lightbox on the selected colour; Order / customer click opens `productModal(p, selectedSrc)`.
 - Modal accepts an optional start image so the main photo and thumbstrip open on that colour.
+- **Follow-up:** `attrLine` / `frameDimsBlock` for `W-B-T` sizing; color-row markup (`vcol` / `stockpill` / `vctrl`); phone vs desktop close placement; notify/qty split helpers.
 
 ### `platform/server/storefront/css/store.css`
 
@@ -58,6 +94,7 @@ Adds `productMatchesBrand()`. Brand filtering checks public brand names in `cate
 - Sizes top-bar SVG icons for the Home control; adds ghost Home pill styles for the guest header.
 - Reworks `.hm-port*` into a square feature + three square supporting figures with contain + stone fill.
 - Adds footer social icon button styles (`.hm-foot-social`, `.hm-soc`).
+- **Follow-up:** product-modal layout (`.pdetail*`, color-row grid), qtyfield / qtynum, dims line, floating close, mobile stretch fixes.
 
 ### `platform/server/storefront/js/pages_home.js`
 
@@ -70,6 +107,22 @@ Adds `productMatchesBrand()`. Brand filtering checks public brand names in `cate
 - Inserts Home at the start of the logged-in `NAV` list.
 - Adds `navLinkActive()` so `#/` / `#/home` highlight correctly without treating every route as Home.
 - Logo and a Home icon button navigate to `#/`; drawer links use the same active helper.
+
+### `platform/server/storefront/js/ui.js`
+
+- **Follow-up:** centred qty box (`.qtynum` + text input); short stock-pill labels; digits-only qty binding.
+
+### `platform/server/storefront/js/pages_lists.js`
+
+- **Follow-up:** list cards use the same `eye-bridge-temple` size string.
+
+### `css/styles.css` · `index.html` (admin)
+
+- **Follow-up:** `@font-face` for Ghotic + Geometric; Poppins/Marcellus Google Fonts removed from admin; logo and headings use display face.
+
+### `assets/fonts/`
+
+- Ghotic Bold and Geometric Semibold TTF files for the admin panel.
 
 ### `docs/storefront-ux-changelog.md`
 
@@ -86,3 +139,6 @@ This changelog.
 5. Use Home from guest header, logged-in nav, top-bar icon, and logo.
 6. Check the homepage portfolio on desktop and mobile — no black bars, branding visible.
 7. Open each footer social link and confirm the correct profile.
+8. **Follow-up:** Open a product modal — size shows as `53-18-140` (no Case / Lens type / Size cards); color rows fill the column with qty on the right; qty `0` is centred.
+9. **Follow-up:** On a phone width, close sits on the gallery image; on desktop, close is on the modal corner.
+10. **Follow-up:** `/admin/` uses Geometric / Ghotic; public storefront still uses Montserrat.
