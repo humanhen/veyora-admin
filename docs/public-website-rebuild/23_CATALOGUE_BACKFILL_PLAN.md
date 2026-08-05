@@ -357,3 +357,118 @@ Every run during B2.4C1 used synthetic fixtures written for the tests, containin
 brands and colourways. **The tool has never been pointed at a production export, and cannot be
 pointed at a database at all.** No database was contacted, no permission was granted, no bootstrap
 SQL was executed, and nothing was published.
+
+---
+
+## 17. Export preparation and reviewed plans — Fast-Track Phase 1, 2026-08-06
+
+§13 described the review workflow and §14 the eventual mutation step, but neither the exporter nor
+the review format existed. Both do now. **Still no real export has been run, and nothing has been
+applied.**
+
+### 17.1 The exporter
+
+`src/catalogue-audit/export.js` — a library function taking an **injected** database client, so it is
+fully testable without a database and so the connection is supplied by the caller rather than
+assembled from an environment variable inside the tool.
+
+CLI: `node scripts/export-public-catalogue.js --output <file.json> [--source <label>]`
+
+Three properties are asserted by test rather than asserted in prose:
+
+1. **Explicit columns only — never `select *`.** The forbidden data lives in the same tables as the
+   data we want, so one wildcard would put prices, purchase costs, stock status and Zoho identifiers
+   into a file destined for a review spreadsheet.
+2. **No writes and no transaction.** Every statement begins `select`. There is nothing to make
+   atomic, and a read-only tool that opens a write transaction is one refactor away from being a
+   write tool.
+3. **Presence, not content.** `public_description` and `source_reference` are selected only to be
+   collapsed into `hasPublicDescription` / `hasSourceReference` booleans — the copy itself never
+   leaves the database, so editorial text never reaches a review CSV. `swatch_media_id` likewise
+   becomes `hasSwatchMedia`.
+
+### 17.2 Safe column boundary
+
+| Table | Selected |
+|---|---|
+| `brands` | `id`, `slug`, `name`, `publication_state`, `verification_status`, `source_reference`→presence |
+| `products` | `id`, `sku`, `name`, `brand`, `brand_id`, `categories`, `line`, `shape`, `segment`, `public_slug`, `public_description`→presence, `is_active`, `is_published`, `is_featured`, `is_discontinued`, `replacement_product_id`, `publication_state`, `verification_status`, `source_reference`→presence, `last_reviewed_at`, `scheduled_review_at`, `content_updated_at` |
+| `variations` | `id`, `product_id`, `sku`, `color`, `color_code`, `is_active`, `is_published`, `swatch_media_id`→presence |
+| `media` | `id`, `owner_type`, `owner_id`, `kind` — restricted to `owner_type = 'product'` |
+
+**Never selected:** `price`, `sale_price`, `purchase_price`, `cost`, `margin`, `stock`,
+`stock_status`, `qty`, `warehouse`, `zoho_item_id`, `attributes`, `ean`, `tags`, `images`,
+`fact_owner`, `rights_holder`, `rights_expiry`. **Never joined:** `users`, `orders`, `order_items`,
+`invoices`, `payments`, `credit_notes`, `carts`, `stock`, `warehouses`, `purchase_orders`,
+`audit_log`, `account_permissions` — asserted by test against the SQL actually issued.
+
+Ordering is `order by id asc` throughout, so two exports of unchanged data are byte-identical and
+can be diffed. The CLI refuses a URL destination, requires `.json`, refuses to overwrite without
+`--overwrite`, writes no SQL file, and prints only counts and a path — never a record, a field value
+or a connection string.
+
+### 17.3 Review-decision format
+
+`src/catalogue-audit/review.js` — a closed allowlist, top level
+`reviewedAt`, `reviewer`, `notes`, `brandDecisions`, `slugDecisions`, `fieldOverrides`, `exclusions`.
+
+| Section | Decisions |
+|---|---|
+| `brandDecisions` | `APPROVE_MATCH` (must name `brandId`) · `CREATE_NEW_BRAND` · `REJECT` · `DEFER` |
+| `slugDecisions` | `APPROVE_PROPOSED` · `REPLACE` (must supply a usable slug) · `REJECT` · `DEFER` |
+| `fieldOverrides` | a value for `public_slug`, `brand_id`, `line`, `shape`, `segment` or `color_code` |
+| `exclusions` | drop a record from the backfill entirely |
+
+**Every override names its record and field and carries a rationale** — all four are required, and a
+plan whose entries cannot be traced to a reason is not reviewable by the next person.
+
+**Publication cannot be decided in a review file.** `is_published`, `publication_state`,
+`verification_status`, `source_reference`, `last_reviewed_at`, `approver_id`, `approved_at` and
+`fact_owner` are **refused with a distinct error**, not merely ignored: a review file asking for
+publication is a real misunderstanding about where that decision happens, and it is worth surfacing
+loudly. The overridable set is deliberately narrower than the planner's own, because a human typing
+into a review file is exactly the path by which a governance field would otherwise be smuggled in.
+
+### 17.4 Reviewed plan
+
+`buildReviewedPlan(audit, decisions)` — pure, and `node scripts/build-reviewed-plan.js
+--export <e.json> --decisions <r.json> --output <plan.json>`.
+
+- **Nothing is inferred.** A proposal with no matching decision stays `unresolved`. Silence is never
+  read as approval, and a mechanical proposal is not promoted just because it is mechanical.
+- **Every entry records its `origin`** — `planner` (a machine suggestion) or `reviewer` (a person's
+  decision) — and an override keeps `plannerProposedValue` alongside the approved value, so the two
+  never blur.
+- **Rejected and deferred items are kept**, never dropped. Outstanding integrity findings and
+  outstanding human inputs are carried through untouched.
+- **A reviewer-added change the planner never proposed is kept and marked** `REVIEWER_ADDED` rather
+  than silently discarded.
+- Output carries `executable: false`, `containsSql: false`, `publicationsProposed: 0`, and contains
+  no SQL keyword, no pricing, no stock and no private data — asserted by test.
+
+### 17.5 Exact supervised steps for B2.4C2
+
+1. **Produce the export against a non-production copy first.**
+   `node scripts/export-public-catalogue.js --output ./tmp/export.json --source staging-YYYY-MM-DD`
+   Confirm the printed counts look plausible and that the file contains no prices, stock, customer
+   data or description text. It should not, but the point of a supervised step is to look.
+2. **Audit it.** `node scripts/audit-public-catalogue.js --input ./tmp/export.json --output ./tmp/reports`
+3. **Review**, in this order: `brand-mapping-review.csv` (brand decisions gate everything else), then
+   `integrity-findings.csv`, then `product-readiness.csv`, then `proposed-changes.csv`.
+4. **Write the decisions file** with a rationale on every entry, and a named reviewer.
+5. **Generate the reviewed plan.** `node scripts/build-reviewed-plan.js --export ./tmp/export.json
+   --decisions ./tmp/decisions.json --output ./tmp/reviewed-plan.json`
+6. **Read the reviewed plan's `byState` summary.** Anything still `unresolved` is unfinished review,
+   not an implicit approval.
+7. **Only then** consider application — which is B2.4C3, through the governed admin API, and which
+   requires the permission bootstrap (`19_ACCOUNT_PERMISSION_SYSTEM.md` §8) to have happened first.
+
+Run every step on a copy before ever running it against production data. Nothing in the chain
+mutates, but the export is the one step that reads real records, and it should be watched the first
+time.
+
+### 17.6 No real export was run
+
+**Confirmed.** Every test and every manual run during this phase used a synthetic in-memory database
+double. `export-public-catalogue.js` has never been executed against a real database; no `DATABASE_URL`
+was set, no connection was opened, and no real catalogue data was read, written or exported.
