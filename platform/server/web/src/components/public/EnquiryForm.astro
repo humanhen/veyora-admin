@@ -1,0 +1,249 @@
+---
+/* Public enquiry form (Fast-Track Phase 3).
+
+   Posts to its own path. No JavaScript is required for any part of it —
+   submission, validation display and the success state are all server
+   rendered. The small script at the bottom only prevents a double click while
+   a submission is already in flight; with scripting off, the browser's own
+   duplicate-submission handling applies and the API is idempotent enough that
+   a repeat produces a second stored enquiry, not a corrupted one.
+
+   Nothing here promises a response time, a service level or a commercial
+   outcome. Everything the page says about what happens to the data is drawn
+   from the privacy policy route, not invented. */
+import type { FieldSpec, SubmissionState } from '../../lib/enquiry-forms.ts';
+import { HONEYPOT_FIELD, errorsByField, generalErrors } from '../../lib/enquiry-forms.ts';
+
+interface Props {
+  fields: FieldSpec[];
+  state: SubmissionState;
+  /** Wording for the success panel — what was sent, in this form's terms. */
+  successHeading: string;
+  successBody: string;
+  submitLabel?: string;
+}
+
+const { fields, state, successHeading, successBody, submitLabel = 'Send enquiry' } = Astro.props;
+
+const values = state.kind === 'invalid' || state.kind === 'failed' ? state.values : {};
+const fieldErrors = state.kind === 'invalid' ? errorsByField(state.errors) : {};
+const summary = state.kind === 'invalid' ? generalErrors(state.errors, fields) : [];
+const invalidFields = fields.filter((f) => fieldErrors[f.name]);
+---
+
+{
+  state.kind === 'success' ? (
+    <div class="enquiry-success" role="status">
+      <h2 class="enquiry-success__heading">{successHeading}</h2>
+      <p class="enquiry-success__body">{successBody}</p>
+    </div>
+  ) : (
+    <form class="enquiry" method="post" novalidate>
+      {
+        state.kind === 'failed' && (
+          <div class="enquiry-alert enquiry-alert--failed" role="alert">
+            <p class="enquiry-alert__body">{state.message}</p>
+          </div>
+        )
+      }
+
+      {
+        (invalidFields.length > 0 || summary.length > 0) && (
+          <div class="enquiry-alert enquiry-alert--invalid" role="alert" tabindex="-1" id="enquiry-errors">
+            <h2 class="enquiry-alert__heading">Please check the details below</h2>
+            <ul class="enquiry-alert__list">
+              {invalidFields.map((field) => (
+                <li>
+                  <a href={`#field-${field.name}`}>{field.label}: {fieldErrors[field.name]}</a>
+                </li>
+              ))}
+              {summary.map((message) => <li>{message}</li>)}
+            </ul>
+          </div>
+        )
+      }
+
+      {
+        fields.map((field) => {
+          const id = `field-${field.name}`;
+          const errorId = `${id}-error`;
+          const error = fieldErrors[field.name];
+          const described = error ? errorId : undefined;
+
+          if (field.kind === 'consent') {
+            return (
+              <div class:list={['enquiry-field', 'enquiry-field--consent', error && 'enquiry-field--error']}>
+                <label class="enquiry-consent" for={id}>
+                  <input
+                    type="checkbox" id={id} name={field.name} value="on"
+                    required={field.required} aria-describedby={described}
+                  />
+                  <span>{field.label} <span class="enquiry-required" aria-hidden="true">*</span></span>
+                </label>
+                {error && <p class="enquiry-error" id={errorId}>{error}</p>}
+              </div>
+            );
+          }
+
+          return (
+            <div class:list={['enquiry-field', error && 'enquiry-field--error']}>
+              <label class="enquiry-label" for={id}>
+                {field.label}
+                {field.required
+                  ? <span class="enquiry-required"><span aria-hidden="true">*</span><span class="visually-hidden"> (required)</span></span>
+                  : <span class="enquiry-optional"> (optional)</span>}
+              </label>
+
+              {field.kind === 'longtext' && (
+                <textarea
+                  class="enquiry-input" id={id} name={field.name} rows="6"
+                  maxlength={field.max} required={field.required} aria-describedby={described}
+                  set:text={values[field.name] ?? ''}
+                />
+              )}
+
+              {field.kind === 'choice' && (
+                <select class="enquiry-input" id={id} name={field.name} required={field.required} aria-describedby={described}>
+                  <option value="">Please choose…</option>
+                  {(field.values ?? []).map((option) => (
+                    <option value={option} selected={values[field.name] === option}>{option}</option>
+                  ))}
+                </select>
+              )}
+
+              {(field.kind === 'text' || field.kind === 'email' || field.kind === 'phone') && (
+                <input
+                  class="enquiry-input" id={id} name={field.name}
+                  type={field.kind === 'email' ? 'email' : field.kind === 'phone' ? 'tel' : 'text'}
+                  maxlength={field.max} required={field.required}
+                  autocomplete={field.autocomplete} aria-describedby={described}
+                  value={values[field.name] ?? ''}
+                />
+              )}
+
+              {error && <p class="enquiry-error" id={errorId}>{error}</p>}
+            </div>
+          );
+        })
+      }
+
+      {/* The honeypot. Hidden from sight, from assistive technology and from
+          tab order — a person cannot fill it in, so anything in it came from
+          something filling every input it found. */}
+      <div class="enquiry-trap" aria-hidden="true">
+        <label for={`field-${HONEYPOT_FIELD}`}>Leave this field empty</label>
+        <input type="text" id={`field-${HONEYPOT_FIELD}`} name={HONEYPOT_FIELD} tabindex="-1" autocomplete="off" />
+      </div>
+
+      <p class="enquiry-privacy">
+        We use these details only to answer your enquiry. See our{' '}
+        <a href="/privacy-policy/">privacy policy</a>.
+      </p>
+
+      <button class="enquiry-submit" type="submit">{submitLabel}</button>
+    </form>
+  )
+}
+
+<script is:inline>
+  /* Progressive enhancement ONLY: disables the button after the first submit
+     so an impatient double click does not create two enquiries. Everything
+     else — validation, errors, success — is server rendered and works with
+     this script absent or blocked. */
+  document.querySelectorAll('form.enquiry').forEach(function (form) {
+    form.addEventListener('submit', function () {
+      var button = form.querySelector('.enquiry-submit');
+      if (!button || button.disabled) return;
+      /* Disabled after the current submit has been queued, so the button is
+         still submitted with the form. */
+      window.setTimeout(function () {
+        button.disabled = true;
+        button.textContent = 'Sending…';
+      }, 0);
+    });
+  });
+</script>
+
+<style>
+  .enquiry { max-width: 44rem; margin: 0 0 clamp(28px, 5vw, 48px); }
+
+  .enquiry-field { margin-bottom: clamp(16px, 2.4vw, 22px); }
+  .enquiry-label { display: block; margin-bottom: 6px; font-size: 0.9rem; }
+  .enquiry-required { color: var(--ink); }
+  .enquiry-optional { color: var(--ink-2, inherit); font-size: 0.85rem; }
+
+  .enquiry-input {
+    width: 100%;
+    font: inherit;
+    /* 16px minimum stops iOS zooming the page on focus. */
+    font-size: 16px;
+    padding: 10px 12px;
+    border: 1px solid var(--rule);
+    border-radius: 0;
+    background: var(--paper, #fff);
+    color: inherit;
+  }
+  textarea.enquiry-input { resize: vertical; min-height: 8rem; }
+  .enquiry-input:focus-visible,
+  .enquiry-submit:focus-visible,
+  .enquiry-consent input:focus-visible {
+    outline: 2px solid var(--ink);
+    outline-offset: 2px;
+  }
+
+  /* An error is carried by wording and position as well as colour. */
+  .enquiry-field--error .enquiry-input { border-color: var(--red, #c8402e); border-left-width: 2px; }
+  .enquiry-error { margin: 6px 0 0; font-size: 0.86rem; color: var(--red, #c8402e); }
+
+  .enquiry-consent { display: flex; gap: 10px; align-items: flex-start; font-size: 0.9rem; }
+  .enquiry-consent input { margin-top: 3px; width: 16px; height: 16px; flex: 0 0 auto; }
+
+  .enquiry-alert {
+    margin: 0 0 clamp(18px, 3vw, 26px);
+    padding: clamp(14px, 2vw, 18px) clamp(16px, 2.4vw, 20px);
+    border: 1px solid var(--rule);
+    border-left: 2px solid var(--ink);
+  }
+  .enquiry-alert--invalid { border-left-color: var(--red, #c8402e); }
+  .enquiry-alert__heading { margin: 0 0 8px; font-size: 0.95rem; }
+  .enquiry-alert__list { margin: 0; padding-left: 1.1rem; font-size: 0.9rem; }
+  .enquiry-alert__body { margin: 0; font-size: 0.9rem; }
+
+  .enquiry-privacy { font-size: 0.86rem; color: var(--ink-2, inherit); margin: 0 0 18px; }
+
+  .enquiry-submit {
+    font: inherit;
+    font-size: 0.88rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 12px 28px;
+    border: 1px solid var(--ink);
+    border-radius: 0;
+    background: var(--ink);
+    color: var(--paper, #fff);
+    cursor: pointer;
+  }
+  .enquiry-submit:disabled { opacity: 0.6; cursor: progress; }
+
+  /* Off-screen rather than display:none — some bots skip hidden inputs. */
+  .enquiry-trap {
+    position: absolute;
+    width: 1px; height: 1px;
+    margin: -1px; padding: 0; border: 0;
+    overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
+  }
+
+  .enquiry-success {
+    max-width: 44rem;
+    margin: 0 0 clamp(28px, 5vw, 48px);
+    padding: clamp(18px, 2.6vw, 24px) clamp(20px, 3vw, 26px);
+    border: 1px solid var(--rule);
+    border-left: 2px solid var(--ink);
+  }
+  .enquiry-success__heading { margin: 0 0 8px; font-size: 1.05rem; }
+  .enquiry-success__body { margin: 0; }
+
+  @media (max-width: 480px) {
+    .enquiry-submit { width: 100%; }
+  }
+</style>

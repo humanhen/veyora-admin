@@ -19,10 +19,41 @@ import node from '@astrojs/node';
 // the same hazard.
 const siteOrigin = process.env.PUBLIC_SITE_ORIGIN || 'http://localhost:4321';
 
+/* `security.allowedDomains` — required, and NOT optional hardening.
+   (Fast-Track Phase 3, found while adding the first POST routes.)
+
+   Astro's `checkOrigin` CSRF middleware rejects a form-encoded POST whose
+   `Origin` header does not equal `context.url.origin`. That origin is built
+   by NodeApp.createRequest() from the request's Host and `x-forwarded-*`
+   headers — but ONLY after `validateHost()` checks them against
+   `allowedDomains`. With the list empty, validation returns undefined for
+   both the host and the forwarded protocol, and the origin falls back to
+   the literal `http://localhost`.
+
+   Behind Caddy that is fatal: a browser on https://<domain>/contact/ sends
+   `Origin: https://<domain>`, Astro computes `http://localhost`, they do not
+   match, and EVERY enquiry submission would answer 403. Declaring the site
+   origin here is what makes the real Host and X-Forwarded-Proto trusted, so
+   the computed origin matches what the browser actually sent.
+
+   Derived from PUBLIC_SITE_ORIGIN, never hard-coded, for the same reason the
+   `site` above is — and read from process.env directly rather than by
+   importing ./src/env.ts, per the note above. */
+const { hostname: siteHostname, protocol: siteProtocol, port: sitePort } = new URL(siteOrigin);
+
 export default defineConfig({
   output: 'server',
   adapter: node({ mode: 'standalone' }),
   site: siteOrigin,
+  security: {
+    allowedDomains: [
+      {
+        hostname: siteHostname,
+        protocol: siteProtocol.replace(':', ''),
+        ...(sitePort ? { port: sitePort } : {}),
+      },
+    ],
+  },
   // Deliberately left at Astro's default ('ignore'), NOT 'always'.
   // B1.2 set this to 'always' with the trailing-slash redirect itself
   // deferred to "B1's WP-05, not yet built" — now that WP-05 IS built

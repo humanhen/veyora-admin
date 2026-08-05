@@ -1,12 +1,34 @@
 ---
 // Route 17 of 25 — 05_ROUTE_TEMPLATE_MATRIX.md. Metadata/H1 come from the
-// central registry (src/lib/metadata.ts).
+// central registry. Submission is handled server-side by handleEnquiryPage(),
+// so no client JavaScript is required and no API origin reaches the browser.
 import Page from '../../layouts/Page.astro';
-import SkeletonNotice from '../../components/dev/SkeletonNotice.astro';
+import EnquiryForm from '../../components/public/EnquiryForm.astro';
 import { STATIC_ROUTE_METADATA } from '../../lib/metadata.ts';
 import { staticBreadcrumbs } from '../../lib/routes.ts';
+import { FORM_FIELDS } from '../../lib/enquiry-forms.ts';
+import { handleEnquiryPage } from '../../lib/enquiry-page.ts';
+
+const { status, state } = await handleEnquiryPage(Astro.request, 'request-b2b-account', {
+  sourcePath: '/request-b2b-account/',
+});
+Astro.response.status = status;
 ---
 
-<Page meta={STATIC_ROUTE_METADATA['/request-b2b-account/']} breadcrumbs={staticBreadcrumbs('/request-b2b-account/')}>
-  <SkeletonNotice />
+<Page
+  meta={STATIC_ROUTE_METADATA['/request-b2b-account/']}
+  breadcrumbs={staticBreadcrumbs('/request-b2b-account/')}
+>
+  <p class="lede">
+    Veyora supplies eyewear to optical retailers and distributors. Tell us about your
+    business and we will follow up about a trade account.
+  </p>
+
+  <EnquiryForm
+    fields={FORM_FIELDS['request-b2b-account']}
+    state={state}
+    successHeading="Thank you — your request has been received."
+    successBody="We have recorded your details and will be in touch about a trade account."
+    submitLabel="Request an account"
+  />
 </Page>

@@ -189,6 +189,8 @@ export interface MockApiOptions {
   delayMs?: number;
   /** Return a payload that is valid JSON but the wrong shape. */
   malformedShape?: boolean;
+  /** Force a status from the /forms/* endpoints (429, 502, …). */
+  formStatus?: number;
   /** Serve empty collections instead of populated fixtures. */
   empty?: boolean;
 }
@@ -198,12 +200,16 @@ export interface MockApi {
   /** Every request the server received — path plus the raw headers, so a
    * test can prove no cookie/auth header was forwarded. */
   requests: Array<{ url: string; headers: http.IncomingHttpHeaders }>;
+  /** Every enquiry submission received, with the parsed body — so a test can
+   * assert exactly what the site forwarded. Nothing is stored beyond this. */
+  submissions: Array<{ formType: string; body: Record<string, unknown> }>;
   close: () => Promise<void>;
 }
 
 /** Starts a mock /public/* API on an ephemeral 127.0.0.1 port. */
 export async function startMockApi(options: MockApiOptions = {}): Promise<MockApi> {
   const requests: MockApi['requests'] = [];
+  const submissions: MockApi['submissions'] = [];
 
   const server = http.createServer((req, res) => {
     requests.push({ url: req.url ?? '', headers: req.headers });
@@ -219,6 +225,45 @@ export async function startMockApi(options: MockApiOptions = {}): Promise<MockAp
 
       const url = new URL(req.url ?? '/', 'http://127.0.0.1');
       const path = url.pathname;
+
+      /* Enquiry submission (Fast-Track Phase 3). A deliberately small stand-in
+         for the real /forms router: it accepts a POST, records the parsed body
+         so a test can assert what the site forwarded, and mirrors just enough
+         of the validation contract (a missing required field, an unknown
+         field) to exercise the 400 path. It stores nothing. */
+      if (path.startsWith('/forms/')) {
+        const formType = path.slice('/forms/'.length);
+        let raw = '';
+        req.on('data', (chunk) => { raw += chunk; });
+        req.on('end', () => {
+          let parsed: Record<string, unknown> = {};
+          try { parsed = JSON.parse(raw || '{}'); } catch { parsed = {}; }
+          submissions.push({ formType, body: parsed });
+
+          if (options.formStatus && options.formStatus !== 200) {
+            res.writeHead(options.formStatus, { 'content-type': 'application/json' });
+            res.end(JSON.stringify({ error: 'mock form failure' }));
+            return;
+          }
+          const missing = ['name', 'email'].filter((f) => !parsed[f]);
+          if (missing.length || parsed.unexpectedField !== undefined) {
+            res.writeHead(400, { 'content-type': 'application/json' });
+            res.end(JSON.stringify({
+              error: 'Some details need attention.',
+              fieldErrors: [
+                ...missing.map((field) => ({ field, code: 'REQUIRED', message: `${field} is required.` })),
+                ...(parsed.unexpectedField !== undefined
+                  ? [{ field: 'unexpectedField', code: 'UNKNOWN_FIELD', message: 'This form does not accept that field.' }]
+                  : []),
+              ],
+            }));
+            return;
+          }
+          res.writeHead(200, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ ok: true }));
+        });
+        return;
+      }
 
       let body: unknown;
       if (path === '/public/brands') body = options.empty ? { brands: [] } : FIXTURES.brands;
@@ -280,6 +325,7 @@ export async function startMockApi(options: MockApiOptions = {}): Promise<MockAp
   return {
     origin: `http://127.0.0.1:${port}`,
     requests,
+    submissions,
     close: () =>
       new Promise<void>((resolve) => {
         server.closeAllConnections?.();

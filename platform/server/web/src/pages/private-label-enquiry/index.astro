@@ -1,17 +1,34 @@
 ---
-// Route 18 of 25 — 05_ROUTE_TEMPLATE_MATRIX.md §1 note: an addition
-// required by REQ-PL-009, named by requirement but not given a route by
-// the specification. Metadata/H1 come from the central registry
-// (src/lib/metadata.ts), marked pendingContent there.
+// Route 19 of 25 — 05_ROUTE_TEMPLATE_MATRIX.md. Metadata/H1 come from the
+// central registry. Submission is handled server-side by handleEnquiryPage(),
+// so no client JavaScript is required and no API origin reaches the browser.
 import Page from '../../layouts/Page.astro';
-import SkeletonNotice from '../../components/dev/SkeletonNotice.astro';
+import EnquiryForm from '../../components/public/EnquiryForm.astro';
 import { STATIC_ROUTE_METADATA } from '../../lib/metadata.ts';
 import { staticBreadcrumbs } from '../../lib/routes.ts';
+import { FORM_FIELDS } from '../../lib/enquiry-forms.ts';
+import { handleEnquiryPage } from '../../lib/enquiry-page.ts';
+
+const { status, state } = await handleEnquiryPage(Astro.request, 'private-label-enquiry', {
+  sourcePath: '/private-label-enquiry/',
+});
+Astro.response.status = status;
 ---
 
 <Page
   meta={STATIC_ROUTE_METADATA['/private-label-enquiry/']}
   breadcrumbs={staticBreadcrumbs('/private-label-enquiry/')}
 >
-  <SkeletonNotice />
+  <p class="lede">
+    Tell us about the range you have in mind. See <a href="/private-label/">private label</a>
+    for how the process works.
+  </p>
+
+  <EnquiryForm
+    fields={FORM_FIELDS['private-label-enquiry']}
+    state={state}
+    successHeading="Thank you — your enquiry has been received."
+    successBody="We have recorded the details and will be in touch about your project."
+    submitLabel="Send enquiry"
+  />
 </Page>

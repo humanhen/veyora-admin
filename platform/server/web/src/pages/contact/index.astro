@@ -1,12 +1,30 @@
 ---
 // Route 16 of 25 — 05_ROUTE_TEMPLATE_MATRIX.md. Metadata/H1 come from the
-// central registry (src/lib/metadata.ts).
+// central registry (src/lib/metadata.ts). The form posts to this same path;
+// handleEnquiryPage() runs the submission server-side, so the page works with
+// no client JavaScript and the API origin never reaches the browser.
 import Page from '../../layouts/Page.astro';
-import SkeletonNotice from '../../components/dev/SkeletonNotice.astro';
+import EnquiryForm from '../../components/public/EnquiryForm.astro';
 import { STATIC_ROUTE_METADATA } from '../../lib/metadata.ts';
 import { staticBreadcrumbs } from '../../lib/routes.ts';
+import { FORM_FIELDS } from '../../lib/enquiry-forms.ts';
+import { handleEnquiryPage } from '../../lib/enquiry-page.ts';
+
+const { status, state } = await handleEnquiryPage(Astro.request, 'contact', { sourcePath: '/contact/' });
+Astro.response.status = status;
 ---
 
 <Page meta={STATIC_ROUTE_METADATA['/contact/']} breadcrumbs={staticBreadcrumbs('/contact/')}>
-  <SkeletonNotice />
+  <p class="lede">
+    Send us a message and the right person will reply. For a trade account, use
+    <a href="/request-b2b-account/">request a B2B account</a> instead.
+  </p>
+
+  <EnquiryForm
+    fields={FORM_FIELDS.contact}
+    state={state}
+    successHeading="Thank you — your message has been received."
+    successBody="We have recorded your enquiry and someone will be in touch."
+    submitLabel="Send message"
+  />
 </Page>

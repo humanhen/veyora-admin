@@ -12,6 +12,7 @@ import adminRoutes from './routes/admin.js';
 import adminPublicContentRoutes from './routes/admin-public-content.js';
 import accountPermissionRoutes from './routes/account-permissions.js';
 import publicRoutes from './routes/public.js';
+import publicFormRoutes from './routes/public-forms.js';
 import { ensureSchema } from './migrate.js';
 import { startZohoSchedule } from './zoho.js';
 import { startServer } from './startup.js';
@@ -66,6 +67,13 @@ app.use('/admin', adminRoutes);
 // public website (B2.2) — no auth middleware, no write methods. See
 // routes/public.js and public-serialize.js for the allowlist boundary.
 app.use('/public', publicRoutes);
+
+/* Public enquiry form submission (Fast-Track Phase 3). A dedicated namespace,
+   deliberately NOT under /public: that prefix is documented and tested as a
+   read-only boundary with no write methods, and adding a POST beneath it
+   would falsify a contract other tests depend on. This router applies its own
+   tight body limit — the 64mb above exists for image uploads. */
+app.use('/forms', publicFormRoutes);
 
 app.use((req, res) => res.status(404).json({ error: 'not found' }));
 

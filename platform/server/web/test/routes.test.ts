@@ -126,6 +126,13 @@ const API_BACKED_ROUTES = [
   'collections/kids/index.astro',
   'collections/[brand]/[model]/index.astro',
   'global-presence/index.astro',
+  /* Fast-Track Phase 3: the three enquiry routes now submit to the API and
+     render real success/validation states. A development notice beside a
+     working form would be actively misleading — a visitor could reasonably
+     conclude their enquiry had not been sent. */
+  'contact/index.astro',
+  'request-b2b-account/index.astro',
+  'private-label-enquiry/index.astro',
 ];
 
 test('every route that is still a skeleton shows the development-only content notice', () => {
