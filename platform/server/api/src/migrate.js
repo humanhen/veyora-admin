@@ -114,4 +114,308 @@ export async function ensureSchema() {
   await q(`alter table backorders add column if not exists customer_authorised boolean not null default false`);
   await q(`create index if not exists backorders_customer_idx on backorders (customer_id)`);
   await q(`create index if not exists backorders_status_idx   on backorders (status)`);
+
+  /* ---- public website — additive content schema (mirrors db/migrations/0007) ----
+     Nine new tables plus additive columns on products/variations for the
+     future public site (B2). Every statement is additive and idempotent, so
+     it is safe to run on an already-deployed database with existing rows.
+     Nothing here changes any existing column, and nothing here publishes
+     anything: publication_state defaults 'draft', verification_status
+     defaults 'unverified', and every new is_published column defaults
+     false. See docs/public-website-rebuild/14_B2_SCHEMA_REFERENCE.md for
+     the full field-by-field reference. */
+
+  await q(`create table if not exists media (
+    id             text primary key default veyora_id('med'),
+    path           text not null,
+    alt            text not null default '',
+    width          int,
+    height         int,
+    kind           text not null default 'image' check (kind in ('image','video')),
+    rights_holder  text not null default '',
+    rights_expiry  date,
+    owner_type     text not null default '',
+    owner_id       text not null default '',
+    variant_sku    text not null default '',
+    created_at     timestamptz not null default now()
+  )`);
+  await q(`create index if not exists media_owner_idx on media (owner_type, owner_id)`);
+
+  await q(`create table if not exists brands (
+    id                   text primary key default veyora_id('br'),
+    slug                 text unique not null,
+    name                 text not null,
+    short_name           text not null default '',
+    segment              text not null default '',
+    headline             text not null default '',
+    summary              text not null default '',
+    story                text not null default '',
+    ideal_retailer       text not null default '',
+    best_for             jsonb not null default '[]',
+    style_traits         text[] not null default '{}',
+    price_tier_label     text not null default '',
+    design_origin        text not null default '',
+    manufacturing_origin text not null default '',
+    component_origins    jsonb not null default '[]',
+    approved_materials   text[] not null default '{}',
+    logo_media_id        text references media(id) on delete set null,
+    hero_media_id        text references media(id) on delete set null,
+    seo                  jsonb not null default '{}',
+    publication_state    text not null default 'draft'
+                         check (publication_state in ('draft','verified','approved','published','retired')),
+    source_reference     text not null default '',
+    fact_owner           text references users(id) on delete set null,
+    verification_status  text not null default 'unverified'
+                         check (verification_status in ('unverified','sourced','verified')),
+    last_reviewed_at     timestamptz,
+    scheduled_review_at  timestamptz,
+    content_updated_at   timestamptz not null default now(),
+    created_at           timestamptz not null default now(),
+    updated_at           timestamptz not null default now()
+  )`);
+  await q(`create index if not exists brands_publication_state_idx on brands (publication_state)`);
+
+  await q(`create table if not exists locations (
+    id              text primary key default veyora_id('loc'),
+    slug            text unique not null,
+    name            text not null,
+    "function"      text not null default 'office'
+                   check ("function" in ('warehouse','supply_base','service_hub','office','support')),
+    is_public       boolean not null default false,
+    address         jsonb not null default '{}',
+    regions_served  text[] not null default '{}',
+    contact         jsonb not null default '{}',
+    hours           text not null default '',
+    coordinates     jsonb,
+    publication_state    text not null default 'draft'
+                         check (publication_state in ('draft','verified','approved','published','retired')),
+    source_reference     text not null default '',
+    fact_owner           text references users(id) on delete set null,
+    verification_status  text not null default 'unverified'
+                         check (verification_status in ('unverified','sourced','verified')),
+    last_reviewed_at     timestamptz,
+    scheduled_review_at  timestamptz,
+    content_updated_at   timestamptz not null default now(),
+    created_at           timestamptz not null default now(),
+    updated_at           timestamptz not null default now()
+  )`);
+  await q(`create index if not exists locations_publication_state_idx on locations (publication_state)`);
+
+  await q(`create table if not exists policies (
+    id               text primary key default veyora_id('pol'),
+    type             text unique not null,
+    summary          text not null default '',
+    terms            text not null default '',
+    effective_date   date,
+    eligible_markets text[] not null default '{}',
+    exclusions       text not null default '',
+    revisions        jsonb not null default '[]',
+    publication_state    text not null default 'draft'
+                         check (publication_state in ('draft','verified','approved','published','retired')),
+    source_reference     text not null default '',
+    fact_owner           text references users(id) on delete set null,
+    verification_status  text not null default 'unverified'
+                         check (verification_status in ('unverified','sourced','verified')),
+    last_reviewed_at     timestamptz,
+    scheduled_review_at  timestamptz,
+    content_updated_at   timestamptz not null default now(),
+    created_at           timestamptz not null default now(),
+    updated_at           timestamptz not null default now()
+  )`);
+  await q(`create index if not exists policies_publication_state_idx on policies (publication_state)`);
+
+  await q(`create table if not exists redirects (
+    id          text primary key default veyora_id('rdr'),
+    from_path   text unique not null,
+    to_path     text not null default '',
+    status      int not null default 301 check (status in (301, 302, 410)),
+    reason      text not null default '',
+    source      text not null default 'manual',
+    created_at  timestamptz not null default now(),
+    constraint redirects_to_path_internal check (to_path = '' or to_path like '/%')
+  )`);
+
+  await q(`create table if not exists content_pages (
+    id            text primary key default veyora_id('cpg'),
+    route         text unique not null,
+    template      text not null default '',
+    modules       jsonb not null default '[]',
+    seo           jsonb not null default '{}',
+    index_state   text not null default 'noindex' check (index_state in ('index', 'noindex')),
+    publication_state    text not null default 'draft'
+                         check (publication_state in ('draft','verified','approved','published','retired')),
+    source_reference     text not null default '',
+    fact_owner           text references users(id) on delete set null,
+    verification_status  text not null default 'unverified'
+                         check (verification_status in ('unverified','sourced','verified')),
+    last_reviewed_at     timestamptz,
+    scheduled_review_at  timestamptz,
+    content_updated_at   timestamptz not null default now(),
+    created_at           timestamptz not null default now(),
+    updated_at           timestamptz not null default now()
+  )`);
+  await q(`create index if not exists content_pages_publication_state_idx on content_pages (publication_state)`);
+
+  await q(`create table if not exists forms (
+    id              text primary key default veyora_id('frm'),
+    type            text unique not null,
+    fields          jsonb not null default '[]',
+    consent_version text not null default '',
+    crm_routing     jsonb not null default '{}',
+    confirmation    jsonb not null default '{}',
+    notify_to       text[] not null default '{}',
+    retention_days  int not null default 365,
+    created_at      timestamptz not null default now(),
+    updated_at      timestamptz not null default now()
+  )`);
+
+  await q(`create table if not exists form_submissions (
+    id              text primary key default veyora_id('fsub'),
+    form_type       text not null default '',
+    payload         jsonb not null default '{}',
+    source_url      text not null default '',
+    utm             jsonb not null default '{}',
+    region          text not null default '',
+    business_type   text not null default '',
+    consent_version text not null default '',
+    consent_at      timestamptz,
+    delivery_state  text not null default 'pending' check (delivery_state in ('pending', 'sent', 'failed')),
+    attempts        int not null default 0,
+    last_error      text not null default '',
+    created_at      timestamptz not null default now(),
+    updated_at      timestamptz not null default now()
+  )`);
+  await q(`create index if not exists form_submissions_form_type_idx      on form_submissions (form_type)`);
+  await q(`create index if not exists form_submissions_delivery_state_idx on form_submissions (delivery_state)`);
+
+  await q(`create table if not exists content_approvals (
+    id               text primary key default veyora_id('cap'),
+    entity_type      text not null,
+    entity_id        text not null,
+    field            text not null default '',
+    approver_id      text references users(id) on delete set null,
+    approved_at      timestamptz not null default now(),
+    source_reference text not null default '',
+    note             text not null default '',
+    created_at       timestamptz not null default now()
+  )`);
+  await q(`create index if not exists content_approvals_entity_idx on content_approvals (entity_type, entity_id)`);
+
+  // updated_at auto-touch on the new tables only — never attached to
+  // content_updated_at (see the header note above).
+  await q(`do $$ begin
+    if not exists (select 1 from pg_trigger where tgname = 't_brands_touch') then
+      create trigger t_brands_touch before update on brands for each row execute function touch_updated_at();
+    end if;
+    if not exists (select 1 from pg_trigger where tgname = 't_locations_touch') then
+      create trigger t_locations_touch before update on locations for each row execute function touch_updated_at();
+    end if;
+    if not exists (select 1 from pg_trigger where tgname = 't_policies_touch') then
+      create trigger t_policies_touch before update on policies for each row execute function touch_updated_at();
+    end if;
+    if not exists (select 1 from pg_trigger where tgname = 't_content_pages_touch') then
+      create trigger t_content_pages_touch before update on content_pages for each row execute function touch_updated_at();
+    end if;
+    if not exists (select 1 from pg_trigger where tgname = 't_forms_touch') then
+      create trigger t_forms_touch before update on forms for each row execute function touch_updated_at();
+    end if;
+    if not exists (select 1 from pg_trigger where tgname = 't_form_submissions_touch') then
+      create trigger t_form_submissions_touch before update on form_submissions for each row execute function touch_updated_at();
+    end if;
+  end $$`);
+
+  // ---- additive columns on products (public-content fields) ----
+  // is_active keeps its existing meaning; is_published is a new,
+  // independent public-visibility flag. Every new column defaults to a
+  // value that changes nothing about current behaviour.
+  await q(`alter table products add column if not exists public_slug           text`);
+  await q(`alter table products add column if not exists brand_id             text references brands(id) on delete set null`);
+  await q(`alter table products add column if not exists line                 text not null default ''`);
+  await q(`alter table products add column if not exists shape                text not null default ''`);
+  await q(`alter table products add column if not exists segment              text not null default ''`);
+  await q(`alter table products add column if not exists public_description   text not null default ''`);
+  await q(`alter table products add column if not exists is_published         boolean not null default false`);
+  await q(`alter table products add column if not exists is_featured          boolean not null default false`);
+  await q(`alter table products add column if not exists is_discontinued      boolean not null default false`);
+  await q(`alter table products add column if not exists replacement_product_id text references products(id) on delete set null`);
+  await q(`alter table products add column if not exists publication_state    text not null default 'draft'
+                     check (publication_state in ('draft','verified','approved','published','retired'))`);
+  await q(`alter table products add column if not exists source_reference    text not null default ''`);
+  await q(`alter table products add column if not exists fact_owner          text references users(id) on delete set null`);
+  await q(`alter table products add column if not exists verification_status text not null default 'unverified'
+                     check (verification_status in ('unverified','sourced','verified'))`);
+  await q(`alter table products add column if not exists last_reviewed_at    timestamptz`);
+  await q(`alter table products add column if not exists scheduled_review_at timestamptz`);
+  await q(`alter table products add column if not exists content_updated_at  timestamptz not null default now()`);
+
+  await q(`do $$ begin
+    if not exists (select 1 from pg_constraint where conname = 'products_replacement_not_self') then
+      alter table products add constraint products_replacement_not_self
+        check (replacement_product_id is null or replacement_product_id <> id);
+    end if;
+    if not exists (select 1 from pg_constraint where conname = 'products_published_requires_state') then
+      alter table products add constraint products_published_requires_state
+        check (is_published = false or publication_state = 'published');
+    end if;
+  end $$`);
+
+  await q(`create unique index if not exists products_public_slug_idx on products (public_slug)`);
+  await q(`create index        if not exists products_brand_id_idx     on products (brand_id)`);
+  await q(`create index        if not exists products_is_published_idx on products (is_published)`);
+  await q(`create index        if not exists products_shape_idx        on products (shape)`);
+  await q(`create index        if not exists products_replacement_idx  on products (replacement_product_id)`);
+
+  // ---- additive columns on variations ----
+  await q(`alter table variations add column if not exists color_code      text not null default ''`);
+  await q(`alter table variations add column if not exists swatch_media_id text references media(id) on delete set null`);
+  await q(`alter table variations add column if not exists is_published    boolean not null default false`);
+  await q(`create index if not exists variations_is_published_idx on variations (is_published)`);
+
+  // ---- slug-change → redirect protection (brands and products) ----
+  // Fires only on UPDATE; creating these now, while brands is empty and
+  // every product has is_published = false, cannot affect any existing row.
+  await q(`create or replace function record_brand_slug_redirect() returns trigger as $$
+    begin
+      if old.publication_state = 'published' and new.slug is distinct from old.slug then
+        insert into redirects (from_path, to_path, status, reason, source)
+        values ('/brands/' || old.slug || '/', '/brands/' || new.slug || '/', 301, 'brand slug change', 'trigger')
+        on conflict (from_path) do nothing;
+      end if;
+      return new;
+    end;
+    $$ language plpgsql`);
+  await q(`do $$ begin
+    if not exists (select 1 from pg_trigger where tgname = 't_brands_slug_redirect') then
+      create trigger t_brands_slug_redirect before update on brands
+        for each row execute function record_brand_slug_redirect();
+    end if;
+  end $$`);
+
+  await q(`create or replace function record_product_slug_redirect() returns trigger as $$
+    declare
+      brand_slug text;
+    begin
+      if old.is_published
+         and old.public_slug is not null
+         and new.public_slug is distinct from old.public_slug then
+        select slug into brand_slug from brands where id = old.brand_id;
+        if brand_slug is not null then
+          insert into redirects (from_path, to_path, status, reason, source)
+          values (
+            '/collections/' || brand_slug || '/' || old.public_slug || '/',
+            '/collections/' || brand_slug || '/' || coalesce(new.public_slug, old.public_slug) || '/',
+            301, 'product slug change', 'trigger'
+          )
+          on conflict (from_path) do nothing;
+        end if;
+      end if;
+      return new;
+    end;
+    $$ language plpgsql`);
+  await q(`do $$ begin
+    if not exists (select 1 from pg_trigger where tgname = 't_products_slug_redirect') then
+      create trigger t_products_slug_redirect before update on products
+        for each row execute function record_product_slug_redirect();
+    end if;
+  end $$`);
 }

@@ -504,3 +504,48 @@ bridge exists in the first place and is unchanged by this correction. The recomm
 separate portal host (§5.2, "Why a subdomain rather than a `/portal/` path prefix") stands as
 written: this correction concerns the public `web` application's own layout, not the Caddy
 host/handler design.
+
+---
+
+## 12. B2.1 implementation result — 2026-08-05
+
+**Scope executed:** the additive database schema and publication-governance foundation described
+in §7, delivered exactly where §7 said it would be — `0007_public_site.sql` — plus its mirror in
+`api/src/migrate.js`. Starting commit `f55539d` (completed B1) on `mathew/public-website-rebuild`.
+No `/public/*` API route, serializer, catalogue endpoint, live data backfill, admin UI, or Astro
+integration was built — all explicitly out of scope for B2.1 and deferred to B2.2 onward. The other
+developer's concurrent storefront branch was not inspected, merged or touched.
+
+### 12.1 The migration lifecycle question (§2's "determine whether files under db/migrations are
+init-only, incremental, or supplemented by ensureSchema") is answered definitively
+
+Inspection of `0005_order_zoho_push.sql`, `0006_backorder_context.sql`, and every comment inside
+`api/src/migrate.js` confirms: `db/migrations/*.sql` runs exactly once, via PostgreSQL's
+`docker-entrypoint-initdb.d` mechanism, against a completely fresh data volume. An already-deployed
+database never re-runs anything in that directory. The actual incremental mechanism is
+`ensureSchema()` in `api/src/migrate.js`, called from `startServer()` on every API boot
+(fail-closed), containing hand-written idempotent SQL. There is no ORM and no migration-runner tool
+anywhere in the repository. `0007_public_site.sql` and its mirror in `migrate.js` follow this
+existing convention exactly — no new mechanism was introduced.
+
+### 12.2 What was implemented
+
+Nine new tables (`brands`, `locations`, `policies`, `media`, `redirects`, `content_pages`, `forms`,
+`form_submissions`, `content_approvals`), the governance lifecycle from §7.1 applied identically
+across `brands`/`locations`/`policies`/`content_pages` and as additive columns on `products`, the
+11 additive `products` columns and 3 additive `variations` columns from §7.2/§7.3 exactly as
+specified, and the slug-change redirect trigger from §7.5 for both `brands` and `products`. One
+addition beyond §7's text: a database CHECK (`products_published_requires_state`) making
+`is_published = true` structurally require `publication_state = 'published'` — not previously
+specified, added because it closes the "no current product becomes publicly published" requirement
+at the database level rather than by relying on the migration simply not containing a row-updating
+statement. Full field-by-field detail:
+`docs/public-website-rebuild/14_B2_SCHEMA_REFERENCE.md`.
+
+### 12.3 Confirmed untouched
+
+No migration was applied to any database (no PostgreSQL executable was available or installed —
+see `14_B2_SCHEMA_REFERENCE.md` §9). No production, VPS, or live database was contacted.
+`platform/server/storefront/**`, `platform/server/web/**`, the root admin application,
+`docker-compose.yml`, `Caddyfile`, `deploy.sh`, all `.env` files, and every existing API test file
+are unchanged.

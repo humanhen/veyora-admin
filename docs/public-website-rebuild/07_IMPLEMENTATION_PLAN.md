@@ -422,3 +422,25 @@ DECISION-03 (brand list) and DECISION-17 (CRM) have **dropped off the pre-coding
 Under rulings 7, 8 and 10 both are now configuration: the brand count derives from published
 records and the CRM adapter defaults to a durable store with an operations alert. They remain
 required before cutover, not before coding.
+
+---
+
+## 10. B2.1 implementation result — 2026-08-05
+
+**Scope executed:** WP-06's schema half only — "Migrations for the nine new tables + governance
+block" (§2, B2, WP-06) — delivered as `platform/server/db/migrations/0007_public_site.sql` plus its
+mirror in `api/src/migrate.js`, with the additive `products`/`variations` columns from §7.2/§7.3 of
+`04_TARGET_ARCHITECTURE.md` included in the same file. WP-06's stated exit condition ("migration
+applies clean") is **not yet demonstrated against a real PostgreSQL instance** — no executable was
+available (see `14_B2_SCHEMA_REFERENCE.md` §9) — so that half of the exit condition is met by
+static/semantic test coverage instead (65 new tests, `api/test/public-schema.test.js`). WP-06's
+other exit condition, "publication gate test green," is application-level work belonging to B2.2
+and was not started.
+
+**Not started, all confirmed still pending:** WP-07 (`routes/public.js` + allowlist serializer +
+cache), WP-08 (slug generation + backfill scripts + data-quality report), WP-09 (admin editing
+surfaces). All three remain exactly where §2's dependency graph places them — after WP-06, which is
+now partially complete (schema only).
+
+Full detail: `docs/public-website-rebuild/14_B2_SCHEMA_REFERENCE.md`;
+`04_TARGET_ARCHITECTURE.md` §12; `09_FIRST_BUILD_PACKAGE.md`'s B2.1 section.

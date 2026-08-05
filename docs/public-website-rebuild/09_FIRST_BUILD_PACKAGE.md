@@ -1100,3 +1100,119 @@ application, `docker-compose.yml`, `Caddyfile`, `deploy.sh`, every package outsi
 files. The other developer's concurrent storefront branch was never inspected, referenced or
 merged. No commit was made, nothing was pushed, and no deploy, VPS, production or DNS access
 occurred at any point in this session.
+
+---
+
+## 12. B2.1 implementation result — 2026-08-05
+
+**Scope executed:** the additive public-content database schema and publication-governance
+foundation only — no `/public/*` API route, serializer, catalogue endpoint, live data backfill,
+admin UI, or Astro catalogue integration. Starting commit `f55539d` (completed B1) on
+`mathew/public-website-rebuild`. The other developer's concurrent storefront-fix branch was not
+inspected, merged, copied or modified.
+
+### Files created
+
+```
+platform/server/db/migrations/0007_public_site.sql   the additive migration (fresh-volume path)
+docs/public-website-rebuild/14_B2_SCHEMA_REFERENCE.md  full field-by-field schema reference
+platform/server/api/test/public-schema.test.js         65 new structural/semantic tests
+```
+
+### Files modified
+
+- `platform/server/api/src/migrate.js` — `ensureSchema()` extended with the exact same statements
+  as `0007_public_site.sql`, mirrored idempotently. This is the **only** source-code change in this
+  batch, and it is directly justified by the repository's own existing migration lifecycle (see
+  below) — not a new API surface, endpoint, or behaviour change of any kind.
+- `docs/public-website-rebuild/04_TARGET_ARCHITECTURE.md` — §12 appended.
+- `docs/public-website-rebuild/07_IMPLEMENTATION_PLAN.md` — §10 appended.
+- `08_RISKS_AND_OPEN_DECISIONS.md` — **not modified.** Reviewed against this batch's actual
+  changes; no documented risk score changed and no open decision was resolved by pure additive
+  schema work (the risks and decisions that will eventually be affected — R-03 shape backfill,
+  R-06 public data leak, DECISION-03 brand list — are all still exactly where B1 left them, since
+  none of their actual triggering work — backfill, the serializer, brand-count derivation — was
+  done in this batch).
+
+No other path was created, modified or deleted.
+
+### Existing migration lifecycle discovered (Task 2)
+
+Read `0001`–`0006` and every line of `api/src/migrate.js` before writing anything. Confirmed: files
+in `db/migrations/` run exactly once, via PostgreSQL's `docker-entrypoint-initdb.d` mechanism,
+against a completely fresh data volume — `deploy.sh` ships the `db/` directory unchanged on every
+deploy, but an already-initialised database's data volume is never re-triggered by it. The real
+incremental mechanism, used for every schema change since go-live (`0005`, `0006`, the multi-
+currency dimension, the inventory ledger), is `ensureSchema()` in `migrate.js`, called from
+`startServer()` on every API boot before the server accepts traffic (fail-closed — if it throws,
+the API does not start). There is no ORM and no migration-runner tool anywhere in this repository.
+`0007_public_site.sql` and its `migrate.js` mirror follow this exact, pre-existing convention.
+
+### Tables and fields implemented
+
+Nine new tables (`brands`, `locations`, `policies`, `media`, `redirects`, `content_pages`, `forms`,
+`form_submissions`, `content_approvals`), the governance lifecycle
+(`publication_state`/`source_reference`/`fact_owner`/`verification_status`/`last_reviewed_at`/
+`scheduled_review_at`/`content_updated_at`) applied to `brands`/`locations`/`policies`/
+`content_pages` and to `products`, 11 additive `products` columns (`public_slug`, `brand_id`,
+`line`, `shape`, `segment`, `public_description`, `is_published`, `is_featured`,
+`is_discontinued`, `replacement_product_id`, plus governance), and 3 additive `variations` columns
+(`color_code`, `swatch_media_id`, `is_published`). Full field-by-field reference:
+`14_B2_SCHEMA_REFERENCE.md`.
+
+### Tests and validation
+
+**566/566** API tests passing (`node --test`): 501 pre-existing (zero regressions) + 65 new. No
+PostgreSQL executable was available on this machine and none was installed, per the task brief
+(checked: no `psql`/`postgres` on `PATH`, no `C:\Program Files\PostgreSQL`) — so validation is
+static/semantic (both SQL files read as text and asserted on structurally), not executable-database
+validation. Full limitation note: `14_B2_SCHEMA_REFERENCE.md` §9.
+
+### Production migration mechanism / gap
+
+Mechanism, if ever shipped: unchanged from the existing convention — `deploy.sh` ships `db/`
+unchanged and restarts the `api` container, which runs the now-extended `ensureSchema()` before
+serving traffic. Gap: no migration was applied to any database, no PostgreSQL instance was
+contacted, and no production/VPS/DNS access occurred at any point in this session, per the task
+brief. Actually shipping this schema to production is explicitly left to B10 or a separately
+reviewed migration runbook.
+
+### Known limitations
+
+- No executable database validation (above) — the single largest limitation of this batch.
+- The `is_published`/`publication_state` cross-row invariant for `variations` (a variation should
+  not publish while its parent product is unpublished) is not a database constraint — deferred to
+  the B2.2/B2.4 application-level publication gate (`14_B2_SCHEMA_REFERENCE.md` §6).
+- The slug-change redirect triggers silently skip (rather than overwrite) when a redirect already
+  exists at the target path; nothing yet alerts a human to that collision.
+- `products.public_slug`/`brand_id` backfill for the 1,318 existing products was explicitly not
+  attempted — remains separate B2.4 work.
+
+### Deferred to B2.2–B2.4
+
+The `/public/*` API surface and allowlist serializer (WP-07), slug generation and backfill scripts
+plus the data-quality report (WP-08), admin editing surfaces for brand/location/policy/publication
+(WP-09), the forbidden-key test suite, the application-level publication gate (approval-required-
+before-publish, the variation/product visibility cross-check), and shape-facet backfill — all
+unchanged from `07_IMPLEMENTATION_PLAN.md`.
+
+### Final storage
+
+| Checkpoint | Free space |
+|---|---|
+| Before B2.1 (Task 1) | 7.887 GB |
+| After full API test suite (566/566) | 7.863 GB |
+| Final | 7.863 GB |
+
+Never approached the 4 GB floor. No new dependency was installed.
+
+### Confirmation
+
+No migration was applied to any database — no PostgreSQL executable was available or installed,
+and none was contacted. `platform/server/storefront/**`, `platform/server/web/**`, the root admin
+application, `docker-compose.yml`, `Caddyfile`, `deploy.sh`, all `.env` files, and every existing
+API test file are unchanged — confirmed by `git status --short` showing changes confined to
+`platform/server/db/migrations/**`, one file under `platform/server/api/src/**`,
+`platform/server/api/test/**`, and the permitted documentation files. The other developer's
+concurrent branch was never inspected, referenced or merged. No commit was made, nothing was
+pushed, and no deploy, VPS, production or DNS access occurred at any point in this session.
