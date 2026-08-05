@@ -310,3 +310,94 @@ mock on `127.0.0.1`.
   pipeline.
 - **B9:** extending the forbidden-key scan across rendered HTML and JSON-LD as a wired merge gate —
   the remaining precondition for closing R-06.
+
+---
+
+## Catalogue filter and facet interface — Fast-Track Phase 2, 2026-08-06
+
+The catalogue routes gained a server-rendered filter interface over the existing `/public/facets`
+and `listModels` contracts. **No API change, no new parameter, no new dependency.**
+
+### What is rendered, and what deliberately is not
+
+`GET /public/facets` returns `brands[{slug,name}]`, `categories`, `shapes` and `sizes`. Controls are
+rendered for exactly those four, plus `sort`.
+
+**`audience` and `material` get no control.** The API accepts both — documented no-ops until a
+backing column exists — but returns no lists for them. Rendering a guessed audience vocabulary would
+be inventing catalogue facts, so nothing is offered. Both remain accepted and forwarded by
+`catalogue-query.ts`, so a direct link carrying one still works, and the day the API returns those
+lists the generic code in `catalogue-filters.ts` renders them with no further work.
+
+An **empty** facet list also renders no control, rather than an empty select: "the API has nothing to
+offer here" is not the same as "offer everything".
+
+### No JavaScript is required
+
+A plain `<form method="get" action="{basePath}">`. Submitting it navigates to the same path with the
+selected values in the query string — exactly what a typed URL or a crawled link produces. The Apply
+button is the mechanism, not an enhancement. There is no `<script>`, no client directive and no
+framework anywhere in the component; the HTTP tests assert the rendered markup from the real
+standalone server, where no script ever runs.
+
+### Two rules enforced structurally rather than by discipline
+
+**Changing a filter resets the page.** The form carries **no `page` input**, and a GET form
+serialises only its own controls — so every submission lands on page 1 by construction. Clear-one
+links go through `hrefWithout()`, which also returns to page 1: page 5 of the old result set is
+meaningless in the new one.
+
+**A category route owns its category.** On `/collections/{optical,sun,kids}/` no category control is
+rendered, the category is never a removable chip, and `omitCategory` keeps it out of every generated
+link. `parseCatalogueQuery()` already overrode a query-supplied category server-side; the interface
+simply never offers the contradiction. `/collections/sun/?category=Optical` stays sun, and the
+string `category=Optical` appears in no link on the page.
+
+### Active filters
+
+Each active filter renders a chip showing the human label (a brand chip shows the brand **name**
+while submitting its **slug**) with a clear link that removes exactly that one and keeps the rest.
+Clear-all returns to the bare listing path. A non-default sort is treated as an active filter and is
+clearable the same way.
+
+A filter with no control — `audience` on a direct link — is **not** carried as a hidden input.
+Perpetuating invisible state a visitor cannot see or clear would be worse than dropping it from the
+form; it stays honoured on the link that carried it.
+
+### Empty and failure states, kept distinct
+
+| Situation | Rendered |
+|---|---|
+| Invalid query | 400, editorial error, **no filter form** (nothing coherent to render against) |
+| Upstream failure | non-200 `PublicDataUnavailable`, **no filter form** |
+| Published catalogue is empty | `EmptyPublishedContent` |
+| Filters matched nothing | "No models match the filters you have selected" + a clear-all link |
+| Facets failed, listing succeeded | listing renders normally, controls omitted, with a notice that options are temporarily unavailable |
+
+That last row is the one worth stating: the facet call is made in parallel with the listing, and its
+failure **never** turns a working listing into an outage page. The page status comes from the listing
+result alone.
+
+An outage is never described as zero results — the empty branches are gated on `result.ok === true`,
+so a failure cannot reach them.
+
+### Accessibility and layout
+
+Real `<label for>` on every control; a labelled `Refine` section and an `Active filters` heading;
+`:focus-visible` outlines on selects, the apply button, clear-all and every chip link; chip removal
+links carry a visually-hidden accessible name (*"Remove Brand filter Example Brand"*). Square corners
+throughout (`border-radius: 0`), 16px select text to stop iOS zooming on focus, and a single-column
+grid below 480px — usable at 375px.
+
+**No price, stock or availability control exists**, and none can: the only options come from facet
+lists that contain none of that data.
+
+### Files
+
+`src/lib/catalogue-filters.ts` (new) · `src/components/public/CatalogueFilters.astro` (new) ·
+`src/lib/catalogue-page.ts` (facets fetched in parallel, filter state added) ·
+`src/components/public/CatalogueListing.astro` (renders the form, splits the empty states).
+
+**Tests:** `test/catalogue-filters.test.ts` (32) plus four HTTP-level tests in
+`test/http-routes.test.ts` proving the form, chips, category fixing and absence of commercial
+controls in real server output. Web suite **346 passing**; production build succeeds.

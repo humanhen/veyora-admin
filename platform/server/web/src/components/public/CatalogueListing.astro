@@ -9,6 +9,7 @@ import ModelGrid from './ModelGrid.astro';
 import Pagination from './Pagination.astro';
 import EmptyPublishedContent from './EmptyPublishedContent.astro';
 import PublicDataUnavailable from './PublicDataUnavailable.astro';
+import CatalogueFilters from './CatalogueFilters.astro';
 import type { CataloguePageState } from '../../lib/catalogue-page.ts';
 
 interface Props {
@@ -19,10 +20,24 @@ interface Props {
 }
 
 const { state, basePath, subject = 'models' } = Astro.props;
-const { result, queryError, page, hasMore, previousHref, nextHref } = state;
+const { result, queryError, page, hasMore, previousHref, nextHref, filters, formAction, facetsUnavailable } = state;
 const models = result?.ok ? result.data.items : [];
 const isBadRequest = queryError !== null || (result !== null && !result.ok && result.kind === 'bad-request');
 const isUnavailable = result !== null && !result.ok && result.kind !== 'bad-request';
+
+/* An empty result means two different things, and conflating them is how a
+   filtered search reads as "we publish nothing". `filtersApplied` is what
+   separates them; an upstream failure is neither and is handled above. */
+const filtersApplied = (filters?.active.length ?? 0) > 0;
+const isEmptyWithFilters = result?.ok === true && models.length === 0 && filtersApplied;
+const isEmptyCatalogue = result?.ok === true && models.length === 0 && !filtersApplied;
+
+/* Controls are shown whenever the request itself was valid — including when
+   a filtered search returned nothing, because that is precisely when a
+   visitor needs to change or clear a filter. They are hidden only for an
+   invalid query or an upstream failure, where the form would be offering
+   choices against state we could not read. */
+const showFilters = filters !== null && !isBadRequest && !isUnavailable;
 ---
 
 {
@@ -38,7 +53,26 @@ const isUnavailable = result !== null && !result.ok && result.kind !== 'bad-requ
 
 {isUnavailable && <PublicDataUnavailable subject={subject} />}
 
-{result?.ok && models.length === 0 && <EmptyPublishedContent subject={subject} />}
+{
+  showFilters && (
+    <CatalogueFilters filters={filters!} formAction={formAction} facetsUnavailable={facetsUnavailable} />
+  )
+}
+
+{isEmptyCatalogue && <EmptyPublishedContent subject={subject} />}
+
+{
+  isEmptyWithFilters && (
+    <div class="catalogue-empty-filtered">
+      <p class="catalogue-empty-filtered__body">
+        No {subject} match the filters you have selected.
+      </p>
+      <p class="catalogue-empty-filtered__body">
+        <a href={filters!.clearAllHref ?? basePath}>Clear all filters</a> to see the full range.
+      </p>
+    </div>
+  )
+}
 
 {
   result?.ok && models.length > 0 && (
@@ -50,6 +84,16 @@ const isUnavailable = result !== null && !result.ok && result.kind !== 'bad-requ
 }
 
 <style>
+  .catalogue-empty-filtered {
+    max-width: 46ch;
+    margin: clamp(28px, 5vw, 48px) 0;
+    padding: clamp(16px, 2.4vw, 22px) clamp(18px, 2.6vw, 24px);
+    border: 1px solid var(--rule);
+    border-left: 2px solid var(--ink);
+  }
+  .catalogue-empty-filtered__body { margin: 0 0 8px; }
+  .catalogue-empty-filtered__body:last-child { margin-bottom: 0; }
+
   .catalogue-error {
     max-width: 46ch;
     margin: clamp(28px, 5vw, 48px) 0;

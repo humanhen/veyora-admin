@@ -157,6 +157,64 @@ test('/collections/?sort=name is noindex, follow, canonical to the unsorted path
   assert.match(body, new RegExp(`<link rel="canonical" href="${SITE_ORIGIN.replace(/\//g, '\\/')}\\/collections\\/"`));
 });
 
+/* Fast-Track Phase 2: the filter interface is server-rendered HTML. These
+   assertions run against the real standalone server with no client
+   JavaScript involved at all — a fetch() has no DOM and runs no scripts, so
+   anything asserted here is what a crawler or a JS-disabled visitor sees. */
+
+test('the catalogue filter form is server-rendered as a GET form with real controls', async () => {
+  const response = await get('/collections/');
+  assert.equal(response.status, 200);
+  const body = await response.text();
+
+  assert.match(body, /<form[^>]+method="get"[^>]+action="\/collections\/"/);
+  // Choices come from the mock API's facet fixture, not from invented values.
+  assert.match(body, /<select[^>]+id="filter-brand"[^>]+name="brand"/);
+  // Astro appends a data-astro-cid-* scoping attribute to every styled
+  // element, so assertions must tolerate extra attributes.
+  assert.match(body, /<option value="example-brand"[^>]*>Example Brand<\/option>/);
+  assert.match(body, /<select[^>]+id="filter-shape"[^>]+name="shape"/);
+  assert.match(body, /<select[^>]+id="filter-sort"[^>]+name="sort"/);
+  assert.match(body, /<label[^>]+for="filter-brand"/);
+  // No page input: submitting always lands on page 1.
+  assert.doesNotMatch(body, /<input[^>]+name="page"/);
+  // Still exactly one H1.
+  assert.equal((body.match(/<h1[\s>]/g) ?? []).length, 1);
+});
+
+test('an applied filter renders an active chip with a working clear link', async () => {
+  const response = await get('/collections/?brand=example-brand&sort=name');
+  assert.equal(response.status, 200);
+  const body = await response.text();
+
+  assert.match(body, /Active filters/);
+  assert.match(body, /Brand: Example Brand/);
+  // Clearing the brand keeps the sort, and vice versa.
+  assert.match(body, /href="\/collections\/\?sort=name"/);
+  assert.match(body, /href="\/collections\/\?brand=example-brand"/);
+  // Clear-all returns to the bare path.
+  assert.match(body, /class="filters__clear-all" href="\/collections\/"/);
+});
+
+test('a category route renders no category control and cannot be re-categorised by query', async () => {
+  const response = await get('/collections/sun/?category=Optical');
+  assert.equal(response.status, 200);
+  const body = await response.text();
+
+  assert.doesNotMatch(body, /<select[^>]+name="category"/);
+  assert.doesNotMatch(body, /category=Optical/, 'the overridden category must not appear in any link');
+  assert.match(body, /action="\/collections\/sun\/"/);
+  assert.equal((body.match(/<h1[\s>]/g) ?? []).length, 1);
+});
+
+test('the filter interface renders no price, stock or availability control', async () => {
+  for (const route of ['/collections/', '/collections/sun/', '/collections/?shape=round']) {
+    const body = await (await get(route)).text();
+    assert.doesNotMatch(body, /name="(price|stock|availability|qty|cost)"/i, route);
+    assert.doesNotMatch(body, /in stock|out of stock/i, route);
+  }
+});
+
 test('/healthz remains 200, application/json, X-Robots-Tag noindex nofollow, unaffected by the new middleware', async () => {
   const response = await get('/healthz');
   assert.equal(response.status, 200);

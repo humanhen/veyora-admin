@@ -46,7 +46,7 @@ unimplemented in a syntactically clean state, and the run continues to later pha
 |---|---|---|
 | 0 — Verify and plan | complete | *(no commit — Phase 0 alone does not check point)* |
 | 1 — Catalogue export preparation | complete | `checkpoint: add safe catalogue export preparation` |
-| 2 — Public catalogue filters | pending | |
+| 2 — Public catalogue filters | complete | `checkpoint: add public catalogue filter interface` |
 | 3 — Durable enquiry forms | pending | |
 | 4 — Production SEO controls | pending | |
 | 5 — Integration validation | pending | |
@@ -143,3 +143,43 @@ control.
   `brand-mapping-review.csv`. There is no interactive tool for producing the decisions file.
 
 **Next:** Phase 2 — public catalogue filter and facet interface.
+
+### Phase 2 — complete
+
+**Files changed**
+
+| Path | Change |
+|---|---|
+| `platform/server/web/src/lib/catalogue-filters.ts` | new — pure filter-state builder |
+| `platform/server/web/src/components/public/CatalogueFilters.astro` | new — server-rendered GET form |
+| `platform/server/web/src/lib/catalogue-page.ts` | facets fetched in parallel; filter state added to page state |
+| `platform/server/web/src/components/public/CatalogueListing.astro` | renders the form; splits empty-catalogue from empty-filtered |
+| `platform/server/web/test/catalogue-filters.test.ts` | new — 32 tests |
+| `platform/server/web/test/http-routes.test.ts` | +4 HTTP-level tests against the real server |
+| `docs/public-website-rebuild/17_B2_WEB_API_INTEGRATION.md` | filter section added |
+
+**Tests:** focused 32/32. Full web suite **346 passing, 0 failing** (310 baseline + 36). Production
+Astro build succeeds.
+
+**Decisions**
+
+- **`audience` and `material` render no control**, because `/public/facets` returns no lists for them
+  and inventing a vocabulary is forbidden. Both stay accepted and forwarded, so the controls appear
+  automatically when the API starts returning them. Recorded in Phase 0 findings.
+- **Facets are fetched in parallel with the listing**, and a facet failure never changes the page
+  status. A visitor is not told the catalogue is down because a secondary request failed.
+- **The form carries no `page` input**, so "changing a filter resets the page" is structural rather
+  than a rule someone has to remember.
+- **A control-less filter is not carried as a hidden input.** Invisible state a visitor cannot see or
+  clear is worse than dropping it from the form; it remains honoured on the link that carried it.
+- Empty-with-filters and empty-catalogue are separate states, because conflating them makes a
+  filtered search read as "we publish nothing".
+
+**Limitations**
+
+- No result count is shown. The `listModels` contract exposes `hasMore` but no total, and inventing
+  one is not possible.
+- Filters are single-value per key (the API contract's shape); no multi-select.
+- Sort offers only `newest` and `name` — the two the API supports.
+
+**Next:** Phase 3 — durable public enquiry forms.

@@ -1,0 +1,228 @@
+---
+/* Catalogue filter controls (Fast-Track Phase 2).
+
+   A server-rendered GET form. NO JAVASCRIPT IS REQUIRED: submitting the form
+   navigates to the same path with the selected values in the query string,
+   which is exactly what a typed URL or a crawled link produces. The Apply
+   button is not progressive enhancement — it is the mechanism.
+
+   Two structural choices carry the rules the brief cares about:
+
+   1. The form carries NO `page` input, so any submission lands on page 1.
+      "Changing a filter resets the page" is therefore true by construction
+      rather than by remembering to strip a parameter somewhere.
+
+   2. A category ROUTE's category is in the path, so on those routes no
+      category control is rendered and no generated link carries one. The
+      page cannot be turned into a different category by a query parameter —
+      parseCatalogueQuery() overrides it server-side regardless.
+
+   Only choices the API actually returned are offered. Nothing here invents a
+   brand, a shape or an audience. */
+import type { FilterState } from '../../lib/catalogue-filters.ts';
+
+interface Props {
+  filters: FilterState;
+  formAction: string;
+  facetsUnavailable: boolean;
+}
+
+const { filters, formAction, facetsUnavailable } = Astro.props;
+const hasControls = filters.groups.length > 0;
+---
+
+<section class="filters" aria-labelledby="filters-heading">
+  <h2 class="filters__heading" id="filters-heading">Refine</h2>
+
+  {
+    facetsUnavailable && (
+      <p class="filters__notice">
+        Filter options are temporarily unavailable. The models below are still current, and any
+        filter already in your link is still applied.
+      </p>
+    )
+  }
+
+  <form class="filters__form" method="get" action={formAction}>
+    {
+      hasControls && (
+        <div class="filters__grid">
+          {filters.groups.map((group) => (
+            <div class="filters__field">
+              <label class="filters__label" for={`filter-${group.key}`}>{group.legend}</label>
+              <select class="filters__select" id={`filter-${group.key}`} name={group.key}>
+                <option value="">Any {group.legend.toLowerCase()}</option>
+                {group.options.map((option) => (
+                  <option value={option.value} selected={option.selected}>{option.label}</option>
+                ))}
+              </select>
+            </div>
+          ))}
+
+          <div class="filters__field">
+            <label class="filters__label" for="filter-sort">Sort</label>
+            <select class="filters__select" id="filter-sort" name="sort">
+              {filters.sort.options.map((option) => (
+                <option value={option.value} selected={option.selected}>{option.label}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+      )
+    }
+
+    {filters.hidden.map((field) => <input type="hidden" name={field.name} value={field.value} />)}
+
+    {
+      hasControls && (
+        <div class="filters__actions">
+          <button class="filters__apply" type="submit">Apply</button>
+          {filters.clearAllHref && (
+            <a class="filters__clear-all" href={filters.clearAllHref}>Clear all</a>
+          )}
+        </div>
+      )
+    }
+  </form>
+
+  {
+    filters.active.length > 0 && (
+      <div class="filters__active">
+        <h3 class="filters__active-heading" id="active-filters-heading">Active filters</h3>
+        <ul class="filters__chips" aria-labelledby="active-filters-heading">
+          {filters.active.map((item) => (
+            <li class="filters__chip">
+              <span class="filters__chip-label">
+                {item.legend}: {item.label}
+              </span>
+              <a class="filters__chip-clear" href={item.clearHref}>
+                <span class="filters__chip-x" aria-hidden="true">&times;</span>
+                <span class="visually-hidden">Remove {item.legend} filter {item.label}</span>
+              </a>
+            </li>
+          ))}
+        </ul>
+      </div>
+    )
+  }
+</section>
+
+<style>
+  /* Square corners throughout — the editorial system has no rounded shapes. */
+  .filters {
+    margin: 0 0 clamp(24px, 4vw, 40px);
+    padding: clamp(16px, 2.4vw, 22px) clamp(18px, 2.6vw, 24px);
+    border: 1px solid var(--rule);
+  }
+  .filters__heading {
+    margin: 0 0 14px;
+    font-family: var(--font-display, inherit);
+    font-size: 0.82rem;
+    font-weight: 500;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-2, inherit);
+  }
+  .filters__notice {
+    margin: 0 0 14px;
+    padding: 10px 12px;
+    border-left: 2px solid var(--ink);
+    font-size: 0.9rem;
+  }
+
+  .filters__grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 14px 18px;
+  }
+  .filters__field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+  }
+  .filters__label {
+    font-size: 0.78rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-2, inherit);
+  }
+  .filters__select {
+    width: 100%;
+    /* 16px minimum stops iOS zooming the page on focus. */
+    font: inherit;
+    font-size: 16px;
+    padding: 9px 10px;
+    border: 1px solid var(--rule);
+    border-radius: 0;
+    background: var(--paper, #fff);
+    color: inherit;
+  }
+  .filters__select:focus-visible,
+  .filters__apply:focus-visible,
+  .filters__clear-all:focus-visible,
+  .filters__chip-clear:focus-visible {
+    outline: 2px solid var(--ink);
+    outline-offset: 2px;
+  }
+
+  .filters__actions {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-top: 16px;
+    flex-wrap: wrap;
+  }
+  .filters__apply {
+    font: inherit;
+    font-size: 0.86rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 10px 22px;
+    border: 1px solid var(--ink);
+    border-radius: 0;
+    background: var(--ink);
+    color: var(--paper, #fff);
+    cursor: pointer;
+  }
+  .filters__clear-all { font-size: 0.86rem; }
+
+  .filters__active { margin-top: 18px; }
+  .filters__active-heading {
+    margin: 0 0 8px;
+    font-size: 0.78rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    font-weight: 500;
+    color: var(--ink-2, inherit);
+  }
+  .filters__chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .filters__chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 10px;
+    border: 1px solid var(--rule);
+    font-size: 0.85rem;
+  }
+  .filters__chip-clear {
+    display: inline-flex;
+    align-items: center;
+    /* A comfortable target without inflating the chip. */
+    padding: 2px 4px;
+    text-decoration: none;
+  }
+  .filters__chip-x { font-size: 1.05rem; line-height: 1; }
+
+  @media (max-width: 480px) {
+    .filters__grid { grid-template-columns: 1fr; }
+    .filters__apply { width: 100%; text-align: center; }
+  }
+</style>
