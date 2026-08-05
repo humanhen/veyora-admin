@@ -535,3 +535,35 @@ operational gap, not a design one). Impact is unchanged at I3. Revised score **6
 **Closes when:** the bootstrap has been performed and verified on production, at least two active
 accounts hold `permissions.manage`, and an assignment surface exists. Detail:
 `19_ACCOUNT_PERMISSION_SYSTEM.md`.
+
+**Implementation update — B2.4B1, 2026-08-06. Second of three closure conditions met; risk remains
+OPEN.**
+
+The assignment interface now exists. The admin panel has an **Account Permissions** screen
+(`#/account-permissions`) that reuses the existing account list, renders the four registry
+capabilities with grant and revocation history, requires an explicit save, sends the complete
+intended set with the concurrency token, refuses to report success on a `409`, and explains the
+`422` last-manager lockout protection in operator language. Access is decided by asking the server
+(the registry endpoint is itself gated on `permissions.manage`; `200` = held, `403` and everything
+else = not held), never by reading the admin role — there is no role bypass, no environment flag and
+no hard-coded account anywhere in it. 53 frontend tests pass. No API endpoint was added or changed
+and no schema was touched. Detail: `20_ACCOUNT_PERMISSION_INTERFACE.md`.
+
+**Why this is still not closed — and why the residual risk has NOT dropped further.** The blocking
+condition is unchanged and is the one neither B2.4P nor B2.4B1 was permitted to satisfy:
+
+- **No account holds any capability.** `account_permissions` is still empty. Every capability probe
+  therefore returns `403`, which means **the new screen is currently unreachable by every account,
+  including every existing administrator**, and the public-content API remains unusable by everyone.
+- **The interface cannot create the first manager**, deliberately and with no bypass. The first
+  `permissions.manage` grant remains the reviewed one-time database operation in
+  `19_ACCOUNT_PERMISSION_SYSTEM.md` §8, which was explicitly out of scope for this batch.
+
+The exposure is now entirely operational: a complete, tested, dormant permission system awaiting one
+reviewed production action. Likelihood stays **L2** and impact **I3** — score **6** — because
+building the screen did not change what is exposed, only who could act once the system is switched
+on.
+
+**Closes when:** the §8 bootstrap has been performed and verified on production, **and** at least
+two active accounts hold `permissions.manage` (verified by the §8 query). The interface condition is
+now satisfied.

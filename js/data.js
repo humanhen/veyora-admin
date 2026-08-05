@@ -246,6 +246,34 @@ const DB = (function(){
     save();
   }
 
+  /* ---------- account capability permissions (B2.4B1) ----------
+
+     Explicit, allowlisted shaping of the permission endpoints' responses.
+     Nothing is spread: the screen reads exactly these fields and would not
+     surface an unrelated field the API might add later. `granted_by` and
+     `revoked_by` are read-only here — the server takes the actor from the
+     authenticated session and ignores anything a client might send. */
+  function shapePermissions(res){
+    const r = res || {};
+    const u = r.user || {};
+    return {
+      user: { id:String(u.id||''), displayName:String(u.displayName||''),
+              role:String(u.role||''), status:String(u.status||'') },
+      permissions: (r.permissions||[]).map(p => ({
+        permissionKey: String(p.permissionKey),
+        isActive: p.isActive === true,
+        grantedBy: p.grantedBy==null?null:String(p.grantedBy),
+        grantedAt: p.grantedAt==null?null:String(p.grantedAt),
+        revokedBy: p.revokedBy==null?null:String(p.revokedBy),
+        revokedAt: p.revokedAt==null?null:String(p.revokedAt),
+      })),
+      activePermissions: (r.activePermissions||[]).map(String),
+      concurrencyToken: r.concurrencyToken==null?null:String(r.concurrencyToken),
+      granted: (r.granted||[]).map(String),
+      revoked: (r.revoked||[]).map(String),
+    };
+  }
+
   /* ---------- lookups ---------- */
   const api = {
     load, save, reset, audit, init,
@@ -302,6 +330,45 @@ const DB = (function(){
       if (!res.ok) throw new Error((data && data.error) || ('HTTP '+res.status));
       return (data && data.paths) || [];
     },
+    /* ---- account capability permissions (B2.4B1) ----
+       Three narrowly scoped calls against the B2.4P endpoints. Each has a
+       FIXED path built here — no caller supplies a URL, and `apiCall` stays
+       private, so this cannot become a general-purpose API escape hatch.
+       Nothing is retried automatically: a mutation that may already have been
+       applied must never be replayed without an administrator deciding to.
+
+       The capability set is authorised by the SERVER on every one of these
+       calls. Anything the browser believes about permissions is convenience
+       only. */
+
+    /** The fixed capability registry. A 403 here is the browser's only honest
+        signal that this account does not hold permissions.manage, because the
+        session object carries a role and no capabilities. */
+    async permissionRegistry(){
+      const res = await apiCall('GET', '/admin/account-permissions/registry');
+      const list = (res && res.permissions) || [];
+      /* Explicit field pick — never spread a response row into the UI. */
+      return list.map(p => ({ key:String(p.key), label:String(p.label||p.key),
+                              description:String(p.description||'') }));
+    },
+
+    /** One account's grants, plus the concurrency token that a later save
+        must return unchanged. */
+    async accountPermissions(userId){
+      const res = await apiCall('GET', '/admin/account-permissions/users/'+encodeURIComponent(userId));
+      return shapePermissions(res);
+    },
+
+    /** Replaces the account's ACTIVE capability set. `keys` is the complete
+        intended set; anything omitted is revoked server-side. The token comes
+        from the matching read and is what makes a concurrent overwrite fail
+        with 409 instead of silently winning. */
+    async saveAccountPermissions(userId, keys, concurrencyToken){
+      const res = await apiCall('PUT', '/admin/account-permissions/users/'+encodeURIComponent(userId),
+        { permissions: keys, concurrencyToken });
+      return shapePermissions(res);
+    },
+
     get d(){ return load(); },
     user(id){ return load().users.find(u=>u.id===id); },
     userName(id){

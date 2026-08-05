@@ -73,6 +73,11 @@ const NAV=[
     {route:'free-shipping',label:'Free Shipping',icon:'gift'},
     {route:'agent-revenue',label:'Agent Revenue',icon:'revenue'},
   ]},
+  /* `requires` names a CAPABILITY (B2.4P), not a role. The entry is hidden
+     when the account does not hold it — convenience only. The API is the
+     authority: the route itself re-checks, and every request is authorised
+     server-side regardless of what the sidebar shows. */
+  {route:'account-permissions',label:'Account Permissions',icon:'lock',requires:'permissions.manage'},
   {route:'audit',label:'Audit log',icon:'audit'},
 ];
 
@@ -81,6 +86,41 @@ const App={
   ready:false,          /* live data loaded */
   bootError:null,       /* set when the load failed — shown, never hidden */
   register(route,fn){this.routes[route]=fn;},
+
+  /* ---------- account capabilities (B2.4P / B2.4B1) ----------
+
+     The signed-in session carries {id,name,role} and NO capabilities, so the
+     browser cannot know from the session alone whether this account holds
+     `permissions.manage`. Rather than infer it from the admin role — which
+     would be exactly the role bypass account-specific permissions exist to
+     remove — the shell asks the server: the capability registry endpoint is
+     itself gated on `permissions.manage`, so 200 means held and 403 means not.
+
+     The result is cached for the session because renderNav() runs on every
+     navigation. It is a display hint only. It can be stale (another manager
+     may revoke mid-session), and that is safe: a stale `true` shows a menu
+     entry whose every request the server still refuses, and the screen renders
+     the refusal honestly. Nothing is authorised here. */
+  caps:null,            /* null = not yet determined; otherwise a Set */
+  capsChecked:false,
+
+  can(key){ return this.caps instanceof Set && this.caps.has(key); },
+
+  async loadCaps(){
+    this.capsChecked=false;
+    const held=new Set();
+    try{
+      await DB.permissionRegistry();
+      held.add('permissions.manage');   /* 200 — the endpoint admitted us */
+    }catch(e){
+      /* 403 is the normal answer for an account without the capability, and
+         is not an error worth surfacing. Anything else (network, 500) also
+         leaves the entry hidden: fail closed, never assume authority. */
+    }
+    this.caps=held;
+    this.capsChecked=true;
+    return held;
+  },
 
   async boot(){
     /* try to resume an existing session (auth cookie + saved session info) */
@@ -97,6 +137,10 @@ const App={
     try{
       await DB.init();
       this.ready=true;
+      /* Capability probe. Deliberately not awaited before the first paint —
+         the panel must not wait on it — but it re-renders the nav when it
+         settles so the entry appears without a manual reload. */
+      this.loadCaps().then(()=>{ if(this.ready)this.renderNav(); }).catch(()=>{});
       this.renderShell();
     }catch(e){
       this.ready=false;
@@ -122,6 +166,7 @@ const App={
         await Auth.login(email,password);
         await DB.init();
         this.ready=true;this.bootError=null;
+        this.loadCaps().then(()=>{ if(this.ready)this.renderNav(); }).catch(()=>{});
         DB.audit('login','—','Signed in','web');
         location.hash='#/dashboard';
         this.renderShell();
@@ -232,14 +277,20 @@ const App={
     let html='';
     /* accordion: only one group open at a time */
     if(App._openGroup===undefined)App._openGroup=null;
+    /* A `requires` entry is shown only when the capability is held. Hiding is
+       cosmetic — the route and the API both refuse independently. */
+    const permitted=n=>!n.requires||this.can(n.requires);
     for(const n of NAV){
       if(n.route){
+        if(!permitted(n))continue;
         html+=`<a class="nav-item ${cur===n.route?'active':''}" href="#/${n.route}"><span class="nav-ico">${I[n.icon]}</span>${esc(n.label)}</a>`;
       }else{
+        const items=n.items.filter(permitted);
+        if(!items.length)continue;
         const open=App._openGroup===n.group;
         html+=`<button class="nav-item ${open?'open':''}" data-group="${esc(n.group)}"><span class="nav-ico">${I[n.icon]}</span>${esc(n.group)}<span class="nav-caret">${I.caret}</span></button>
         <div class="nav-sub ${open?'open':''}">`;
-        for(const it of n.items){
+        for(const it of items){
           html+=`<a class="nav-item ${cur===it.route?'active':''}" href="#/${it.route}"><span class="nav-ico">${I[it.icon]}</span>${esc(it.label)}</a>`;
         }
         html+='</div>';
@@ -257,7 +308,10 @@ const App={
     });
     document.getElementById('logout-btn').onclick=()=>{
       if(this.ready)DB.flush();
-      Auth.logout();App.ready=false;App.bootError=null;location.hash='';this.renderShell();
+      /* Capabilities belong to the signed-in account — drop them with it, so
+         the next sign-in re-probes instead of inheriting the last one's menu. */
+      Auth.logout();App.ready=false;App.bootError=null;App.caps=null;App.capsChecked=false;
+      location.hash='';this.renderShell();
     };
   },
 

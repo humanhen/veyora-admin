@@ -389,7 +389,8 @@ that no role name gates any route.
 
 ## 10. What is deliberately not done
 
-- **No assignment UI.** The management API exists; the screen that drives it does not.
+- ~~**No assignment UI.** The management API exists; the screen that drives it does not.~~
+  **Delivered in B2.4B1 (2026-08-06)** — see §11.
 - **No real permission assigned to any account**, and no bootstrap performed.
 - **No automatic grant to existing administrators.**
 - **No migration of unrelated admin routes** to capabilities.
@@ -397,3 +398,42 @@ that no role name gates any route.
 
 R-17 therefore remains **open**, with its likelihood reduced. It closes when the assignment interface
 exists and the controlled production bootstrap has been performed and verified.
+
+---
+
+## 11. Interface status — B2.4B1, 2026-08-06
+
+**The assignment interface now exists.** The admin panel (the vanilla-JS SPA at the repository root)
+has an **Account Permissions** screen at `#/account-permissions`: it reuses the existing account
+list, renders the four registry capabilities as checkboxes, shows grant and revocation history,
+requires an explicit save, sends the complete intended set with the concurrency token, and handles
+`401`, `403`, `404`, `409` and `422` in operator-facing language. 53 frontend tests pass. Full
+contract: [20_ACCOUNT_PERMISSION_INTERFACE.md](20_ACCOUNT_PERMISSION_INTERFACE.md).
+
+The interface consumes the three endpoints from §6 unchanged. **No API endpoint was added or
+modified, and no schema was touched.**
+
+Because the panel's session carries a role and no capabilities, the screen determines access by
+calling `GET …/registry` — itself gated on `permissions.manage` — and reading `200` versus `403`.
+Anything else, including a network failure, is treated as *not held*. Hiding the nav entry is
+convenience only; the API remains the sole authority, and there is no role bypass, no environment
+flag and no hard-coded account anywhere in it.
+
+### The bootstrap requirement is UNCHANGED
+
+**Still outstanding, and still the blocker.** The interface cannot create the first permissions
+manager and deliberately contains no bypass to do so:
+
+- `account_permissions` remains empty. No permission has been granted to any real account.
+- Every capability probe therefore returns `403`, so **the screen is currently unreachable by every
+  account**, including every existing administrator, and the public-content API is unusable by
+  everyone. This is the intended fail-closed state.
+- The first `permissions.manage` grant must still be performed as the reviewed, one-time database
+  operation in **§8** — it cannot come from the API (which requires the capability) and must not
+  come from a migration (which would run unreviewed on every deployment).
+- Immediately afterwards, that first manager should use the new screen to grant `permissions.manage`
+  to **a second trusted active account**. The last-manager guard prevents lockout by revocation but
+  cannot help if a single manager's account is lost or disabled.
+
+Until §8 has been performed and verified in production, B2.4P and B2.4B1 together deliver a complete
+but **dormant** permission system.

@@ -797,3 +797,63 @@ not performed. No record was published. `platform/server/web/**`, `platform/serv
 the root admin frontend, `docker-compose.yml`, `Caddyfile`, `deploy.sh` and every `.env` file are
 unchanged, as are all existing `/public` response shapes and all pricing, inventory, ordering and
 Zoho behaviour. Full contract: `docs/public-website-rebuild/19_ACCOUNT_PERMISSION_SYSTEM.md`.
+
+---
+
+## 17. B2.4B1 implementation result — account-permission management interface — 2026-08-06
+
+The operator-facing half of B2.4P. Capability grants can now be viewed and changed from the admin
+panel instead of only through direct API calls.
+
+### 17.1 Where it lives
+
+The admin panel is the **vanilla-JS SPA at the repository root** — `index.html`, `css/`, `js/`,
+`assets/` — with no framework, no module system and no build step; `deploy.sh` tars exactly those
+four paths to `/srv/admin`. The screen is one new page script (`js/pages_permissions.js`) plus three
+narrowly scoped client methods and a nav filter. Storefront and Astro public site are untouched.
+
+```
+NAV entry (requires:'permissions.manage')  ──filtered by──▶  App.can()
+                                                                 │
+        App.loadCaps() ── GET /registry ── 200 → held / 403 → not ┘
+                                                                 │
+#/account-permissions/<userId>                                   ▼
+   left:  DB.d.users            (the EXISTING account list — no second directory)
+   right: DB.accountPermissions(userId)  →  four checkboxes + history
+                  │  explicit Save only
+                  ▼
+          DB.saveAccountPermissions(userId, completeSet, token)
+```
+
+### 17.2 The access model, and why it is a probe
+
+The session object is `{id, name, role}` and carries no capabilities, so the browser cannot know
+whether an account holds `permissions.manage` without asking. Deriving it from the `admin` role was
+rejected: that is the role bypass account-specific permissions exist to remove. The panel instead
+calls the capability registry endpoint — which is itself gated on `permissions.manage` — and reads
+`200` as held, `403` as not held, and **anything else, including a network failure, as not held**.
+
+This is a display hint, not a control. The cache can go stale, and that is safe: a stale `true`
+shows a menu entry whose every request the server still refuses. Authorisation remains entirely
+server-side.
+
+### 17.3 Interface invariants
+
+- **A toggle mutates nothing.** The draft is local until an explicit Save; there is no autosave.
+- **Save sends the complete intended active set** plus the concurrency token from the matching read;
+  local state is replaced only from a successful response, and the returned token replaces the old.
+- **A token is never reused across accounts.**
+- **The frontend cannot supply an actor** — no `granted_by`, `revoked_by` or user id in the body.
+- **No free-text or wildcard permission input exists**; checkboxes over the server's registry are
+  the only input, and duplicates are structurally impossible.
+- **No mutation is retried automatically.**
+- **Errors are translated, never rendered raw** — no API strings, stacks, SQL, hosts or ports.
+
+### 17.4 Confirmed untouched
+
+No live database, production system, VPS or DNS was contacted. **No permission was assigned to any
+account and no bootstrap SQL was executed.** No API endpoint was added or modified, no schema was
+touched, and `platform/server/api/**`, `platform/server/db/**`, `platform/server/web/**`,
+`platform/server/storefront/**`, `docker-compose.yml`, `Caddyfile`, `deploy.sh` and every `.env`
+file are unchanged. Full contract:
+`docs/public-website-rebuild/20_ACCOUNT_PERMISSION_INTERFACE.md`.

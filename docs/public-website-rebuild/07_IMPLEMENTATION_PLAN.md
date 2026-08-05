@@ -611,3 +611,59 @@ R-17 remains open with its likelihood reduced from L4 to L2; see
 Full detail: `docs/public-website-rebuild/19_ACCOUNT_PERMISSION_SYSTEM.md`;
 `04_TARGET_ARCHITECTURE.md` §16; `18_B2_ADMIN_PUBLICATION_API.md` §1.1;
 `09_FIRST_BUILD_PACKAGE.md`'s B2.4P section.
+
+---
+
+## 15. B2.4B1 implementation result — account-permission management interface — 2026-08-06
+
+The first half of B2.4B, split out because permission administration is a prerequisite for content
+administration: someone must be able to hold `public_content.edit` before an editing UI is worth
+building.
+
+### 15.1 Delivered
+
+An **Account Permissions** screen in the existing admin panel at `#/account-permissions`: a
+capability-gated nav entry, reuse of the existing account list, the four registry capabilities as
+labelled checkboxes with grant/revocation history, explicit save with concurrency token handling,
+and operator-facing `401`/`403`/`404`/`409`/`422` states. Three narrowly scoped API client methods.
+53 frontend tests, and `20_ACCOUNT_PERMISSION_INTERFACE.md`.
+
+**No API endpoint was added or changed and no schema was touched** — the screen consumes B2.4P's
+existing endpoints exactly as they were.
+
+### 15.2 A finding worth recording
+
+The admin panel had **no test framework, no package.json and no build step**, and this batch was
+forbidden from adding dependencies. Rather than stop, the tests use Node's built-in `node:test` —
+already the repository's convention in `platform/server/api/test` — with a hand-built DOM double
+loading the real shipped `js/*.js` files in a `vm` context. This mirrors the API tests' hand-built
+`fakeClient()`/`makeDb()` doubles and adds nothing to install.
+
+This means the panel now has a test suite where it previously had none. "Existing admin frontend
+tests remain green" was therefore vacuous as a criterion; instead the new suite pins the shell
+behaviours this batch touched — script loading, route registration, the nav filter — so the change
+is shown not to have disturbed the panel around it.
+
+There is likewise **no frontend build to run**. The production equivalent — parsing every shipped
+script, resolving every `index.html` reference, and assembling the exact `deploy.sh` tar payload —
+was run instead and is reported as such.
+
+### 15.3 Sequencing consequence — unchanged and still blocking
+
+**The bootstrap is still outstanding, and it is still the only thing standing between a complete
+permission system and a usable one.** `account_permissions` remains empty, so every capability
+probe returns `403`: the new screen is currently unreachable by every account, and the
+public-content API is unusable by everyone. The interface deliberately contains no bootstrap
+bypass — it cannot create the first manager, and does not pretend to.
+
+Before B2.4B2 (public-content editing UI) can be exercised at all:
+
+1. perform the controlled bootstrap in `19_ACCOUNT_PERMISSION_SYSTEM.md` §8;
+2. use the new screen to grant `permissions.manage` to a second active account;
+3. grant `public_content.*` capabilities to whoever will do editorial work.
+
+R-17 remains open; see `08_RISKS_AND_OPEN_DECISIONS.md`.
+
+Full detail: `docs/public-website-rebuild/20_ACCOUNT_PERMISSION_INTERFACE.md`;
+`04_TARGET_ARCHITECTURE.md` §17; `19_ACCOUNT_PERMISSION_SYSTEM.md` §11;
+`09_FIRST_BUILD_PACKAGE.md`'s B2.4B1 section.

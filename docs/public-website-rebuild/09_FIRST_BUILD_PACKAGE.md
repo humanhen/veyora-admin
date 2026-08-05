@@ -1694,3 +1694,91 @@ root admin frontend, `docker-compose.yml`, `Caddyfile`, `deploy.sh` and every `.
 unchanged, as are all existing `/public` response shapes and all pricing, inventory, ordering and
 Zoho behaviour. The other developer's branch was never inspected, referenced or merged. No commit
 was made and nothing was pushed.
+
+---
+
+## 17. B2.4B1 implementation result — account-permission management interface — 2026-08-06
+
+### Admin frontend root
+
+The repository root — `index.html`, `css/`, `js/`, `assets/`. A dependency-free vanilla-JS SPA:
+no framework, no module system, no build step. `platform/server/deploy.sh` tars exactly those four
+paths to `$DEST/admin`, which Caddy serves at `/admin/`.
+
+### Files
+
+**Added**
+| Path | Purpose |
+|---|---|
+| `js/pages_permissions.js` | The Account Permissions screen. |
+| `test/helpers/dom.js` | Dependency-free DOM double + loader for the real shipped scripts. |
+| `test/permissions-client.test.js` | 14 tests — API client, access probe, navigation. |
+| `test/permissions-page.test.js` | 30 tests — the rendered screen and its behaviour. |
+| `test/admin-shell.test.js` | 9 tests — shell regression and the batch's protected-path boundary. |
+| `docs/public-website-rebuild/20_ACCOUNT_PERMISSION_INTERFACE.md` | Full interface contract. |
+
+**Modified**
+| Path | Change |
+|---|---|
+| `js/data.js` | Three narrowly scoped permission client methods + an allowlist response shaper. |
+| `js/app.js` | Capability probe (`loadCaps`/`can`), capability-filtered nav, gated NAV entry, caps cleared on logout. |
+| `index.html` | Loads `js/pages_permissions.js`. |
+| `css/styles.css` | Layout, focus states and notice styles for the new screen only. |
+
+### Route and navigation
+
+`#/account-permissions`, and `#/account-permissions/<userId>` with an account selected. Sidebar
+entry **Account Permissions**, immediately above *Audit log*, shown only when the account holds
+`permissions.manage`.
+
+### Access model
+
+The session carries `{id, name, role}` and **no capabilities**, so the panel asks the server:
+`GET /admin/account-permissions/registry` is itself gated on `permissions.manage`, so `200` means
+held and `403` means not. Anything else — including a network failure — is treated as not held.
+Hiding the nav entry is convenience; **the API is the authority** and re-authorises every request.
+No role bypass, no environment flag, no hard-coded account id or email.
+
+### Behaviour summary
+
+- Account selection reuses the existing `DB.d.users` list — no second user directory, no new search
+  endpoint. Shows name, username, role and status; not email, address, balance or pricing.
+- Four registry capabilities as labelled checkboxes, grouped *Public content* / *Permission
+  administration*, each with its description and grant/revocation history. Revoked never renders as
+  active. The screen states that edit and publish are independent.
+- **A toggle mutates nothing.** Explicit Save sends the complete intended active set with the
+  concurrency token; Save is disabled when unchanged and while saving; Reset restores the saved set;
+  switching accounts with unsaved edits asks first.
+- `409` reports that another administrator changed the permissions, never success, and offers an
+  explicit reload. Returned tokens replace spent ones and are never reused across accounts.
+- `422` explains the last-manager lockout protection and states that nothing was changed.
+- Errors are translated; no API string, stack, SQL, hostname or port is ever rendered.
+
+### Verification
+
+- **Frontend test suite: 53 passing, 0 failing** (`node --test "test/*.test.js"`). Tests drive the
+  real shipped scripts in a `vm` context against a hand-built DOM double — rendered output and
+  behaviour, not source strings.
+- **No frontend build exists.** The production equivalent was run instead: every shipped script
+  parses (`node --check`), every `index.html` script reference resolves, and the exact `deploy.sh`
+  tar payload assembles (1.3 MB, `index.html css js assets`).
+- Diff sweep of the changed frontend: no hard-coded account id or email, no wildcard permission, no
+  role bypass, no unrestricted response spreading, no raw error rendering, no secret, no production
+  hostname, no bootstrap SQL, no `TODO`/`FIXME`, no merge markers. `git diff --check` clean.
+
+### Required before this is usable
+
+**Unchanged from B2.4P, and still blocking.** `account_permissions` is empty, so every capability
+probe returns `403` and **this screen is currently unreachable by every account**, including every
+existing administrator. The interface contains no bootstrap bypass and never executes SQL. Perform
+the controlled bootstrap in `19_ACCOUNT_PERMISSION_SYSTEM.md` §8, then use this screen to grant
+`permissions.manage` to a second active account.
+
+### Confirmation
+
+No live database, production system, VPS or DNS was contacted. **No permission was assigned to any
+real account and no bootstrap SQL was executed.** No API endpoint was added or modified and no
+schema was touched. `platform/server/api/**`, `platform/server/db/**`, `platform/server/web/**`,
+`platform/server/storefront/**`, `docker-compose.yml`, `Caddyfile`, `deploy.sh` and every `.env`
+file are unchanged. The other developer's branch was never inspected, referenced or merged. No
+commit was made and nothing was pushed.
