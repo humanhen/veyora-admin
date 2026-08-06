@@ -391,3 +391,171 @@ test('a failed list load reports itself rather than rendering an empty inbox as 
   assert.doesNotMatch(el.textContent, /No enquiries match these filters/);
   assert.match(el.textContent, /could not be updated|check your connection/i);
 });
+
+// ---------------------------------------------------------------------------
+// staff-alert delivery (Final Handover Phase 1 — findings ENQ-006 / NOT-006)
+// ---------------------------------------------------------------------------
+
+const NOTIFICATION = (over = {}) => ({
+  id: 'ntf_1', notificationType: 'enquiry_received', status: 'delivered',
+  recipientMasked: 'op…@example.test', attemptCount: 1,
+  lastAttemptedAt: '2026-08-01T09:00:05.000Z', nextAttemptAt: '2026-08-01T09:00:00.000Z',
+  deliveredAt: '2026-08-01T09:00:05.000Z', failedAt: null, lastError: '',
+  createdAt: '2026-08-01T09:00:00.000Z', ...over,
+});
+
+/** Renders the detail view with a given delivery block. */
+const withDelivery = (delivery, opts = {}) => renderPage({
+  'GET /admin/enquiries/fsub_1': async () => ({
+    status: 200, body: { enquiry: detail({ delivery }) },
+  }),
+}, { hash: '#/enquiries/fsub_1', ...opts });
+
+test('a submission with no queued alert reads as NOT CONFIGURED, not as sent', async () => {
+  /* The defect this closes: the enquiry was stored, the screen said received,
+     and nobody was ever told. Silence must never render as success. */
+  const { el } = await withDelivery({ configured: false, notifications: [] });
+  assert.match(el.textContent, /Not configured/);
+  assert.match(el.textContent, /nobody was emailed/i);
+  assert.doesNotMatch(el.textContent, /Delivered/);
+  assert.equal(el.querySelector('[data-retry]'), null, 'nothing exists to retry');
+});
+
+test('a detail response with no delivery block at all reads as not configured', async () => {
+  /* An older API, or a shape change, must degrade to the honest state rather
+     than to an implied all-clear. */
+  const { el } = await renderPage({
+    'GET /admin/enquiries/fsub_1': async () => ({ status: 200, body: { enquiry: detail() } }),
+  }, { hash: '#/enquiries/fsub_1' });
+  assert.match(el.textContent, /Not configured/);
+});
+
+test('a delivered alert shows delivery, the masked recipient and the attempt count', async () => {
+  const { el } = await withDelivery({ configured: true, notifications: [NOTIFICATION()] });
+  assert.match(el.textContent, /Delivered/);
+  assert.match(el.textContent, /op…@example\.test/);
+  assert.match(el.textContent, /1 attempt\b/);
+  assert.equal(el.querySelector('[data-retry]'), null, 'a delivered alert offers no re-send');
+});
+
+test('a failed alert says so plainly, shows the provider error and offers a re-send', async () => {
+  const { el } = await withDelivery({ configured: true, notifications: [NOTIFICATION({
+    status: 'failed', attemptCount: 5, deliveredAt: null,
+    failedAt: '2026-08-01T11:00:00.000Z', lastError: 'SMTP_AUTH: invalid credentials',
+  })] });
+  assert.match(el.textContent, /Failed/);
+  assert.match(el.textContent, /could not be delivered/i);
+  assert.match(el.textContent, /5 attempts/);
+  assert.match(el.textContent, /SMTP_AUTH: invalid credentials/);
+  assert.ok(el.querySelector('[data-retry="ntf_1"]'), 'a failed alert must be re-sendable');
+});
+
+test('a retrying alert shows the next attempt time', async () => {
+  const { el } = await withDelivery({ configured: true, notifications: [NOTIFICATION({
+    status: 'retry_scheduled', attemptCount: 2, deliveredAt: null,
+    nextAttemptAt: '2026-08-01T09:15:00.000Z', lastError: 'SMTP_TIMEOUT: connection timed out',
+  })] });
+  assert.match(el.textContent, /Retrying/);
+  assert.match(el.textContent, /next attempt/i);
+  assert.match(el.textContent, /2 attempts/);
+});
+
+test('the delivery panel never renders a provider, a host or a credential', async () => {
+  /* The API's serializer already withholds these; this asserts the screen has
+     no second source for them and cannot start showing one. */
+  const { el } = await withDelivery({ configured: true, notifications: [NOTIFICATION({
+    status: 'failed', lastError: 'SMTP_AUTH: invalid credentials', deliveredAt: null,
+  })] });
+  const text = el.textContent;
+  for (const leak of ['smtp.gmail.com', 'SMTP_PASS', 'nodemailer', 'messageId', '587']) {
+    assert.ok(!text.includes(leak), `the screen must not render ${leak}`);
+  }
+  // The masked address is the ONLY form of the recipient available to it.
+  assert.ok(!text.includes('ops@example.test'), 'an unmasked recipient must never appear');
+});
+
+test('a viewer sees delivery state but is offered no re-send', async () => {
+  const { el } = await withDelivery(
+    { configured: true, notifications: [NOTIFICATION({ status: 'failed', deliveredAt: null })] },
+    { manage: false });
+  assert.match(el.textContent, /Failed/);
+  assert.equal(el.querySelector('[data-retry]'), null, 'a viewer may not re-send');
+  assert.match(el.textContent, /Manage public enquiries/);
+});
+
+test('re-sending posts to the notification retry route and shows the server state', async () => {
+  const { el, calls } = await renderPage({
+    'GET /admin/enquiries/fsub_1': async () => ({
+      status: 200,
+      body: { enquiry: detail({ delivery: { configured: true, notifications: [NOTIFICATION({
+        status: 'failed', attemptCount: 5, deliveredAt: null, lastError: 'SMTP_AUTH: invalid credentials',
+      })] } }) },
+    }),
+    'POST /admin/enquiries/fsub_1/notifications/ntf_1/retry': async () => ({
+      status: 200,
+      body: { notification: NOTIFICATION({ status: 'pending', attemptCount: 0,
+        lastAttemptedAt: null, deliveredAt: null, lastError: '' }) },
+    }),
+  }, { hash: '#/enquiries/fsub_1' });
+
+  el.querySelector('[data-retry="ntf_1"]').onclick();
+  await settle();
+
+  const posts = calls.filter(c => c.method === 'POST');
+  assert.equal(posts.length, 1);
+  assert.equal(posts[0].path, '/admin/enquiries/fsub_1/notifications/ntf_1/retry');
+  // The rendered state comes from the SERVER's answer, not from optimism.
+  assert.match(el.textContent, /Queued/);
+  assert.match(el.textContent, /re-queued/i);
+});
+
+test('a refused re-send leaves the alert exactly where it was', async () => {
+  const { el, calls } = await renderPage({
+    'GET /admin/enquiries/fsub_1': async () => ({
+      status: 200,
+      body: { enquiry: detail({ delivery: { configured: true, notifications: [NOTIFICATION({
+        status: 'failed', attemptCount: 5, deliveredAt: null, lastError: 'SMTP_AUTH: invalid credentials',
+      })] } }) },
+    }),
+    'POST /admin/enquiries/fsub_1/notifications/ntf_1/retry': async () => ({
+      status: 409, body: { error: 'not retryable', code: 'NOT_RETRYABLE' },
+    }),
+  }, { hash: '#/enquiries/fsub_1' });
+
+  el.querySelector('[data-retry="ntf_1"]').onclick();
+  await settle();
+
+  assert.match(el.textContent, /not in a state that can be re-sent/i);
+  assert.match(el.textContent, /Failed/, 'the alert must still read as failed');
+  assert.doesNotMatch(el.textContent, /Queued/);
+  assert.equal(calls.filter(c => c.method === 'POST').length, 1, 'a refusal is never retried');
+});
+
+test('a double click cannot enqueue the same alert twice', async () => {
+  /* The guard is an id held across the re-render, not a `disabled` attribute:
+     calling the handler directly must still be refused. */
+  let release;
+  const held = new Promise(r => { release = r; });
+  const { el, calls } = await renderPage({
+    'GET /admin/enquiries/fsub_1': async () => ({
+      status: 200,
+      body: { enquiry: detail({ delivery: { configured: true, notifications: [NOTIFICATION({
+        status: 'failed', deliveredAt: null,
+      })] } }) },
+    }),
+    'POST /admin/enquiries/fsub_1/notifications/ntf_1/retry': async () => {
+      await held;
+      return { status: 200, body: { notification: NOTIFICATION({ status: 'pending', attemptCount: 0 }) } };
+    },
+  }, { hash: '#/enquiries/fsub_1' });
+
+  const button = el.querySelector('[data-retry="ntf_1"]');
+  button.onclick();
+  button.onclick();
+  button.onclick();
+  release();
+  await settle();
+
+  assert.equal(calls.filter(c => c.method === 'POST').length, 1,
+    'only one retry may reach the server');
+});

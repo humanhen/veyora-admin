@@ -732,13 +732,14 @@ test('59 — the contract the UI renders from is frozen and complete', () => {
   }
 });
 
-test('60 — the router exposes exactly the four intended routes', () => {
+test('60 — the router exposes exactly the intended routes', () => {
   const routes = [...routerCode.matchAll(/r\.(get|post|put|patch|delete)\(\s*'([^']+)'/g)]
     .map((m) => `${m[1].toUpperCase()} ${m[2]}`);
   assert.deepEqual(routes.sort(), [
     'GET /',
     'GET /:id',
     'GET /capabilities',
+    'POST /:id/notifications/:notificationId/retry',
     'POST /:id/status',
   ]);
 });

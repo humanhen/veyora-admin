@@ -341,6 +341,31 @@ const DB = (function(){
     };
   }
 
+  /* One queued staff alert (Final Handover Phase 1).
+
+     The API's serializer already masks the recipient and omits the template
+     data; this repeats the allowlist rather than trusting that, because the
+     screen below renders these values and a field added to the API later must
+     not reach it unreviewed. There is deliberately no provider name, no
+     message id and no credential here — an operator needs to know whether
+     somebody was told, not how the mail was carried. */
+  function shapeNotification(n){
+    const r = n || {};
+    return {
+      id: String(r.id||''),
+      notificationType: String(r.notificationType||''),
+      status: String(r.status||''),
+      recipientMasked: String(r.recipientMasked||''),
+      attemptCount: Number(r.attemptCount)||0,
+      lastAttemptedAt: r.lastAttemptedAt==null?null:String(r.lastAttemptedAt),
+      nextAttemptAt: r.nextAttemptAt==null?null:String(r.nextAttemptAt),
+      deliveredAt: r.deliveredAt==null?null:String(r.deliveredAt),
+      failedAt: r.failedAt==null?null:String(r.failedAt),
+      lastError: String(r.lastError||''),
+      createdAt: r.createdAt==null?null:String(r.createdAt),
+    };
+  }
+
   function shapeEnquiryDetail(e){
     const r = e || {};
     const fields = {};
@@ -373,6 +398,15 @@ const DB = (function(){
       },
       createdAt: r.createdAt==null?null:String(r.createdAt),
       concurrencyToken: r.concurrencyToken==null?null:String(r.concurrencyToken),
+      /* `configured: false` with an empty list is the honest "no recipient is
+         configured" state, and is distinct from "queued and not yet sent". A
+         detail response from an older API has neither, which shapes to the
+         same not-configured state rather than to a false all-clear. */
+      delivery: {
+        configured: (r.delivery||{}).configured === true,
+        notifications: Array.isArray((r.delivery||{}).notifications)
+          ? r.delivery.notifications.map(shapeNotification) : [],
+      },
     };
   }
 
@@ -866,6 +900,19 @@ const DB = (function(){
         { status: String(status), concurrencyToken, note: note == null ? '' : String(note) });
       if (!res || !res.enquiry) throw malformed();
       return shapeEnquiryDetail(res.enquiry);
+    },
+
+    /** Re-queues one failed staff alert (Final Handover Phase 1).
+
+        Both ids are path segments and both are encoded. The server checks the
+        notification actually belongs to this enquiry, so an id alone cannot
+        reach an unrelated message; it also refuses anything not in a retryable
+        state with 409, which is why this is never called automatically. */
+    async retryEnquiryNotification(enquiryId, notificationId){
+      const res = await apiCall('POST', '/admin/enquiries/' + encodeURIComponent(enquiryId)
+        + '/notifications/' + encodeURIComponent(notificationId) + '/retry', {});
+      if (!res || !res.notification) throw malformed();
+      return shapeNotification(res.notification);
     },
 
     get d(){ return load(); },

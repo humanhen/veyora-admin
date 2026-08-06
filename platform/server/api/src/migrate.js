@@ -533,4 +533,55 @@ export async function ensureSchema() {
         for each row execute function audit_log_immutable();
     end if;
   end $$`);
+
+  /* ---- durable notification outbox (mirrors db/migrations/0011) ----
+     Findings ENQ-006 / NOT-006. The transactional-outbox pattern: a
+     submission and its notification commit together, and a separate worker
+     delivers with bounded retry. One mechanism for enquiry alerts, order
+     confirmations and statement delivery. Entirely additive. */
+  await q(`create table if not exists notification_outbox (
+    id                  text primary key default veyora_id('ntf'),
+    notification_type   text not null
+                        check (notification_type in (
+                          'enquiry_received', 'order_confirmation', 'statement_delivery')),
+    source_type         text not null default '',
+    source_id           text not null default '',
+    recipient_address   text not null,
+    recipient_name      text not null default '',
+    template_key        text not null,
+    template_version    text not null default 'v1',
+    template_data       jsonb not null default '{}',
+    status              text not null default 'pending'
+                        check (status in ('pending', 'processing', 'retry_scheduled',
+                                          'delivered', 'failed', 'cancelled')),
+    attempt_count       int not null default 0,
+    next_attempt_at     timestamptz not null default now(),
+    claimed_at          timestamptz,
+    claim_expires_at    timestamptz,
+    last_attempted_at   timestamptz,
+    delivered_at        timestamptz,
+    failed_at           timestamptz,
+    last_error          text not null default '',
+    provider_reference  text not null default '',
+    idempotency_key     text not null unique,
+    created_at          timestamptz not null default now(),
+    updated_at          timestamptz not null default now(),
+    constraint notification_outbox_delivered_evidenced
+      check (status <> 'delivered' or (delivered_at is not null and provider_reference <> '')),
+    constraint notification_outbox_failed_stamped
+      check (status <> 'failed' or failed_at is not null)
+  )`);
+  await q(`create index if not exists notification_outbox_due_idx
+    on notification_outbox (status, next_attempt_at)
+    where status in ('pending', 'retry_scheduled')`);
+  await q(`create index if not exists notification_outbox_claim_idx
+    on notification_outbox (claim_expires_at) where status = 'processing'`);
+  await q(`create index if not exists notification_outbox_source_idx
+    on notification_outbox (source_type, source_id)`);
+  await q(`do $$ begin
+    if not exists (select 1 from pg_trigger where tgname = 't_notification_outbox_touch') then
+      create trigger t_notification_outbox_touch before update on notification_outbox
+        for each row execute function touch_updated_at();
+    end if;
+  end $$`);
 }

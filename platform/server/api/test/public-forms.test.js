@@ -37,14 +37,36 @@ const VALID = {
 
 function makeDb({ failOn = null } = {}) {
   const statements = [];
+  let rolledBack = false;
+
+  async function query(sql, params = []) {
+    statements.push({ sql, params });
+    if (failOn && failOn.test(sql)) throw new Error('simulated database failure at 10.0.0.4:5432');
+    /* The submission INSERT now returns its id, so the notification can be
+       queued against it in the same transaction. */
+    if (/insert into form_submissions/i.test(sql)) return { rows: [{ id: 'fsub_test' }], rowCount: 1 };
+    return { rows: [], rowCount: 1 };
+  }
+
   return {
     statements,
-    async query(sql, params = []) {
-      statements.push({ sql, params });
-      if (failOn && failOn.test(sql)) throw new Error('simulated database failure at 10.0.0.4:5432');
-      return { rows: [], rowCount: 1 };
+    get rolledBack() { return rolledBack; },
+    query,
+    /* Storage and the staff alert are one transaction (findings ENQ-006 /
+       NOT-006), so the double needs real rollback semantics: a failure must
+       leave neither the submission nor the notification. */
+    async tx(fn) {
+      const mark = statements.length;
+      try {
+        return await fn({ query });
+      } catch (err) {
+        statements.length = mark;   // nothing committed
+        rolledBack = true;
+        throw err;
+      }
     },
     inserts() { return statements.filter((s) => /insert into form_submissions/i.test(s.sql)); },
+    notifications() { return statements.filter((s) => /insert into notification_outbox/i.test(s.sql)); },
   };
 }
 
@@ -227,16 +249,23 @@ test('the honeypot is evaluated after validation, so it leaks no signal', () => 
 // storage
 // ---------------------------------------------------------------------------
 
-test('a submission is stored pending, with explicit columns and no returning clause', async () => {
-  const { db } = await submit('request-b2b-account', VALID['request-b2b-account']);
+test('a submission is stored pending, with explicit columns', async () => {
+  const { db, body } = await submit('request-b2b-account', VALID['request-b2b-account']);
   const insert = db.inserts()[0];
 
   assert.match(insert.sql, /insert into form_submissions\s*\n?\s*\(form_type, payload, source_url, region, business_type, consent_version, consent_at, delivery_state\)/);
-  assert.doesNotMatch(insert.sql, /returning/i, 'no id is selected, so none can leak');
   assert.doesNotMatch(insert.sql, /select\s+\*/i);
   assert.equal(insert.params[0], 'request-b2b-account');
   assert.equal(insert.params[5], CONSENT_VERSION);
   assert.ok(insert.params[6] instanceof Date, 'consent_at records when consent was given');
+
+  /* The INSERT now returns the id, because the staff alert is queued against
+     it in the same transaction (findings ENQ-006 / NOT-006). The property
+     that actually mattered was never "no returning clause" — it was that no
+     id reaches the caller. That is asserted directly, and it is the stronger
+     statement. */
+  assert.match(insert.sql, /returning id/i);
+  assert.deepEqual(body, { ok: true }, 'the response carries no id and nothing that varies');
 });
 
 test('the stored payload is built from validated values only', async () => {

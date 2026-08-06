@@ -15,7 +15,11 @@ import adminEnquiryRoutes from './routes/admin-enquiries.js';
 import adminInventoryRoutes from './routes/admin-inventory.js';
 import publicRoutes from './routes/public.js';
 import publicFormRoutes from './routes/public-forms.js';
+import nodemailer from 'nodemailer';
 import { origins } from './origins.js';
+import { selectAdapter } from './notifications/delivery.js';
+import { startNotificationWorker } from './notifications/worker.js';
+import { notificationWorkerSettings } from './config.js';
 import { ensureSchema } from './migrate.js';
 import { startZohoSchedule } from './zoho.js';
 import { startServer } from './startup.js';
@@ -128,6 +132,21 @@ startServer({
     const server = app.listen(p, resolve);
     server.on('error', reject);
   }),
-  startSchedule: startZohoSchedule,
+  startSchedule: () => {
+    startZohoSchedule();
+    /* The notification worker. Safe to start unconditionally: with no email
+       provider configured, the adapter reports NOT_CONFIGURED and the queue
+       simply holds — nothing is lost, and nothing is falsely reported as
+       delivered (findings ENQ-006 / NOT-006). */
+    const adapter = selectAdapter(process.env, { createTransport: nodemailer.createTransport });
+    if (!adapter.configured) {
+      console.warn('[notifications] no email provider configured — notifications will queue, not send');
+    }
+    startNotificationWorker(
+      { query: (sql, params) => pool.query(sql, params) },
+      adapter,
+      notificationWorkerSettings()
+    );
+  },
   port,
 });

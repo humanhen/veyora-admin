@@ -30,8 +30,11 @@
        `consent_version`, `form_type`, `source_url`, `region` and
        `business_type` are never written here. The only columns this router
        writes are the four handling columns 0009 added.
-     - It cannot re-send or re-deliver anything. `delivery_state` is neither
-       read out nor written.
+     - It cannot edit or re-send a delivered message. It CAN re-queue a failed
+       staff notification (`POST /:id/notifications/:notificationId/retry`),
+       which is gated on `enquiries.manage` because asking the platform to
+       send another email is an action, not a read. `delivery_state` on the
+       submission itself is still neither read out nor written.
 
    Nothing here logs a field value. Failures record the submission id and the
    error, never the content. */
@@ -55,6 +58,7 @@ import {
   serializeEnquiryDetail,
   serializeEnquirySummary,
 } from '../enquiry-operations.js';
+import { findBySource, getById, requeue, serializeNotification } from '../notifications/outbox.js';
 
 /** The capability required by each group of routes. Exported so tests and the
  *  documentation assert against one definition rather than a second copy. */
@@ -195,7 +199,51 @@ export async function getEnquiry(db, id, { now = new Date() } = {}) {
   const row = rows[0];
   if (!row) throw new EnquiryApiError(404, { error: 'Enquiry not found' });
   const retentionDays = await retentionDaysFor(db, row.form_type);
-  return serializeEnquiryDetail(row, { retentionDays, now });
+  const detail = serializeEnquiryDetail(row, { retentionDays, now });
+
+  /* Delivery visibility (findings ENQ-006 / NOT-006). Staff need to know
+     whether anyone was actually told, so the notification attempts for this
+     submission are attached — through the outbox's own serializer, which
+     masks the recipient and never returns template data. An empty list means
+     no alert was queued at all: no recipient is configured. */
+  const notifications = await findBySource(db, 'form_submission', id);
+  detail.delivery = {
+    configured: notifications.length > 0,
+    notifications: notifications.map(serializeNotification),
+  };
+  return detail;
+}
+
+/**
+ * Re-queues a failed notification.
+ *
+ * Deliberately gated on `enquiries.manage`, not `enquiries.view`: asking the
+ * platform to send another email is an action, not a read.
+ */
+export async function retryEnquiryNotification(db, enquiryId, notificationId, actor, { now = new Date() } = {}) {
+  const notification = await getById(db, notificationId);
+  /* The notification must belong to THIS enquiry. Without this check the id
+     alone would let a holder of enquiries.manage re-send any notification in
+     the system, including a statement to a customer. */
+  if (!notification || notification.source_type !== 'form_submission' || notification.source_id !== enquiryId) {
+    throw new EnquiryApiError(404, { error: 'Notification not found for this enquiry' });
+  }
+  const requeued = await requeue(db, notificationId, { now });
+  if (!requeued) {
+    throw new EnquiryApiError(409, {
+      error: 'That notification is not in a state that can be retried.',
+      code: 'NOT_RETRYABLE',
+    });
+  }
+
+  await audit(
+    { id: actor?.id, name: actor?.business || actor?.email, role: actor?.role },
+    'enquiry.notification.retry',
+    `enquiry:${enquiryId}`,
+    `notification ${notificationId} requeued`
+  ).catch(() => {});
+
+  return serializeNotification(requeued);
 }
 
 /* ---------------------------------------------------------------------------
@@ -358,6 +406,18 @@ r.post('/:id/status', canManage(), (req, res, next) =>
       actor: req.user, // authenticated context only — never req.body
     }),
     (enquiry) => ({ enquiry })
+  )
+);
+
+/* Re-queue a failed staff alert. `canManage()` because sending another email
+   is an action; and the handler additionally checks the notification belongs
+   to THIS enquiry, so the id alone cannot reach an unrelated one. */
+r.post('/:id/notifications/:notificationId/retry', canManage(), (req, res, next) =>
+  send(
+    res,
+    next,
+    retryEnquiryNotification(liveDb, req.params.id, req.params.notificationId, req.user),
+    (notification) => ({ notification })
   )
 );
 

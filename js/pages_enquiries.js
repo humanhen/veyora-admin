@@ -25,6 +25,12 @@
       the free text deliberately, and this screen does not go looking for it —
       the detail view is one click away and is where the content belongs.
 
+   5. "RECEIVED" AND "SOMEBODY WAS TOLD" ARE SHOWN AS DIFFERENT FACTS. The
+      staff-alert panel reports delivery state per attempt, including the
+      not-configured case where no alert was ever queued. It is the one part of
+      this screen that is allowed to say something went wrong even though the
+      enquiry itself was stored perfectly (Final Handover Phase 1).
+
    Every displayed value passes through esc(). An enquiry is free text a
    member of the public typed; rendering it unescaped would make the enquiry
    form an injection vector into the admin panel.                             */
@@ -57,6 +63,25 @@ const ENQ_FIELD_LABELS={
 
 const ENQ_PAGE_SIZE=25;
 
+/* Staff-alert delivery (Final Handover Phase 1, findings ENQ-006 / NOT-006).
+
+   Plain English for each outbox status, because the words an operator needs
+   are "was anybody told?" and not the state name a worker uses. `processing`
+   deliberately reads as "Sending" rather than exposing that a claim is held.
+
+   `retryable` marks the two states the API will actually re-queue. It is a
+   courtesy that keeps a button off a delivered message; the server refuses
+   anything else with 409 regardless of what this screen renders. */
+const ENQ_DELIVERY_STATES={
+  'pending':          {label:'Queued',    tone:'muted', retryable:false},
+  'processing':       {label:'Sending',   tone:'muted', retryable:false},
+  'retry_scheduled':  {label:'Retrying',  tone:'warn',  retryable:true},
+  'delivered':        {label:'Delivered', tone:'ok',    retryable:false},
+  'failed':           {label:'Failed',    tone:'err',   retryable:true},
+  'cancelled':        {label:'Cancelled', tone:'muted', retryable:true},
+};
+const enqDeliveryState=k=>ENQ_DELIVERY_STATES[k]||{label:k||'Unknown',tone:'muted',retryable:false};
+
 const enqStatusLabel=k=>ENQ_STATUS_LABELS[k]||k||'—';
 const enqFormLabel=k=>ENQ_FORM_LABELS[k]||k||'—';
 
@@ -75,6 +100,7 @@ App.register('enquiries',function(el,args){
   let detail=null;        /* the full record */
   let contract=App._enqContract||null;
   let busy=false;         /* a transition is in flight */
+  let retrying=null;      /* the notification id whose retry is in flight */
   let notice=null;        /* {kind:'err'|'ok'|'warn', text, action?} */
   let noteDraft='';
 
@@ -153,6 +179,36 @@ App.register('enquiries',function(el,args){
       notice=describe(e);
     }finally{
       busy=false;render();
+    }
+  }
+
+  /** Re-queues one failed staff alert.
+
+      `retrying` is an id, not a boolean: the guard has to survive the re-render
+      that follows, and a `disabled` attribute would not — a second click that
+      reaches the handler directly must still be refused. It is cleared only
+      after the server has answered, so a double click cannot enqueue twice.
+
+      The refreshed notification comes from the SERVER's response; the local
+      row is never optimistically moved to "Queued", because a screen claiming
+      an alert is on its way when the API refused is the exact failure this
+      whole phase exists to remove. */
+  async function retryNotification(notificationId){
+    if(!detail||retrying||!canManage()||!notificationId)return;
+    retrying=notificationId;notice=null;render();
+    try{
+      const updated=await DB.retryEnquiryNotification(detail.id,notificationId);
+      const list=(detail.delivery&&detail.delivery.notifications)||[];
+      detail.delivery.notifications=list.map(n=>n.id===updated.id?updated:n);
+      notice={kind:'ok',text:'That alert has been re-queued. It will be sent again shortly; this screen shows the result once it has been attempted.'};
+      DB.audit('enquiry.notification.retry',detail.id,'alert re-queued','web');
+      toast('Alert re-queued');
+    }catch(e){
+      notice=e&&e.status===409
+        ?{kind:'warn',text:'That alert is not in a state that can be re-sent. Reload this enquiry to see where it actually is.',action:'reload'}
+        :describe(e);
+    }finally{
+      retrying=null;render();
     }
   }
 
@@ -236,6 +292,82 @@ App.register('enquiries',function(el,args){
     </div>`;
   }
 
+  /* ---------- staff-alert delivery ----------
+
+     Answers one question honestly: was anybody actually told this enquiry
+     arrived? Before this existed a submission was stored, the screen said
+     "received", and no message was ever sent (ENQ-006 / NOT-006).
+
+     WHAT THIS DELIBERATELY DOES NOT SHOW: the provider, the host, the port,
+     the credential, the provider's message id, or any part of the template
+     data. `recipientMasked` arrives already masked from the API and is
+     rendered as it came — this screen does not have the full address and
+     cannot reconstruct one. `lastError` is the provider's own failure reason,
+     which is what makes a misconfiguration actionable; it is built by the
+     outbox from a code and a provider message and never from a payload. */
+  function deliveryHTML(){
+    const d=detail.delivery||{configured:false,notifications:[]};
+    const list=d.notifications||[];
+
+    if(!d.configured||!list.length){
+      /* An empty list is not "sent"; it is "no alert was ever queued". Saying
+         so plainly is the point — silence is what the old behaviour looked
+         like from here. */
+      return `
+      <div class="card card-pad" style="margin-top:12px">
+        <div class="section-label">STAFF ALERT</div>
+        <div class="small" style="margin-top:6px">
+          <b>Not configured.</b> No alert was queued for this enquiry, so nobody was emailed about it.
+        </div>
+        <div class="small muted" style="margin-top:6px">
+          The enquiry itself was stored safely and is shown above. Alerts start being queued once a
+          recipient address is configured for the platform; ask whoever administers the deployment.
+        </div>
+      </div>`;
+    }
+
+    const rows=list.map(n=>{
+      const st=enqDeliveryState(n.status);
+      const inFlight=retrying===n.id;
+      const canRetry=canManage()&&st.retryable;
+      return `
+      <div class="field" style="margin-top:10px">
+        <div class="flex" style="justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+          <span>
+            <span class="badge outline">${esc(st.label)}</span>
+            <span class="small muted" style="margin-left:6px">${esc(n.recipientMasked||'recipient hidden')}</span>
+          </span>
+          ${canRetry?`<button class="btn btn-sm" data-retry="${esc(n.id)}" ${retrying?'disabled':''}>
+            ${esc(inFlight?'Re-queueing…':'Send again')}</button>`:''}
+        </div>
+        <div class="small muted" style="margin-top:4px">
+          ${esc(n.attemptCount===1?'1 attempt':String(n.attemptCount)+' attempts')}${
+            n.lastAttemptedAt?' · last tried '+esc(fmtDateShort(n.lastAttemptedAt)):' · not yet attempted'}${
+            n.status==='delivered'&&n.deliveredAt?' · delivered '+esc(fmtDateShort(n.deliveredAt)):''}${
+            n.status==='retry_scheduled'&&n.nextAttemptAt?' · next attempt '+esc(fmtDateShort(n.nextAttemptAt)):''}${
+            n.status==='failed'&&n.failedAt?' · gave up '+esc(fmtDateShort(n.failedAt)):''}
+        </div>
+        ${n.lastError&&n.status!=='delivered'?`<div class="small" style="margin-top:4px">
+          Last error: ${esc(n.lastError)}</div>`:''}
+      </div>`;
+    }).join('');
+
+    const failed=list.filter(n=>n.status==='failed').length;
+    return `
+    <div class="card card-pad" style="margin-top:12px">
+      <div class="section-label">STAFF ALERT</div>
+      ${failed?`<div class="small" style="margin-top:6px">
+        <b>${esc(String(failed))} alert${failed===1?'':'s'} could not be delivered.</b>
+        The enquiry is safe and is shown above, but nobody was emailed about it.
+      </div>`:''}
+      ${rows}
+      ${canManage()?'':`<div class="small muted" style="margin-top:10px">
+        You can see whether an alert was delivered but not re-send one. That needs the
+        <b>Manage public enquiries</b> capability.
+      </div>`}
+    </div>`;
+  }
+
   function decisionsHTML(){
     const allowed=detail.allowedTransitions||[];
     if(!canManage()){
@@ -294,7 +426,8 @@ App.register('enquiries',function(el,args){
       ${detail.handlingNote?`<div class="field"><label>Current handling note</label>
         <div class="small" style="white-space:pre-wrap">${esc(detail.handlingNote)}</div></div>`:''}
       ${decisionsHTML()}
-    </div>`;
+    </div>
+    ${deliveryHTML()}`;
   }
 
   function deniedHTML(){
@@ -341,6 +474,7 @@ App.register('enquiries',function(el,args){
     if(note)note.oninput=()=>{noteDraft=note.value;};
 
     el.querySelectorAll('[data-to]').forEach(b=>b.onclick=()=>transition(b.dataset.to));
+    el.querySelectorAll('[data-retry]').forEach(b=>b.onclick=()=>retryNotification(b.dataset.retry));
   }
 
   /* ---------- entry ----------

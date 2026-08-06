@@ -6,12 +6,16 @@
    (15_B2_PUBLIC_API_CONTRACT.md), and quietly adding a POST under it would
    falsify a contract other tests depend on.
 
-   A submission is STORED, never delivered. `delivery_state` starts 'pending'
-   and stays there; email and CRM delivery are a separate operational concern
-   with their own failure modes, retries and credentials, and doing them
-   inline would mean a visitor's enquiry could be lost because a mail server
-   was slow. Storing first and delivering later is the only ordering where a
-   submission cannot vanish.
+   A submission is STORED FIRST and delivered by a worker afterwards. Doing
+   delivery inline would mean a visitor's enquiry could be lost because a mail
+   server was slow; storing first is the only ordering where a submission
+   cannot vanish.
+
+   The staff alert is queued in the SAME transaction as the submission
+   (notifications/outbox.js), so an accepted enquiry always has a notification
+   — findings ENQ-006 / NOT-006, where a submission was stored and nothing
+   ever told anybody. The alert carries no enquirer detail; it is a pointer to
+   the governed Enquiries screen.
 
    Nothing here logs a field value. An enquiry contains a name, an email
    address and free text a person typed expecting it to reach Veyora and
@@ -20,8 +24,12 @@
 
 import { Router } from 'express';
 import express from 'express';
-import { pool } from '../db.js';
+import { pool, tx as realTx } from '../db.js';
 import { validateSubmission, buildPayload, FORM_TYPES, formDefinition } from '../public-forms.js';
+import { enqueue } from '../notifications/outbox.js';
+import { buildEnquiryTemplateData, TEMPLATE_VERSION } from '../notifications/templates.js';
+import { enquiryAlertRecipients } from '../config.js';
+import { adminLink } from '../origins.js';
 
 /* A tight body limit for this router only. The app-wide 64mb exists for image
    uploads; an enquiry that large is an attack, and 413 is the right answer
@@ -74,31 +82,68 @@ export function _resetThrottleForTesting() { hits.clear(); }
    --------------------------------------------------------------------------- */
 
 /**
- * Stores one submission.
+ * Stores one submission AND queues its staff alert, in one transaction.
  *
- * Every value written is either validated input or a server constant. The
- * INSERT is fully parameterised, names its columns explicitly, and returns
- * nothing — the caller has no use for the id, and not selecting it means it
- * cannot leak into a response.
+ * Both or neither (findings ENQ-006 / NOT-006). Before this, a submission was
+ * stored and nothing ever told anybody — a public form that silently
+ * accumulates sales leads is worse than no form, because the business
+ * believes it is receiving enquiries.
+ *
+ * The alert deliberately carries NO enquirer detail: not the message, not the
+ * address, not the phone number. It says an enquiry arrived and where to read
+ * it. Putting the content in an email would copy personal data into however
+ * many inboxes the alert reaches, outside the capability system that governs
+ * who may read an enquiry at all. See notifications/templates.js.
+ *
+ * @returns the submission id, so the caller can relate the two.
  */
-export async function storeSubmission(db, { formType, payload, sourceUrl, region, businessType, consentGiven }) {
-  await db.query(
-    `insert into form_submissions
-       (form_type, payload, source_url, region, business_type, consent_version, consent_at, delivery_state)
-     values ($1, $2::jsonb, $3, $4, $5, $6, $7, 'pending')`,
-    [
-      formType,
-      JSON.stringify(payload),
-      sourceUrl,
-      region,
-      businessType,
-      /* The consent wording a submitter agreed to. Versioned so a later
-         wording change does not retroactively reinterpret consent already
-         given. */
-      consentGiven ? CONSENT_VERSION : '',
-      consentGiven ? new Date() : null,
-    ]
-  );
+export async function storeSubmission(db, { formType, payload, sourceUrl, region, businessType, consentGiven },
+  { recipients = [], adminUrl = '', now = () => new Date() } = {}) {
+  return db.tx(async (c) => {
+    const submittedAt = now();
+    const { rows } = await c.query(
+      `insert into form_submissions
+         (form_type, payload, source_url, region, business_type, consent_version, consent_at, delivery_state)
+       values ($1, $2::jsonb, $3, $4, $5, $6, $7, 'pending')
+       returning id`,
+      [
+        formType,
+        JSON.stringify(payload),
+        sourceUrl,
+        region,
+        businessType,
+        /* The consent wording a submitter agreed to. Versioned so a later
+           wording change does not retroactively reinterpret consent already
+           given. */
+        consentGiven ? CONSENT_VERSION : '',
+        consentGiven ? submittedAt : null,
+      ]
+    );
+    const submissionId = rows[0].id;
+
+    /* No configured recipient is a real, visible state — the enquiry screen
+       shows "not configured" — not a silent no-op. Queuing a notification to
+       nobody would be worse: it would look delivered. */
+    for (const recipient of recipients) {
+      await enqueue(c, {
+        notificationType: 'enquiry_received',
+        sourceType: 'form_submission',
+        sourceId: submissionId,
+        recipientAddress: recipient,
+        templateKey: 'enquiry_received',
+        templateVersion: TEMPLATE_VERSION,
+        templateData: buildEnquiryTemplateData({
+          formType,
+          submittedAt: submittedAt.toISOString(),
+          region,
+          businessType,
+          adminUrl,
+        }),
+      });
+    }
+
+    return submissionId;
+  });
 }
 
 export const CONSENT_VERSION = '2026-08-enquiry-v1';
@@ -116,7 +161,7 @@ export function safeSourcePath(value) {
    Handler
    --------------------------------------------------------------------------- */
 
-export async function handleSubmission(db, formType, { body, sourceUrl }) {
+export async function handleSubmission(db, formType, { body, sourceUrl, recipients = [], adminUrl = '' }) {
   const validated = validateSubmission(formType, body);
   if (!validated.ok) {
     return { status: 400, body: { error: 'Some details need attention.', fieldErrors: validated.errors } };
@@ -130,6 +175,10 @@ export async function handleSubmission(db, formType, { body, sourceUrl }) {
   }
 
   const payload = buildPayload(formType, validated.values);
+  /* Storage and the staff alert are ONE transaction. A rejected, honeypotted
+     or throttled submission never reaches here, so none of them can produce a
+     notification — the three cases the brief calls out, satisfied by where
+     this line sits rather than by a check. */
   await storeSubmission(db, {
     formType,
     payload,
@@ -137,7 +186,7 @@ export async function handleSubmission(db, formType, { body, sourceUrl }) {
     region: typeof validated.values.country === 'string' ? validated.values.country : '',
     businessType: typeof validated.values.businessType === 'string' ? validated.values.businessType : '',
     consentGiven: validated.consentGiven,
-  });
+  }, { recipients, adminUrl });
 
   /* Generic and identical for every form. No id, no echo of the submitted
      values, nothing that varies with what was sent. */
@@ -148,7 +197,7 @@ export async function handleSubmission(db, formType, { body, sourceUrl }) {
    Router
    --------------------------------------------------------------------------- */
 
-const liveDb = { query: (sql, params) => pool.query(sql, params) };
+const liveDb = { query: (sql, params) => pool.query(sql, params), tx: realTx };
 
 const r = Router();
 r.use(express.json({ limit: BODY_LIMIT }));
@@ -163,6 +212,8 @@ for (const formType of FORM_TYPES) {
       const result = await handleSubmission(liveDb, formType, {
         body: req.body,
         sourceUrl: req.body?.sourceUrl ?? req.get('referer') ?? '',
+        recipients: enquiryAlertRecipients(),
+        adminUrl: adminLink('/#/enquiries'),
       });
       return res.status(result.status).json(result.body);
     } catch (e) {
