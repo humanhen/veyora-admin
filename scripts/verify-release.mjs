@@ -375,6 +375,12 @@ suiteGate('forbidden-data-rendered', 'no planted secret survives into rendered H
 suiteGate('json-ld', 'structured data carries no forbidden key and no commercial fact',
   WEB, ['--test', '--test-concurrency=1', 'test/seo-controls.test.ts', 'test/seo.test.ts', 'test/indexing.test.ts']);
 
+/* Drives a real headless browser at 375/768/1280 over the production server.
+   Skips cleanly — and still exits zero — on a machine with no Chrome or Edge,
+   which is why the gate reports "passing" rather than "browser verified". */
+suiteGate('accessibility-responsive', 'the site passes the a11y and responsive audit at 375/768/1280',
+  WEB, ['--test', '--test-concurrency=1', 'test/accessibility-responsive.test.ts']);
+
 /* ---- 10. environment validation ---- */
 
 const GOOD_ENV = {

@@ -45,7 +45,7 @@ No new frontend framework, browser binary, Docker image or ORM. Zero new depende
 | 1 — Release deployment architecture | complete | `checkpoint: prepare release deployment architecture` |
 | 2 — Governed enquiry operations | complete | `checkpoint: add governed enquiry operations` |
 | 3 — Release quality gates | complete | `checkpoint: add release quality gates` |
-| 4 — Accessibility and responsive QA | pending | |
+| 4 — Accessibility and responsive QA | complete | `checkpoint: complete accessibility and responsive audit` |
 | 5 — Storefront fix integration prep | pending | |
 | 6 — Release-candidate handoff | pending | |
 
@@ -280,3 +280,71 @@ asserting the build-time config and the runtime resolver still agree.
 - Running the command leaves a production build in `dist/` (untracked).
 
 **Next:** Phase 4 — accessibility and responsive QA.
+
+### Phase 4 — complete
+
+**Files changed**
+
+| Path | Change |
+|---|---|
+| `platform/server/web/test/helpers/headless-chrome.ts` | new — a CDP driver built from `spawn` + `fetch` + Node 22's global `WebSocket` |
+| `platform/server/web/test/helpers/a11y-audit.ts` | new — the in-page audit, 17 rules |
+| `platform/server/web/test/accessibility-responsive.test.ts` | new — 28 tests, 30 page/viewport audits |
+| `scripts/verify-release.mjs` | `accessibility-responsive` gate added |
+| `docs/…/29_ACCESSIBILITY_AND_RESPONSIVE_QA.md` | new |
+
+**Tests:** 28 passing. Astro web **466** (438 + 28). API 1091, root admin frontend 186. All **16**
+release-verification gates pass in ~162 s. `git diff --check` clean. Free space 8.2 GB.
+
+**Decisions**
+
+- **Chrome was already installed, so it was used — nothing was installed.** Chrome and Edge ship the
+  DevTools Protocol over a plain WebSocket and Node 22 has a global `WebSocket`, so the driver needs
+  no package at all. A test asserts Playwright, Puppeteer, Selenium, Cypress and the CDP wrapper
+  packages are all absent from the dependencies.
+- **The browser has no DNS.** `--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1` — it can
+  reach loopback and nothing else. A throwaway profile under the temp directory, so the operator's
+  real Chrome profile is never opened.
+- **No browser present ⇒ skip, not fail.** A QA control that goes red because of the machine it runs
+  on is one people learn to ignore. The consequence is recorded: a green gate is not proof browser QA
+  ran, and the diagnostics say how many combinations were audited.
+- **Three findings pinned rather than fixed.** All three are one design-system decision applied
+  everywhere; changing them is visual drift on every route (R-07, score 12) and a person's call. The
+  pin fails on anything new *and* on any pin that stops matching.
+- **Emulation asserted against `innerWidth`, overflow against `clientWidth`.** A classic scrollbar
+  makes them differ by 15px; conflating them reports a scrollbar as a layout defect.
+
+**Defect found in my own first version, and fixed**
+
+The contrast check initially treated a translucent text colour as unmeasurable. That skipped **687 of
+1,113 text elements — 62% of the text on the site** — and reported the remaining 38% as a contrast
+audit that passed. Alpha-compositing the foreground over its resolved background took coverage to
+**100%** and immediately surfaced findings the 38% version had missed entirely.
+
+**Open findings (pinned, and release blockers)**
+
+1. **Footer tap targets under 24×24** — WCAG 2.2 AA 2.5.8. `a.site-footer__logo` at 142×19 and three
+   footer nav links at ~20px tall. 20 occurrences at 375px, all in the footer.
+2. **Contrast 4.06:1 and 2.65:1** — WCAG 1.4.3, 183 occurrences, one root cause: a text colour at 42%
+   alpha. The footer group is a near miss (0.42 → ~0.52 clears it with no layout change); the
+   skeleton-notice placeholder at 2.65:1 should not ship at all.
+3. **363 micro labels between 10px and 12px** — no WCAG minimum exists, so a readability finding
+   rather than a conformance failure; overlaps with (2) and should be decided with it.
+
+**Everything else came back clean at all three widths:** no horizontal overflow, viewport meta
+everywhere with zoom enabled, one `main` and one `h1` per page, no skipped heading levels, a working
+skip link first in tab order, every image with an `alt`, every control named, **every field on all
+three enquiry forms labelled**, no duplicate ids, no dangling ARIA references, no positive `tabindex`,
+no text under 10px.
+
+**Unresolved limitations**
+
+- **Automated checking finds about a third of WCAG issues.** No screen-reader pass, no keyboard
+  walkthrough, no focus-visibility judgement, no alt-text quality review, no real devices, no zoom or
+  reflow testing (1.4.10, 1.4.12), no reduced-motion check. A supervised manual pass is a release
+  requirement.
+- **Chrome only.** Safari and Firefox unexercised.
+- **Mock fixtures only** — long names, missing images and unusual characters are all absent.
+- The admin panel and the storefront are out of scope.
+
+**Next:** Phase 5 — storefront fix integration preparation.
