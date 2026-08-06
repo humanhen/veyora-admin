@@ -5,9 +5,10 @@
 
      1. Capabilities cannot be invented at runtime. A key must appear here
         AND in the `account_permissions` CHECK constraint (db/migrations/
-        0008 + its ensureSchema mirror), so adding one is a deliberate,
-        reviewable code + migration change — not something a request body,
-        a database row, or a misconfigured admin screen can do.
+        0008, widened by 0009, plus their ensureSchema mirror), so adding
+        one is a deliberate, reviewable code + migration change — not
+        something a request body, a database row, or a misconfigured admin
+        screen can do.
      2. There is no wildcard, no prefix matching and no hierarchy. A grant
         of `public_content.edit` confers exactly that and nothing else.
         `public_content.*` is not a key and will never resolve.
@@ -20,8 +21,8 @@
    The dotted key names are a readability convention only. Nothing splits on
    the dot or treats the prefix as meaningful. */
 
-/** The four approved capabilities. Order is stable so listings and tests
- * can rely on it. */
+/** The approved capabilities. Order is stable so listings and tests can rely
+ * on it. */
 const DEFINITIONS = [
   {
     key: 'public_content.view',
@@ -50,6 +51,26 @@ const DEFINITIONS = [
     description:
       'Grant and revoke capabilities for other accounts. This capability can grant itself, so ' +
       'it is the most sensitive one in the system.',
+  },
+  /* Enquiry operations (Fast-Track WS2 Phase 2). Deliberately NOT folded into
+     the public_content capabilities: publishing brand copy and reading a
+     member of the public's name, email address and message are different
+     authorities held by different people. Reusing `public_content.view` here
+     would silently hand every existing content reviewer a personal-data
+     inbox they were never granted. */
+  {
+    key: 'enquiries.view',
+    label: 'View public enquiries',
+    description:
+      "Read submissions from the public website's enquiry forms, including the enquirer's own " +
+      'contact details and message. Confers no ability to change anything.',
+  },
+  {
+    key: 'enquiries.manage',
+    label: 'Manage public enquiries',
+    description:
+      'Record how an enquiry is being handled — under review, responded, closed, or spam. ' +
+      'Never deletes a submission and never edits what was submitted.',
   },
 ];
 

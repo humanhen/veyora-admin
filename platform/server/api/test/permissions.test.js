@@ -87,13 +87,30 @@ function runMiddleware(mw, req) {
 // 21 / registry
 // ---------------------------------------------------------------------------
 
-test('the registry contains exactly the four approved capabilities', () => {
+/* An exhaustive list, not a "contains" check. A capability appearing here that
+   nobody approved is exactly the failure this asserts against, so the test
+   must fail when the registry grows — adding a key is meant to be a deliberate
+   change that touches this line. */
+test('the registry contains exactly the approved capabilities', () => {
   assert.deepEqual(PERMISSION_KEYS, [
     'public_content.view',
     'public_content.edit',
     'public_content.publish',
     'permissions.manage',
+    'enquiries.view',
+    'enquiries.manage',
   ]);
+});
+
+/* Enquiry capabilities are separate keys, not aliases of the content ones.
+   Reusing `public_content.view` to read enquiries would hand every existing
+   content reviewer a personal-data inbox they were never granted. */
+test('enquiry capabilities are distinct from every public-content capability', () => {
+  const enquiry = PERMISSION_KEYS.filter((k) => k.startsWith('enquiries.'));
+  assert.deepEqual(enquiry, ['enquiries.view', 'enquiries.manage']);
+  for (const key of enquiry) {
+    assert.ok(!key.includes('public_content'), `${key} must not be a public_content key`);
+  }
 });
 
 test('every definition has a stable label and description for administration', () => {

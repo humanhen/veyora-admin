@@ -274,6 +274,75 @@ const DB = (function(){
     };
   }
 
+  /* ---------- enquiry operations shaping (Fast-Track WS2 Phase 2) ----------
+
+     Explicit, allowlisted shaping of the enquiry endpoints' responses.
+     Nothing is spread, so a field the API might add later — a delivery state,
+     an internal id — cannot arrive on a screen nobody designed it for.
+
+     `fields` is the one place a submitted value reaches the browser. It is
+     copied key by key with String() coercion rather than assigned wholesale,
+     so a non-string that reached the payload column cannot become a live
+     object in the page. */
+  function shapeTransitions(map){
+    const out = {};
+    if (!map || typeof map !== 'object') return out;
+    for (const key of Object.keys(map)) {
+      if (Array.isArray(map[key])) out[String(key)] = map[key].map(String);
+    }
+    return out;
+  }
+
+  function shapeEnquirySummary(e){
+    const r = e || {};
+    return {
+      id: String(r.id||''),
+      formType: String(r.formType||''),
+      name: String(r.name||''),
+      company: String(r.company||''),
+      region: String(r.region||''),
+      businessType: String(r.businessType||''),
+      handlingStatus: String(r.handlingStatus||''),
+      handledAt: r.handledAt==null?null:String(r.handledAt),
+      createdAt: r.createdAt==null?null:String(r.createdAt),
+    };
+  }
+
+  function shapeEnquiryDetail(e){
+    const r = e || {};
+    const fields = {};
+    const raw = r.fields;
+    if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+      for (const key of Object.keys(raw)) {
+        if (typeof raw[key] === 'string') fields[String(key)] = raw[key];
+      }
+    }
+    const ret = r.retention || {};
+    return {
+      id: String(r.id||''),
+      formType: String(r.formType||''),
+      fields,
+      sourcePath: String(r.sourcePath||''),
+      region: String(r.region||''),
+      businessType: String(r.businessType||''),
+      consentVersion: String(r.consentVersion||''),
+      consentAt: r.consentAt==null?null:String(r.consentAt),
+      handlingStatus: String(r.handlingStatus||''),
+      handledBy: r.handledBy==null?null:String(r.handledBy),
+      handledAt: r.handledAt==null?null:String(r.handledAt),
+      handlingNote: String(r.handlingNote||''),
+      allowedTransitions: Array.isArray(r.allowedTransitions) ? r.allowedTransitions.map(String) : [],
+      retention: {
+        retentionDays: Number(ret.retentionDays)||0,
+        retainUntil: ret.retainUntil==null?null:String(ret.retainUntil),
+        daysRemaining: ret.daysRemaining==null?null:Number(ret.daysRemaining),
+        expired: ret.expired === true,
+      },
+      createdAt: r.createdAt==null?null:String(r.createdAt),
+      concurrencyToken: r.concurrencyToken==null?null:String(r.concurrencyToken),
+    };
+  }
+
   /* ---------- public-content administration shaping (B2.4B2A) ----------
 
      PUBLIC_CONTENT_EDITABLE mirrors EDITABLE_FIELDS in the API's
@@ -642,6 +711,72 @@ const DB = (function(){
     async unpublishBrand(id, token, note){ return decide('brands', 'unpublish', id, token, note, 'brand'); },
     async unpublishProduct(id, token, note){ return decide('products', 'unpublish', id, token, note, 'product'); },
     async unpublishVariation(id, token, note){ return decide('variations', 'unpublish', id, token, note, 'variation'); },
+
+    /* ---- governed enquiry operations (Fast-Track WS2 Phase 2) ----
+
+       Four calls against /admin/enquiries. Fixed paths built here, `apiCall`
+       still private, and every response shaped through an explicit allowlist
+       below rather than spread into the UI.
+
+       Deliberately ABSENT: any delete. The API has no DELETE route and this
+       client has no function that could reach one — a submission is closed or
+       marked spam, never erased from a screen.
+
+       Nothing is retried automatically: a transition that may already have
+       been applied must never be replayed by a machine. */
+
+    /** The caller's own two enquiry capabilities, plus the frozen handling
+        contract the screen renders its filters and buttons from. Authenticated
+        but ungated, so an account holding neither gets an honest answer. */
+    async enquiryCapabilities(){
+      const res = await apiCall('GET', '/admin/enquiries/capabilities');
+      const c = (res && res.capabilities) || {};
+      const contract = (res && res.contract) || {};
+      /* Strict booleans: a malformed or partial response must read as "no
+         capability", never as truthy. */
+      return {
+        view: c.view === true,
+        manage: c.manage === true,
+        statuses: Array.isArray(contract.statuses) ? contract.statuses.map(String) : [],
+        transitions: shapeTransitions(contract.transitions),
+      };
+    },
+
+    /** One page of submissions. `status` and `formType` are optional; the
+        server validates both against closed sets and 400s on anything else,
+        so a stale filter fails loudly instead of quietly listing everything. */
+    async enquiries({ status = '', formType = '', limit = 0, offset = 0 } = {}){
+      const qs = [];
+      if (status) qs.push('status=' + encodeURIComponent(status));
+      if (formType) qs.push('formType=' + encodeURIComponent(formType));
+      if (limit) qs.push('limit=' + encodeURIComponent(limit));
+      if (offset) qs.push('offset=' + encodeURIComponent(offset));
+      const res = await apiCall('GET', '/admin/enquiries' + (qs.length ? '?' + qs.join('&') : ''));
+      if (!res || !Array.isArray(res.enquiries)) throw malformed();
+      return {
+        enquiries: res.enquiries.map(shapeEnquirySummary),
+        total: Number(res.total) || 0,
+        limit: Number(res.limit) || 0,
+        offset: Number(res.offset) || 0,
+      };
+    },
+
+    async enquiry(id){
+      const res = await apiCall('GET', '/admin/enquiries/' + encodeURIComponent(id));
+      if (!res || !res.enquiry) throw malformed();
+      return shapeEnquiryDetail(res.enquiry);
+    },
+
+    /** Records a handling decision. The token comes from the matching read and
+        is what makes a concurrent overwrite fail with 409 instead of silently
+        winning. There is no way to send a handler id: the server takes the
+        decision-maker from the authenticated session. */
+    async setEnquiryStatus(id, status, concurrencyToken, note){
+      const res = await apiCall('POST', '/admin/enquiries/' + encodeURIComponent(id) + '/status',
+        { status: String(status), concurrencyToken, note: note == null ? '' : String(note) });
+      if (!res || !res.enquiry) throw malformed();
+      return shapeEnquiryDetail(res.enquiry);
+    },
 
     get d(){ return load(); },
     user(id){ return load().users.find(u=>u.id===id); },

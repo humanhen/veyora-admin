@@ -23,7 +23,13 @@ API.
 
 ---
 
-## 2. The four capabilities
+## 2. The capabilities
+
+> **Update, Fast-Track WS2 Phase 2 (2026-08-06).** Two capabilities were added — `enquiries.view`
+> and `enquiries.manage`. This section described four; it now describes six. Everything else below
+> is unchanged, and §14 records what adding them involved. The registry order is
+> `public_content.view`, `public_content.edit`, `public_content.publish`, `permissions.manage`,
+> `enquiries.view`, `enquiries.manage`.
 
 The registry is a frozen constant in `platform/server/api/src/permission-registry.js`. It is the
 single source of truth, and it is closed:
@@ -34,11 +40,14 @@ single source of truth, and it is closed:
 | `public_content.edit` | Modify public-content fields (`PATCH`). Does **not** permit publishing. |
 | `public_content.publish` | Publish and unpublish. Does **not** permit editing. |
 | `permissions.manage` | Grant and revoke capabilities on other accounts. |
+| `enquiries.view` | Read public enquiry submissions, including the enquirer's contact details and message. Changes nothing. |
+| `enquiries.manage` | Record how an enquiry is being handled. Never deletes a submission and never edits what was submitted. |
 
 **There are no other keys, and no way to invent one.** This is enforced at four independent layers,
 so a bypass at any one of them still fails:
 
-1. **Database** — a `CHECK` constraint listing the four literals. An unknown key cannot be stored.
+1. **Database** — a `CHECK` constraint listing every registered literal (`0008`, widened by `0009`).
+   An unknown key cannot be stored.
 2. **Registry** — `isRegisteredPermission()` does an exact match with no normalisation, trimming or
    case-folding.
 3. **API validation** — `validatePermissionKeyList()` rejects an unknown key with `400` rather than
@@ -515,3 +524,42 @@ No account holds any capability. `/capabilities` returns all false for everyone,
 public-content screen — review, editing and now publication — is unreachable by every account,
 including every existing administrator. §8 remains the only way in, and no interface can perform or
 bypass it.
+
+---
+
+## 14. Two capabilities added — Fast-Track WS2 Phase 2, 2026-08-06
+
+`enquiries.view` and `enquiries.manage` are the first capabilities added since B2.4P, and the first
+that govern **personal data belonging to members of the public** rather than editorial content.
+Full detail: [27_ENQUIRY_OPERATIONS.md](27_ENQUIRY_OPERATIONS.md).
+
+### They are separate keys, deliberately
+
+Reusing `public_content.view` to read enquiries would have been one line and no migration. It was
+rejected: publishing brand copy and reading somebody's name, email address and message are different
+authorities held by different people, and folding them together would have silently handed every
+existing content reviewer a personal-data inbox nobody granted them — §1's failure, reintroduced.
+
+A capability is cheap to add and impossible to un-grant retroactively. When in doubt, add the key.
+
+### What adding a capability actually took
+
+The four-layer model in §2 held: each layer had to be changed deliberately, which is the friction
+working as designed.
+
+1. **Registry** — two entries appended (order is stable; existing keys did not move).
+2. **Database** — migration `0009` drops `0008`'s anonymous CHECK (`if exists`) and adds an
+   explicitly named `account_permissions_permission_key_registered` carrying all six keys. **`0008`
+   is not edited** — a migration that has run is immutable, and on a fresh volume `0009` runs moments
+   later in the same initialisation. `ensureSchema()` mirrors it idempotently.
+3. **API validation and resolution** — no change needed. Both read the registry.
+4. **Tests** — the exhaustive registry assertion had to be edited, which is the point of writing it
+   as `deepEqual` rather than "contains": a capability appearing without anyone approving it is
+   exactly what that test exists to catch.
+
+### The bootstrap requirement is STILL unchanged
+
+`0009` contains no `INSERT` of any kind. **No account holds `enquiries.view` or `enquiries.manage`**,
+including accounts that already hold every `public_content` capability and `permissions.manage`. Until
+§8 is performed and the new keys are granted per account, no enquiry is readable by anyone through
+the platform. No interface can perform or bypass that.

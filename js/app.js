@@ -78,6 +78,7 @@ const NAV=[
      authority: the route itself re-checks, and every request is authorised
      server-side regardless of what the sidebar shows. */
   {route:'public-content',label:'Public Content',icon:'globe',requires:'public_content.view'},
+  {route:'enquiries',label:'Enquiries',icon:'mailTpl',requires:'enquiries.view'},
   {route:'account-permissions',label:'Account Permissions',icon:'lock',requires:'permissions.manage'},
   {route:'audit',label:'Audit log',icon:'audit'},
 ];
@@ -137,6 +138,23 @@ const App={
       if(pc.view)held.add('public_content.view');
       if(pc.edit)held.add('public_content.edit');
       if(pc.publish)held.add('public_content.publish');
+    }catch(e){/* fail closed — see above */}
+
+    /* Enquiry capabilities (Fast-Track WS2 Phase 2). A separate probe against
+       a separate endpoint, because they are separate capabilities: holding
+       public_content.view says nothing about whether this account may read a
+       member of the public's contact details, and inferring one from the
+       other here would reintroduce exactly the equivalence the capability
+       system exists to remove.
+
+       The same all-paths-fail-closed rule applies. The frozen handling
+       contract rides along on this response and is cached for the session as
+       a rendering hint only — the API re-checks every transition. */
+    try{
+      const enq=await DB.enquiryCapabilities();
+      if(enq.view)held.add('enquiries.view');
+      if(enq.manage)held.add('enquiries.manage');
+      this._enqContract={statuses:enq.statuses,transitions:enq.transitions};
     }catch(e){/* fail closed — see above */}
 
     this.caps=held;

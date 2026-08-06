@@ -346,7 +346,8 @@ function loadAdmin(files, shell = ['content', 'toast-root', 'modal-root', 'side-
      the sandbox so tests can reach them, since `const` never would. */
   const sources = files.map(f => `/* ==== ${f} ==== */\n${fs.readFileSync(path.join(ROOT, f), 'utf8')}`);
   const EXPORTS = ['Auth', 'NAV', 'App', 'DB', 'I', 'Modal', 'esc', 'toast', 'paginate',
-    'pagerHTML', 'bindPager', 'statusBadge', 'debounce', 'PERM_GROUPS'];
+    'pagerHTML', 'bindPager', 'statusBadge', 'debounce', 'PERM_GROUPS',
+    'ENQ_STATUS_LABELS', 'ENQ_FORM_LABELS', 'ENQ_FIELD_ORDER'];
   const epilogue = EXPORTS.map(n => `try{ if(typeof ${n} !== 'undefined') window.${n} = ${n}; }catch(e){}`).join('\n');
 
   vm.runInContext(sources.join('\n;\n') + '\n;\n' + epilogue, sandbox, { filename: 'admin-bundle.js' });

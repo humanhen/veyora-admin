@@ -28,6 +28,11 @@ const MIGRATIONS = path.join(path.dirname(ROOT), 'db', 'migrations');
 const stripComments = (s) => s.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1 ');
 
 const migrationSql = fs.readFileSync(path.join(MIGRATIONS, '0008_account_permissions.sql'), 'utf8');
+/* 0008 is immutable — it has run. Capabilities added later widen its CHECK
+   from their own migration, so "is this key storable?" is a question about the
+   migrations as a whole, not about 0008 alone. */
+const enquiryMigrationSql = fs.readFileSync(path.join(MIGRATIONS, '0009_enquiry_operations.sql'), 'utf8');
+const allMigrationSql = `${migrationSql}\n${enquiryMigrationSql}`;
 const migrateJs = fs.readFileSync(path.join(SRC, 'migrate.js'), 'utf8');
 const managementCode = stripComments(fs.readFileSync(path.join(SRC, 'routes', 'account-permissions.js'), 'utf8'));
 const publicContentCode = stripComments(fs.readFileSync(path.join(SRC, 'routes', 'admin-public-content.js'), 'utf8'));
@@ -171,14 +176,29 @@ test('5 — audit fields exist with safe FK deletion behaviour', () => {
   assert.match(migrationSql, /revoked_by\s+text references users\(id\) on delete set null/);
 });
 
-test('6 — only registered keys can be stored: the CHECK lists exactly the four capabilities', () => {
+test('6 — only registered keys can be stored: the CHECK lists every registered capability', () => {
   for (const key of PERMISSION_KEYS) {
-    assert.ok(migrationSql.includes(`'${key}'`), `migration CHECK missing ${key}`);
+    assert.ok(allMigrationSql.includes(`'${key}'`), `migration CHECK missing ${key}`);
     assert.ok(migrateJs.includes(`'${key}'`), `ensureSchema CHECK missing ${key}`);
   }
   // No wildcard is storable.
-  assert.ok(!migrationSql.includes("'*'"));
-  assert.ok(!migrationSql.includes("public_content.*"));
+  assert.ok(!allMigrationSql.includes("'*'"));
+  assert.ok(!allMigrationSql.includes("public_content.*"));
+  assert.ok(!allMigrationSql.includes("enquiries.*"));
+});
+
+/* The widening migration must be a strict superset, checked against the
+   registry rather than against a hand-copied list: a key dropped from the
+   CHECK while a grant still carries it would leave a row the database refuses
+   to update and the application still honours. */
+test('6b — the widened CHECK is a strict superset of the original four', () => {
+  const widened = enquiryMigrationSql.slice(enquiryMigrationSql.indexOf('permission_key in'));
+  for (const key of PERMISSION_KEYS) {
+    assert.ok(widened.includes(`'${key}'`), `widened CHECK missing ${key}`);
+  }
+  // 0008 itself is not edited: a migration that has run is immutable.
+  assert.ok(migrationSql.includes("'permissions.manage'"));
+  assert.ok(!migrationSql.includes('enquiries.'), '0008 must not be rewritten');
 });
 
 test('7 — no destructive SQL in either definition', () => {

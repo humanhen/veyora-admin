@@ -11,6 +11,7 @@ import agentRoutes from './routes/agent.js';
 import adminRoutes from './routes/admin.js';
 import adminPublicContentRoutes from './routes/admin-public-content.js';
 import accountPermissionRoutes from './routes/account-permissions.js';
+import adminEnquiryRoutes from './routes/admin-enquiries.js';
 import publicRoutes from './routes/public.js';
 import publicFormRoutes from './routes/public-forms.js';
 import { ensureSchema } from './migrate.js';
@@ -60,6 +61,14 @@ app.use('/admin/public-content', adminPublicContentRoutes);
    a role, so the broader role check must not run first and admit an admin
    who holds no grant. */
 app.use('/admin/account-permissions', accountPermissionRoutes);
+
+/* Governed enquiry operations (Fast-Track WS2 Phase 2). Also mounted before
+   the general /admin router, for the same reason and more sharply: adminRoutes
+   admits several roles for operational work, and none of them has any business
+   reading a member of the public's name, email address and message. Authority
+   here is `enquiries.view` / `enquiries.manage` — two capabilities nobody
+   holds until they are granted one account at a time. */
+app.use('/admin/enquiries', adminEnquiryRoutes);
 
 app.use('/admin', adminRoutes);
 

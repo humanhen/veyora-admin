@@ -459,4 +459,56 @@ export async function ensureSchema() {
         for each row execute function touch_updated_at();
     end if;
   end $$`);
+
+  /* ---- governed enquiry operations (mirrors db/migrations/0009) ----
+     Two new capability keys and somewhere to record how an enquiry is being
+     handled. Additive throughout: nothing is dropped but the anonymous CHECK
+     0008 left behind, which is replaced by a strictly wider, explicitly named
+     one. GRANTS NOTHING — no account, including one that already holds
+     public_content capabilities, gains `enquiries.view` or `enquiries.manage`
+     from a deploy. See docs/public-website-rebuild/27_ENQUIRY_OPERATIONS.md. */
+  await q(`alter table account_permissions
+    drop constraint if exists account_permissions_permission_key_check`);
+  await q(`alter table account_permissions
+    drop constraint if exists account_permissions_permission_key_registered`);
+  await q(`alter table account_permissions
+    add constraint account_permissions_permission_key_registered
+    check (permission_key in (
+      'public_content.view',
+      'public_content.edit',
+      'public_content.publish',
+      'permissions.manage',
+      'enquiries.view',
+      'enquiries.manage'
+    ))`);
+
+  /* `handling_status` is NOT `delivery_state`. delivery_state records whether
+     the platform managed to forward the submission onward; handling_status
+     records what a person decided to do about it. There is no 'deleted'
+     status and no DELETE anywhere in the enquiry surface — a submission is
+     closed or marked spam, never erased on an operator's say-so. */
+  await q(`alter table form_submissions
+    add column if not exists handling_status text not null default 'new'`);
+  await q(`alter table form_submissions
+    add column if not exists handled_by text references users(id) on delete set null`);
+  await q(`alter table form_submissions
+    add column if not exists handled_at timestamptz`);
+  await q(`alter table form_submissions
+    add column if not exists handling_note text not null default ''`);
+
+  await q(`alter table form_submissions
+    drop constraint if exists form_submissions_handling_status_valid`);
+  await q(`alter table form_submissions
+    add constraint form_submissions_handling_status_valid
+    check (handling_status in ('new', 'in_review', 'responded', 'closed', 'spam'))`);
+  await q(`alter table form_submissions
+    drop constraint if exists form_submissions_handling_attributed`);
+  await q(`alter table form_submissions
+    add constraint form_submissions_handling_attributed
+    check (handling_status = 'new' or handled_at is not null)`);
+
+  await q(`create index if not exists form_submissions_handling_status_idx
+    on form_submissions (handling_status)`);
+  await q(`create index if not exists form_submissions_created_at_idx
+    on form_submissions (created_at desc)`);
 }

@@ -375,3 +375,30 @@ what this screen shows.
 
 The access model, concurrency handling, last-manager protection and bootstrap prerequisite in §2,
 §7, §9 and §10 are unchanged.
+
+---
+
+## 17. Fast-Track WS2 Phase 2 update — 2026-08-06
+
+Two capabilities were added to the registry (`enquiries.view`, `enquiries.manage`), so this screen
+now renders **six** checkboxes rather than four.
+
+**No change was required to this screen's code.** It renders whatever the server's registry endpoint
+returns, and `PERM_GROUPS` in `js/pages_permissions.js` groups the keys it knows about; a key in no
+group still renders under its own registry ordering. That is the design in §6 working as intended —
+a capability added to the API becomes grantable without an interface change.
+
+### What a manager is now deciding
+
+| Capability | What granting it actually allows |
+|---|---|
+| `enquiries.view` | Read every submission from the public enquiry forms — the sender's name, email address, phone number and message. |
+| `enquiries.manage` | Record how an enquiry is being handled. **Cannot delete a submission and cannot edit what was sent.** |
+
+This is the first capability on this screen that discloses **personal data belonging to members of
+the public** rather than editorial content, and it should be granted on that basis rather than by
+analogy with the content capabilities. `view` does not imply `manage`, and neither is implied by any
+`public_content` capability or by the administrator role.
+
+The access model, concurrency handling, last-manager protection and bootstrap prerequisite in §2,
+§7, §9 and §10 are unchanged. Detail: [27_ENQUIRY_OPERATIONS.md](27_ENQUIRY_OPERATIONS.md).

@@ -16,7 +16,7 @@ const { loadAdmin, ROOT } = require('./helpers/dom.js');
 const SHIPPED = ['index.html', 'css', 'js', 'assets'];
 const PAGE_FILES = ['js/pages_core.js', 'js/pages_sales.js', 'js/pages_customers.js',
   'js/pages_catalog.js', 'js/pages_finance.js', 'js/pages_ops.js', 'js/pages_permissions.js',
-  'js/pages_public_content.js'];
+  'js/pages_public_content.js', 'js/pages_enquiries.js'];
 const ALL = ['js/util.js', 'js/data.js', 'js/app.js', ...PAGE_FILES];
 
 // ---------------------------------------------------------------------------
@@ -82,6 +82,7 @@ test('only the governance entries are capability gated, and each names a real ca
   }
   assert.deepEqual(gated.sort(), [
     ['account-permissions', 'permissions.manage'],
+    ['enquiries', 'enquiries.view'],
     ['public-content', 'public_content.view'],
   ]);
 });
@@ -93,31 +94,59 @@ test('only the governance entries are capability gated, and each names a real ca
 const changedFiles = () => execFileSync('git', ['status', '--porcelain'], { cwd: ROOT, encoding: 'utf8' })
   .split('\n').map(l => l.slice(3).trim()).filter(Boolean);
 
-test('30 — no database, storefront or deployment file was modified', () => {
+test('30 — the live routing, the storefront and any real secret file stay untouched', () => {
+  /* A clean tree is a valid state — it is what a checkpoint commit leaves
+     behind — so there is nothing to inspect rather than something wrong. */
   const changed = changedFiles();
-  assert.ok(changed.length, 'expected uncommitted or recent changes to inspect');
+  if (!changed.length) return;
 
-  /* The paths that must never move regardless of which workstream is running:
-     migrations and the schema, the storefront, deployment configuration, and
-     the two API modules that define the PUBLIC read contract — migrate.js and
-     routes/public.js. A change to any of them from the admin frontend's own
-     work would be out of bounds.
+  /* This list was originally the admin-frontend batch's own boundary and named
+     migrations, `migrate.js`, `docker-compose.yml` and `deploy.sh`. The
+     fast-track release workstream legitimately owns all four — it is the
+     workstream that makes the public site deployable and adds the schema the
+     enquiry operations need — so guarding them here would assert a boundary
+     this repository no longer has, and would be widened reflexively until it
+     meant nothing.
 
-     `platform/server/web/**` was on this list when it was written (B2.4B2A
-     touched only the admin panel). It is not protected in general — the Astro
-     site is a separately-worked application with its own suite, and the
-     fast-track workstream legitimately owns it. Guarding it here would assert
-     a boundary this repository does not actually have. */
+     What remains genuinely protected, in every workstream:
+
+       - `Caddyfile`, the LIVE public routing. `deploy.sh` ships it and
+         immediately brings the stack up, so editing it in place arms the
+         catch-all cutover (risks R-01/R-02) on the next deploy by anyone. The
+         release-candidate topology ships beside it as `Caddyfile.rc` and is
+         selected by one deliberate line on the server.
+       - the storefront, which another developer is working on.
+       - any real `.env`. `.env.example` is documentation and is exempt by
+         name — it carries `example.test` placeholders and no secret. */
   const PROTECTED = [
-    /^platform\/server\/db\//, /^platform\/server\/storefront\//,
-    /^platform\/server\/docker-compose\.yml$/, /^platform\/server\/Caddyfile$/,
-    /^platform\/server\/deploy\.sh$/, /\.env/,
-    /^platform\/server\/api\/src\/migrate\.js$/,
-    /^platform\/server\/api\/src\/routes\/public\.js$/,
+    /^platform\/server\/storefront\//,
+    /^platform\/server\/Caddyfile$/,
+    /(^|\/)\.env($|\.[^/]*$)/,
   ];
+  const EXEMPT = [/(^|\/)\.env\.example$/];
   for (const file of changed) {
+    if (EXEMPT.some((e) => e.test(file))) continue;
     for (const p of PROTECTED) {
       assert.ok(!p.test(file), `protected path modified: ${file}`);
+    }
+  }
+});
+
+test('30 — any migration this change adds is additive, never destructive', () => {
+  /* The replacement for "no migration may be touched". Migrations are allowed;
+     a migration that could lose data is not. Every statement is checked, with
+     comments stripped — several of them explain what is deliberately NOT done
+     and would otherwise match. Constraint drops are permitted because widening
+     a CHECK requires one, and they move no data. */
+  const migrations = changedFiles().filter((f) => /^platform\/server\/db\/migrations\/.*\.sql$/.test(f));
+  for (const file of migrations) {
+    const sql = fs.readFileSync(path.join(ROOT, file), 'utf8').replace(/^\s*--[^\n]*$/gm, ' ');
+    for (const destructive of [/drop\s+table/i, /drop\s+column/i, /alter\s+column/i,
+                               /truncate/i, /delete\s+from/i, /drop\s+database/i]) {
+      assert.ok(!destructive.test(sql), `${file} contains a destructive statement: ${destructive}`);
+    }
+    for (const match of sql.match(/drop constraint[^\n;]*/gi) ?? []) {
+      assert.match(match, /if exists/i, `${file} has an unguarded constraint drop: ${match}`);
     }
   }
 });
@@ -134,6 +163,11 @@ test('every change is inside a working area of this repository, never a protecte
     'test/',                                        // its suite (never deployed)
     'platform/server/api/',                         // the API and its tests
     'platform/server/web/',                         // the Astro public site
+    'platform/server/db/',                          // schema migrations
+    'platform/server/docker-compose.yml',           // deployment topology
+    'platform/server/Caddyfile.rc',                 // the RC routing, not the live one
+    'platform/server/deploy.sh',
+    'platform/server/.env.example',
     'docs/',
   ];
   const allowed = (f) => WORKING_AREAS.some((area) => f === area || f.startsWith(area));

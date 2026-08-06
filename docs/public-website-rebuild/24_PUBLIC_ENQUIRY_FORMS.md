@@ -351,3 +351,40 @@ Local verification is complete; **deployment verification is not, and cannot be 
 **No production system, VPS, live database or DNS was contacted during this correction**, and nothing
 was deployed. Astro's CSRF checking was neither disabled nor broadened at any point: the change was
 to tell Astro which single origin to trust, and the tests exist to prove everything else is refused.
+
+---
+
+## 12. Submissions are now readable — Fast-Track WS2 Phase 2, 2026-08-06
+
+§3 recorded that a submission is stored and never delivered, and §8 recorded that nothing in the
+platform could read one. The second half of that is now fixed: there is a governed operations surface
+at `/admin/enquiries` and an Enquiries screen in the root admin panel.
+Full detail: [27_ENQUIRY_OPERATIONS.md](27_ENQUIRY_OPERATIONS.md).
+
+### What changed for this document
+
+- **`form_submissions` gained four additive columns** — `handling_status`, `handled_by`, `handled_at`
+  and `handling_note` (migration `0009`, mirrored in `ensureSchema()`). The submission columns this
+  document describes are untouched, and the enquiry API never writes any of them.
+- **`delivery_state` is unchanged and still means what §3 says it means.** `handling_status` is a
+  separate column recording what a *person* decided; overloading `delivery_state` to mean both would
+  make "we could not email it" and "we have replied" indistinguishable. The enquiry API neither reads
+  nor writes `delivery_state`, and never surfaces it on a screen.
+- **Reading a submission requires `enquiries.view`**, a new capability nobody holds by default and
+  which no `public_content` capability or role implies.
+- **The privacy boundary in §4 is extended, not relaxed.** The public router still cannot reach
+  `form_submissions` — asserted by test. The new surface is authenticated, capability-gated, and
+  serializes through explicit allowlists that re-filter the stored `payload` through the current
+  field allowlist rather than returning it as stored. The list view deliberately omits the message
+  and the email address; only the detail view shows them.
+- **Nothing can delete a submission.** No DELETE route, no `DELETE` statement, no `'deleted'` status.
+
+### Still outstanding from §8
+
+Onward delivery is **still not built** — every submission remains `delivery_state = 'pending'`. What
+changed is that an enquiry no longer sits invisible until somebody opens a database client, which was
+the sharper of the two problems.
+
+Retention now has **metadata but no enforcement**: the detail screen shows when a record is due for
+removal under `forms.retention_days`, and says plainly that removal is not performed from that
+screen. An actual retention job is a scheduled, supervised operation and remains outstanding.
