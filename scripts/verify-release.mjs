@@ -532,7 +532,59 @@ gate('catalogue-chain', 'the audit → plan chain runs offline and emits no exec
   }
 });
 
-/* ---- 14. deploy payload ---- */
+/* ---- 14. release-branch preflight ---- */
+
+/** The branch this release is packaged from. `deploy.sh` tars the WORKING TREE
+ *  and has no branch binding of any kind (33_GIT_HISTORY_AND_RELEASE_LINE_
+ *  DIAGNOSIS.md §7), so "which branch is production" is currently a matter of
+ *  operator discipline. This gate makes the discipline visible; it does not
+ *  invent an environment binding that does not exist. */
+const APPROVED_RELEASE_BRANCHES = ['mathew/public-website-rebuild'];
+
+gate('release-branch', 'packaging is happening from an approved release branch', () => {
+  const head = git(['rev-parse', '--abbrev-ref', 'HEAD']);
+  if (head.status !== 0) return { ok: false, detail: 'could not determine the current branch' };
+  const branch = head.stdout.trim();
+
+  /* Detached HEAD is refused outright: there is no branch to name in a release
+     record, and a later reader cannot reconstruct what was shipped. */
+  if (branch === 'HEAD' || branch === '') {
+    return {
+      ok: false,
+      detail: '  HEAD is detached. Check out the release branch before packaging — a detached\n'
+        + '  HEAD leaves nothing nameable in the release record.',
+    };
+  }
+
+  const override = process.env.VEYORA_RELEASE_BRANCH_OVERRIDE;
+  if (!APPROVED_RELEASE_BRANCHES.includes(branch)) {
+    if (override !== branch) {
+      return {
+        ok: false,
+        detail: `  On branch "${branch}", which is not an approved release branch.\n`
+          + `  Approved: ${APPROVED_RELEASE_BRANCHES.join(', ')}\n`
+          + '  If this is a deliberate, supervised release from another branch, set\n'
+          + `  VEYORA_RELEASE_BRANCH_OVERRIDE=${branch} and re-run. Record why.`,
+      };
+    }
+    info(`SUPERVISED OVERRIDE: packaging from "${branch}", which is not an approved release branch.`);
+  }
+
+  /* Reported, not enforced: uncommitted work is normal mid-development and
+     only matters at the moment of packaging, which this command does not do. */
+  const dirty = git(['status', '--porcelain']);
+  const changed = dirty.stdout.split('\n').filter(Boolean).length;
+  const notes = changed
+    ? `${changed} uncommitted change(s) — deploy.sh packages the WORKING TREE, so they would ship`
+    : 'working tree clean';
+
+  return {
+    ok: true,
+    detail: `branch "${branch}"; ${notes}. This gate neither merges, pushes nor deploys.`,
+  };
+});
+
+/* ---- 15. deploy payload ---- */
 
 gate('deploy-payload', 'every artefact deploy.sh ships exists and assembles', () => {
   /* Read from deploy.sh rather than duplicated here: a second copy of the file

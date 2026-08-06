@@ -382,3 +382,26 @@ Ask the branch owner to confirm §12.1 and §12.2. On confirmation, the integrat
 `--ff-only` as the guard.
 
 Nothing about this repository's history now requires investigation. What is left is a decision.
+
+---
+
+## 15. Release preflight — added 2026-08-06
+
+§11's recommendation and §13's "must not be used" list are now partly enforced by a `release-branch`
+gate in `scripts/verify-release.mjs`.
+
+It **refuses a detached HEAD** outright — there is nothing nameable in a release record. It **refuses
+a non-approved branch** unless `VEYORA_RELEASE_BRANCH_OVERRIDE` names it explicitly, so a supervised
+release from elsewhere stays possible but deliberate. It **reports uncommitted changes**, because
+`deploy.sh` packages the working tree and would ship them.
+
+**It claims no environment binding that does not exist.** §7's finding stands: there is no
+branch-to-environment binding anywhere in this repository. The gate makes the operator discipline
+visible; it does not pretend the discipline is enforced.
+
+It never merges, pushes or deploys, and it cannot: a test asserts the only commands the verification
+script spawns are `node` and `git`.
+
+**§12's human decisions are unchanged.** Confirming the release line and authorising the fast-forward
+remain a person's call — this gate makes the branch you are on visible at the moment it matters, and
+nothing more.

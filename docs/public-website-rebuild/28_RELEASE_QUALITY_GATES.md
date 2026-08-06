@@ -114,7 +114,12 @@ every run**, and:
   hold a hole open for whatever lands at that path next;
 - an exception names one exact file and one exact pattern — no directory prefixes, no catch-alls.
 
-Three carry an `R-01` marker and are reported on every run as open release blockers:
+> **Superseded 2026-08-06 — see §9.** The three `R-01` entries below have been **deleted**: the link
+> fallbacks they covered are fixed, and the scan now reports *"0 of them open release blockers"*.
+> The table is retained because it records what the gate was for. The count is now nine exceptions,
+> and the scan additionally detects bare routable IPv4 addresses.
+
+Three carried an `R-01` marker and were reported on every run as open release blockers:
 
 | File | Why it matters after the cutover |
 |---|---|
@@ -200,3 +205,44 @@ All 15 gates pass. Approximately 110 seconds on the development laptop, dominate
    full run; nothing enforces that, and a summary showing three gates is not a release verification.
 6. **The build gate writes to `dist/`.** It is the real production build, so running the command
    leaves build output behind. `dist/` is not tracked.
+
+---
+
+## 9. Security Hardening additions — 2026-08-06
+
+### A seventeenth gate: `release-branch`
+
+Packaging is now checked against an approved release branch before anything else.
+
+- **Refuses a detached HEAD outright** — there is nothing nameable in a release record.
+- **Refuses a non-approved branch** unless `VEYORA_RELEASE_BRANCH_OVERRIDE` names it explicitly, so a
+  supervised release from elsewhere is possible but deliberate.
+- **Reports uncommitted changes**, because `deploy.sh` packages the working tree and would ship them.
+- **Claims no environment binding that does not exist.** There is no branch-to-environment binding
+  anywhere in this repository ([33](33_GIT_HISTORY_AND_RELEASE_LINE_DIAGNOSIS.md) §7); this gate makes
+  the operator discipline visible rather than pretending it is enforced.
+- It never merges, pushes or deploys.
+
+### `secret-and-host-scan` — three exceptions deleted, one class of host added
+
+The three R-01 exceptions are **gone, not muted**: the link fallbacks they covered now build their
+URLs from the explicit origin contract. The scan reports **"0 of them open release blockers"**.
+
+The stale-exception rule is what surfaced the fix — when it landed, the gate failed until the
+obsolete pins were removed. That is the behaviour a pin list should have.
+
+The scan now also detects **bare routable IPv4 addresses**, excluding loopback, link-local and the
+RFC-1918 private ranges. This caught a real one the hostname patterns could not see: the compose
+fallback for the deprecated `PUBLIC_URL`. It is declared with a reason rather than changed
+unattended.
+
+### Suite growth
+
+| Suite | Before | After |
+|---|---:|---:|
+| API | 1,091 | **1,214** |
+| Root admin frontend | 186 | 187 |
+| Astro web | 466 | 466 |
+
+New API coverage: `origins.test.js` (31), `rate-limit.test.js` (28), `warehouse-boundary.test.js`
+(27), `audit-integrity.test.js` (16), `bootstrap-plan.test.js` (21).

@@ -333,3 +333,40 @@ Deliberately deferred. None blocks handoff or launch.
 9. **Group E, Stripe half** — PAY-010 registration and PAY-011 payout configuration, **after
    handover**, client-owned.
 10. **Group F** — as capacity allows.
+
+---
+
+## Security Hardening Workstream — completed 2026-08-06
+
+WS3 is **done**, plus two items that were elsewhere in this backlog. Detail:
+[34_SECURITY_HARDENING.md](34_SECURITY_HARDENING.md).
+
+| ID | Was | Now |
+|---|---|---|
+| **AUTH-002** | P0 · Secure flag derived from `PUBLIC_URL` | **COMPLETE** — explicit `COOKIE_SECURE`, secure by default in production |
+| **AUTH-004 / SEC-011** | P0 · no rate limiting | **COMPLETE** — bounded per-client and per-account limits on all seven sensitive endpoints |
+| **SEC-004** | P0 · three R-01 link fallbacks | **COMPLETE** — all six sites use the explicit origin contract; gate exceptions deleted |
+| **SEC-002** | P0 · warehouse writes 17 of 18 collections | **COMPLETE** — sync is admin-only; narrow `/admin/inventory` routes replace it |
+| **SEC-015** | P1 · audit log editable | **COMPLETE** — append-only triggers, removed from the syncable set |
+| **REP-007** | P1 · Undo control misstates the log | **COMPLETE** — removed |
+| **AUTH-009** | P1 · no capability archetypes | **partially addressed** — the bootstrap planner enforces the structural rules; the archetype *allocation* is still a business decision (Group C) |
+
+### Three findings not in the audit, found and fixed
+
+1. **`trust proxy` was `true`** — Express took `req.ip` from a client-controlled header, which would
+   have made every rate limit decorative. Now an explicit hop count. *A prerequisite, not an extra.*
+2. **The OTP verifiers had no attempt limit** — a six-digit code with a 15-minute lifetime, which is
+   a sharper path to account takeover than the login endpoint. Strictest policy in the limiter.
+3. **A bare production IP in the compose default** that the host scan could not see. The scan now
+   detects bare routable IPv4 addresses; this one is declared with a reason.
+
+### Still open, and unchanged by this workstream
+
+`SEC-007` CSRF defence in depth · `SEC-010` CSP · `SEC-013` dependency audit · `SEC-016` open-redirect
+confirmation · `SEC-017`/`MED-002` upload content verification.
+
+### New follow-up created by this work
+
+**The admin panel needs a UI change for warehouse logins.** A warehouse user now receives a 403 from
+`POST /admin/sync`; the panel should show the inventory screens rather than a failed save. A
+usability regression for that role, not a security one.

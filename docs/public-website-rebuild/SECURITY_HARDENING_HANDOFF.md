@@ -47,7 +47,7 @@ images or browser binaries.
 | 2 — Authentication abuse controls | complete | `fix: add bounded authentication rate limiting` |
 | 3 — Warehouse sync writes | complete | `fix: replace broad warehouse sync writes` |
 | 4 — Audit-log integrity | complete | `fix: enforce append-only audit history` |
-| 5 — Permission and release safety | pending | |
+| 5 — Permission and release safety | complete | docs: complete security and release safety controls |
 | 6 — Regression and handoff | pending | |
 
 ---
@@ -428,3 +428,51 @@ supervised script runs. Legitimate — it appends. The test now pins both writer
 fail until someone confirms it only ever appends.
 
 **Next:** Phase 5 — permission bootstrap and release-safety review.
+
+### Phase 5 — complete
+
+**Files changed**
+
+| Path | Change |
+|---|---|
+| `platform/server/api/src/bootstrap-plan.js` | new — pure bootstrap validation |
+| `platform/server/api/scripts/plan-permission-bootstrap.js` | new — CLI, cannot reach a database |
+| `platform/server/api/test/bootstrap-plan.test.js` | new — 21 tests |
+| `scripts/verify-release.mjs` | new `release-branch` gate |
+| `docs/…/34_SECURITY_HARDENING.md` | new |
+| `docs/…/19`, `26`, `28`, `31`, `32A`, `32B`, `33` | updated |
+
+**Tests:** API **1,214** passing (1,193 + 21). Free space 8.2 GB.
+
+**Permission bootstrap — safeguards, no execution**
+
+**No bootstrap was performed and no capability is held by any account.** The runbook in 19 §8 was
+already sound; what was missing was a way to check a *proposed* bootstrap first.
+
+The planner is **pure and structurally unable to reach a database** — no `pg`, no `db.js`, no
+`DATABASE_URL`, no network client — and it refuses a URL as input. Tests assert each of those.
+
+*Blocking:* fewer than two resulting managers · disabled or pending account · unknown id · duplicated
+selection · **ambiguous username** (granting the wrong account is the mistake this exists to prevent,
+and a duplicated username is how it happens).
+*Warning:* an account that looks shared, because every audit entry a shared login writes is
+unattributable.
+
+The rendered SQL confirms first, grants in a transaction, verifies in the same session before
+committing, and carries a rollback that **revokes rather than deletes**. Only `permissions.manage` is
+ever granted. The review checklist is returned as data so the script and the document cannot drift.
+
+**Release-line safety**
+
+The new `release-branch` gate refuses a detached HEAD, refuses a non-approved branch unless
+`VEYORA_RELEASE_BRANCH_OVERRIDE` names it, reports uncommitted changes because `deploy.sh` ships the
+working tree, and **claims no environment binding that does not exist**. It never merges, pushes or
+deploys.
+
+Recorded: the repository is full-history; `mathew/public-website-rebuild` is the handover line;
+promotion is supervised and must use `--ff-only`; `--allow-unrelated-histories` must never be used.
+
+**Findings closed in the audit matrix:** AUTH-002, AUTH-004, SEC-011, SEC-004, SEC-002, SEC-015,
+REP-007 — all now `COMPLETE`, with the reason and the evidence recorded per row.
+
+**Next:** Phase 6 — full regression and handoff.

@@ -229,3 +229,29 @@ Not doable from here, and required before the cutover is trustworthy:
   shared-list links already in customers' inboxes will land on the public site.
 - **No canonical-host redirect** and no `www` handling is configured.
 - **TLS** is Caddy's automatic certificate management, unchanged and untested here.
+
+---
+
+## 11. Origin and cookie contract — Security Hardening Phase 1, 2026-08-06
+
+§3's environment table is extended. The API now has its own validated origin contract
+(`api/src/origins.js`), because cookie security used to be a side effect of a link variable.
+
+| Variable | Used by | Required | Notes |
+|---|---|---|---|
+| `PORTAL_ORIGIN` | `api`, `web` | **yes in production** | Where portal links point. Falls back to the deprecated `PUBLIC_URL` with a logged notice. |
+| `ADMIN_ORIGIN` | `api` | no | Defaults to `<PORTAL_ORIGIN>/admin`, the current topology. May carry a path. |
+| `COOKIE_SECURE` | `api` | no | Session cookie `Secure`. Defaults **on** in production. |
+| `TRUST_PROXY_HOPS` | `api` | no | Reverse proxies in front of the API. **Default 1** — matches this topology exactly. |
+| `PUBLIC_URL` | `api` | **deprecated** | Still read as a fallback for `PORTAL_ORIGIN`. No longer affects security in any way. |
+
+**Set `PORTAL_ORIGIN` explicitly before the cutover.** That is the moment `PUBLIC_URL` stops meaning
+"the portal", and it is exactly when the ambiguity became dangerous.
+
+**Do not raise `TRUST_PROXY_HOPS` without adding a proxy.** Each hop is one more `X-Forwarded-For`
+entry a client can forge to choose its own apparent address and defeat the authentication rate
+limits. It was previously `true` — trust every hop — which made that trivial.
+
+Two related notes for §10's limitations list: the `PUBLIC_URL` compose default is a **bare IP**, now
+declared in the release gate's host-scan exception list; and the host scan itself now detects bare
+routable IPv4 addresses, which it previously could not see.

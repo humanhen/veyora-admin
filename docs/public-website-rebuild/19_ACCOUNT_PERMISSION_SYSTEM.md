@@ -563,3 +563,68 @@ working as designed.
 including accounts that already hold every `public_content` capability and `permissions.manage`. Until
 §8 is performed and the new keys are granted per account, no enquiry is readable by anyone through
 the platform. No interface can perform or bypass that.
+
+---
+
+## 15. Bootstrap safeguards — Security Hardening Phase 5, 2026-08-06
+
+§8's procedure is unchanged and still correct. What was missing was a way to check a **proposed**
+bootstrap before running it, and that now exists.
+
+### The planner
+
+```
+node platform/server/api/scripts/plan-permission-bootstrap.js --input candidates.json
+```
+
+It is **pure and structurally unable to reach a database**: it imports no `pg`, no `db.js`, no
+connection variable and no network client, and it refuses a URL as input. A test asserts each of
+those. It renders SQL as **text for a person to read and run**; it executes nothing.
+
+Its input comes from a supervised read-only query the operator runs themselves:
+
+```sql
+select id, username, email, role, status from users where status = 'active';
+```
+
+### Blocking findings — the plan must not be executed
+
+| Code | Why it blocks |
+|---|---|
+| `TOO_FEW_MANAGERS` | Fewer than **two** active holders would remain. The API refuses to revoke the last one, so a single holder means losing that account locks everybody out with no route back except manual SQL. |
+| `INACTIVE_ACCOUNT` | A disabled or pending account resolves no capability, so the grant would be inert. |
+| `UNKNOWN_ACCOUNT` | The id matches nothing. Never silently skipped. |
+| `DUPLICATE_SELECTION` | The same account is selected twice. |
+| `AMBIGUOUS_USERNAME` | More than one account shares that username. **Granting the wrong account is the mistake this exists to prevent, and a duplicated username is how it happens.** |
+
+### Warnings — a human decides
+
+`POSSIBLY_SHARED_ACCOUNT` when a username or email looks shared (`office`, `admin`, `info`, `team`,
+`support`, …). The planner cannot know whether "office" is one person; it says so rather than
+guessing. **Every audit entry a shared login writes is unattributable**, and `permissions.manage` is
+the last capability that should sit behind one.
+
+### The rendered operation
+
+Confirms the accounts with a `SELECT` first · grants inside a **transaction** · verifies in the
+**same session before committing** · carries the rollback statement, which **revokes rather than
+deletes** so the mistake and its correction both stay on record · grants **only**
+`permissions.manage` and nothing else.
+
+### The review checklist
+
+Returned as data by `reviewChecklist()`, so the script and this document cannot drift:
+
+- each selected account belongs to **one named person**, not a shared login;
+- each holder is authorised to decide who may publish to the public website;
+- **at least two** active holders exist afterwards;
+- every account is active, and its id was confirmed by a `SELECT` before granting;
+- the grant runs in a transaction, with verification in the same session;
+- the rollback statement is to hand **before** the grant is executed;
+- no capability other than `permissions.manage` is granted;
+- a named person performs it on a supervised connection, and records that they did.
+
+### Still unchanged
+
+**No bootstrap has been performed. No account holds any capability.** Every governed screen remains
+unreachable by every account, including every existing administrator, until §8 is carried out.

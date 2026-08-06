@@ -303,3 +303,53 @@ Where a claim in this document rests on a test rather than an observation, it sa
 distinction is the most useful thing here: **1,743 passing tests are evidence that the software does
 what it was built to do, and no evidence at all that it works in production** — because it has never
 been there.
+
+---
+
+## 11. Security Hardening update — 2026-08-06
+
+Five of the open security findings in §6 are **closed**, plus one reporting defect. Detail:
+[34_SECURITY_HARDENING.md](34_SECURITY_HARDENING.md).
+
+| ID | §6 said | Now |
+|---|---|---|
+| **SEC-011 / AUTH-004** | P0 — no rate limiting on authentication | **Closed.** Bounded per-client and per-account limits on all seven sensitive endpoints |
+| **AUTH-002** | P0 — `Secure` flag derived from `PUBLIC_URL` | **Closed.** Explicit `COOKIE_SECURE`, secure by default in production |
+| **SEC-004** | P0 — three R-01 link fallbacks | **Closed.** Six sites use the explicit origin contract; the gate reports zero open blockers |
+| **SEC-002** | P0 — warehouse writes 17 of 18 collections | **Closed.** Sync is admin-only; narrow inventory routes replace it |
+| **SEC-015** | P1 — audit log editable by the audited party | **Closed.** Append-only triggers plus removal from the syncable set |
+| **REP-007** | P1 — Undo control misstates the log | **Closed.** Removed |
+
+**Still open from §6, unchanged:** `SEC-007` (CSRF defence in depth), `SEC-010` (CSP), `SEC-013`
+(dependency audit), `SEC-016` (open-redirect confirmation), `SEC-017`/`MED-002` (upload content
+verification).
+
+### Three findings not in the audit, found and fixed
+
+`trust proxy` was `true`, so `req.ip` came from a client-controlled header — which would have made
+every rate limit decorative. Unthrottled six-digit OTP verification, a sharper account-takeover path
+than the login endpoint. And a bare production IP in the compose default that the host scan could not
+see; the scan now detects bare routable IPv4 addresses.
+
+### The verdict is unchanged
+
+**Still ready for a supervised release candidate; still not ready to be released.** §1's five groups
+stand. This workstream emptied group 4 (*"a small number of real security gaps"*) and touched nothing
+in the other four.
+
+**The two that gate everything else are also unchanged:** `B-01` (no account holds any capability)
+and `C-03` (the stack has never run anywhere).
+
+### New RC verification steps
+
+- Observe a real `Set-Cookie` through Caddy over HTTPS and confirm `Secure`, `HttpOnly` and
+  `SameSite`.
+- Prove the `audit_log` triggers actually fire against a disposable PostgreSQL — they are asserted as
+  *defined*, not as *firing*.
+- Exercise the rate limits against the deployed API and confirm `Retry-After` behaviour behind Caddy.
+
+### New follow-up
+
+A warehouse login now receives a 403 from `POST /admin/sync`. **The admin panel needs a matching UI
+change** so those users see the inventory screens rather than a failed save — a usability regression
+for that role, not a security one.
