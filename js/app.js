@@ -33,45 +33,58 @@ const Auth={
   }
 };
 
+/* `action` names a SERVER-REPORTED admin action (see GET /admin/access and
+   src/admin-access.js). An entry carrying one is hidden unless the session
+   holds it, which is how a `warehouse` login stops seeing screens whose every
+   save would 403 since finding SEC-002.
+
+   Entries with NO `action` are readable by any admin-router session. The
+   warehouse role keeps them because reading is legitimate — an order it is
+   fulfilling, the stock report, the audit trail — and because hiding
+   read-only information would make the panel less useful without making it
+   safer.
+
+   `catalogue.edit`, `finance.manage`, `users.manage`, `settings.edit` and
+   `imports.run` are admin-only, mirroring the sync gate exactly. */
 const NAV=[
   {route:'dashboard',label:'Dashboard',icon:'dashboard'},
-  {route:'tasks',label:'Tasks',icon:'tasks'},
+  {route:'tasks',label:'Tasks',icon:'tasks',action:'users.manage'},
   {group:'Sales',icon:'cart',items:[
     {route:'orders',label:'Orders',icon:'orders'},
     {route:'quick-scan',label:'Quick Scan Edit',icon:'scan'},
     {route:'backorders',label:'Backorders',icon:'clock'},
-    {route:'returns',label:'Returns',icon:'returns'},
-    {route:'spare-parts',label:'Spare Parts',icon:'returns'},
-    {route:'promotions',label:'Promotions',icon:'tag'},
+    {route:'returns',label:'Returns',icon:'returns',action:'catalogue.edit'},
+    {route:'spare-parts',label:'Spare Parts',icon:'returns',action:'catalogue.edit'},
+    {route:'promotions',label:'Promotions',icon:'tag',action:'finance.manage'},
     {route:'reports',label:'Reports',icon:'chart'},
   ]},
   {group:'Customers',icon:'users',items:[
-    {route:'users',label:'Users',icon:'user'},
-    {route:'leads',label:'Leads',icon:'lead'},
-    {route:'chains',label:'Chains',icon:'chain'},
-    {route:'suitcases',label:'Suitcases',icon:'suitcase'},
-    {route:'email-templates',label:'Email Templates',icon:'mailTpl'},
+    {route:'users',label:'Users',icon:'user',action:'users.manage'},
+    {route:'leads',label:'Leads',icon:'lead',action:'users.manage'},
+    {route:'chains',label:'Chains',icon:'chain',action:'users.manage'},
+    {route:'suitcases',label:'Suitcases',icon:'suitcase',action:'users.manage'},
+    {route:'email-templates',label:'Email Templates',icon:'mailTpl',action:'users.manage'},
   ]},
   {group:'Catalog',icon:'box',items:[
     {route:'products',label:'Products',icon:'box'},
-    {route:'production',label:'Production',icon:'production'},
+    {route:'production',label:'Production',icon:'production',action:'catalogue.edit'},
     {route:'inventory',label:'Inventory',icon:'inventory'},
     {route:'warehouses',label:'Warehouses',icon:'warehouse'},
-    {route:'purchasing',label:'Purchasing',icon:'truck'},
-    {route:'stock-csv',label:'Stock CSV Import',icon:'fileCsv'},
-    {route:'inventory-csv',label:'Inventory CSV (set/adjust)',icon:'fileCsv'},
-    {route:'import-data',label:'Import Data',icon:'importData'},
+    {route:'purchasing',label:'Purchasing',icon:'truck',action:'catalogue.edit'},
+    {route:'stock-csv',label:'Stock CSV Import',icon:'fileCsv',action:'imports.run'},
+    {route:'inventory-csv',label:'Inventory CSV (set/adjust)',icon:'fileCsv',action:'imports.run'},
+    {route:'import-data',label:'Import Data',icon:'importData',action:'imports.run'},
   ]},
   {group:'Finance',icon:'finance',items:[
-    {route:'payments',label:'Payments',icon:'payments'},
-    {route:'collection',label:'Collection',icon:'collection'},
-    {route:'invoices',label:'Invoices',icon:'invoice'},
-    {route:'statements',label:'Statements',icon:'statement'},
+    {route:'payments',label:'Payments',icon:'payments',action:'finance.manage'},
+    {route:'collection',label:'Collection',icon:'collection',action:'finance.manage'},
+    {route:'invoices',label:'Invoices',icon:'invoice',action:'finance.manage'},
+    {route:'statements',label:'Statements',icon:'statement',action:'finance.manage'},
   ]},
   {group:'Operations',icon:'ops',items:[
-    {route:'shipping',label:'Shipping Settings',icon:'truck'},
-    {route:'free-shipping',label:'Free Shipping',icon:'gift'},
-    {route:'agent-revenue',label:'Agent Revenue',icon:'revenue'},
+    {route:'shipping',label:'Shipping Settings',icon:'truck',action:'settings.edit'},
+    {route:'free-shipping',label:'Free Shipping',icon:'gift',action:'settings.edit'},
+    {route:'agent-revenue',label:'Agent Revenue',icon:'revenue',action:'finance.manage'},
   ]},
   /* `requires` names a CAPABILITY (B2.4P), not a role. The entry is hidden
      when the account does not hold it — convenience only. The API is the
@@ -107,6 +120,11 @@ const App={
   capsChecked:false,
 
   can(key){ return this.caps instanceof Set && this.caps.has(key); },
+
+  /** Whether this session may perform an admin ACTION, as the server reported
+   *  it. Fails closed: an unknown action, or discovery that has not completed
+   *  or failed, is false. Rendering hint only — the API re-checks. */
+  may(action){ return !!(this.access && this.access[action] === true); },
 
   async loadCaps(){
     this.capsChecked=false;
@@ -156,6 +174,23 @@ const App={
       if(enq.manage)held.add('enquiries.manage');
       this._enqContract={statuses:enq.statuses,transitions:enq.transitions};
     }catch(e){/* fail closed — see above */}
+
+    /* Admin ACTIONS, distinct from capabilities (warehouse interface
+       correction). Capabilities are per-account grants; actions describe what
+       this session's ROLE may do on the admin router — above all whether it
+       may use the whole-database sync, which is admin-only since finding
+       SEC-002.
+
+       Asking the server is deliberate. The alternative is `role ===
+       'warehouse'` scattered through nine page files, which drifts from the
+       server and teaches the next contributor that the browser decides
+       authority. Same fail-closed rule: any failure leaves every action
+       unheld, so a control is hidden rather than shown-and-broken. */
+    this.access={};
+    try{
+      const access=await DB.adminAccess();
+      this.access=access.actions;
+    }catch(e){/* fail closed — no action is held */}
 
     this.caps=held;
     this.capsChecked=true;
@@ -317,9 +352,12 @@ const App={
     let html='';
     /* accordion: only one group open at a time */
     if(App._openGroup===undefined)App._openGroup=null;
-    /* A `requires` entry is shown only when the capability is held. Hiding is
-       cosmetic — the route and the API both refuse independently. */
-    const permitted=n=>!n.requires||this.can(n.requires);
+    /* An entry is shown only when its precondition holds:
+         `requires` — a per-account CAPABILITY (B2.4P);
+         `action`   — a server-reported admin ACTION (warehouse correction).
+       Both are cosmetic: the route and the API refuse independently. An
+       entry with neither is visible to any admin-router session. */
+    const permitted=n=>(!n.requires||this.can(n.requires))&&(!n.action||this.may(n.action));
     for(const n of NAV){
       if(n.route){
         if(!permitted(n))continue;

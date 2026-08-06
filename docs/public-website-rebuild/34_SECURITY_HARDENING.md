@@ -13,7 +13,7 @@ merged or fast-forwarded, and nothing was pushed.
 | Starting commit | `77c65d5` |
 | Findings closed | **AUTH-002 · AUTH-004 / SEC-011 · SEC-004 · SEC-002 · SEC-015** (+ REP-007) |
 | New findings, fixed | proxy trust, OTP brute force, bare-IP default |
-| Suites | API **1,214** · admin frontend **187** · web **466** |
+| Suites | API **1,229** · admin frontend **213** · web **466** |
 
 ---
 
@@ -266,9 +266,9 @@ does not exist**. It never pushes, merges or deploys.
 
 ## 10. What is still outstanding
 
-1. **The admin panel needs a matching UI change.** A warehouse login now receives a 403 from
-   `POST /admin/sync`; the panel should show the inventory screens instead of a failed save. A
-   usability regression for that role, not a security one.
+1. ~~**The admin panel needs a matching UI change.**~~ **CLOSED 2026-08-07 — see §11.** Access is now
+   server-derived, the two legitimate stock workflows use the narrow routes, and the infinite 403
+   retry loop is gone.
 2. **Cookie behaviour is asserted at the contract level**, not by observing a `Set-Cookie` header
    through real Caddy over HTTPS. RC verification.
 3. **The audit triggers are asserted as defined, not as firing.** RC verification against a
@@ -279,3 +279,74 @@ does not exist**. It never pushes, merges or deploys.
 7. **Production status still moves through the generic sync**, so it is admin-only. If warehouse
    staff need it, it wants its own narrow route rather than a widened gate.
 8. **The bootstrap itself has not been run**, and remains the blocker gating every governed screen.
+
+---
+
+## 11. Warehouse interface correction — 2026-08-07
+
+§10.1 recorded that the admin panel needed a matching UI change. This closes it.
+
+### The regression, precisely
+
+The panel is a **whole-database editor**: every screen mutates a local snapshot and calls `DB.save()`,
+which debounces into one `POST /admin/sync`. That endpoint became admin-only in §6, so a warehouse
+login got a 403 on save — and `pushSync`'s catch re-armed `save()` **every five seconds, forever**,
+with a toast each time. An endless failure loop, not a one-off error.
+
+### Server-derived action discovery, not scattered role checks
+
+`GET /admin/access` returns what this session may do, derived from the **same constants the routes
+enforce with** (`src/admin-access.js`). The alternative — `role === 'warehouse'` in nine page files —
+drifts from the server and teaches the next contributor that the browser decides authority.
+
+| Action | admin | warehouse |
+|---|---|---|
+| `sync.write` | ✅ | ❌ |
+| `inventory.adjust`, `inventory.transfer` | ✅ | ✅ |
+| `orders.fulfil`, `backorders.convert` | ✅ | ✅ |
+| `orders.money`, `users.manage`, `catalogue.edit`, `settings.edit`, `finance.manage`, `imports.run` | ✅ | ❌ |
+
+It **grants nothing** — it is a read of what the caller could already do. An unknown role, a
+non-active account or a failed request all yield an empty action set: hiding a control rather than
+showing one that is broken.
+
+### Workflows preserved
+
+| Workflow | Path | State |
+|---|---|---|
+| Fulfilment, collection, dispatch, tracking | `PATCH /admin/orders/:id` | already dedicated, untouched |
+| Backorder conversion | `POST /admin/backorders/:id/convert` | already dedicated, untouched |
+| **Stock count / correction** | `POST /admin/inventory/adjust` | **rewired** from the generic sync |
+| **Warehouse transfer** | `POST /admin/inventory/transfer` | **rewired**, one atomic call per SKU |
+| Reading orders, backorders, stock, products, reports, audit | `GET` routes | kept — reading is legitimate |
+
+The stock editor now sends a **signed delta** rather than an absolute quantity, and adopts the
+server's returned figure rather than the one the operator typed — if another movement landed in
+between, the screen shows the truth. The `shelf` field is read-only, because shelf is not part of the
+narrow contract and silently discarding it would be worse than not offering it.
+
+Transfers report **per SKU**: one may move before another runs short, and *"3 moved, 2 did not and
+why"* is the useful answer where *"transfer failed"* would hide work that actually happened.
+
+### Removed from the warehouse view
+
+Product edit (prices and identity), warehouse management, Users, Leads, Chains, Suitcases, Email
+templates, Tasks, Promotions, Returns, Spare parts, Production, Purchasing, all three CSV/import
+screens, all four Finance screens, Shipping settings, Free shipping, Agent revenue.
+
+### Two defects fixed on the way
+
+1. **The infinite 403 retry.** A 403 is a decision, not a transient failure. The client now records
+   that this session cannot sync, shows one honest message, and stops. A new **"View only"** badge
+   state replaces "Save failed", which would have sent someone looking for a fault.
+2. **Double submission.** The stock save relied on `disabled`, which stops a mouse click but not a
+   second Enter racing the first. It now uses an in-flight flag.
+
+### Scope discipline
+
+`inventory-csv` (bulk set/adjust) stayed **admin-only** rather than being rewired: its `set` mode has
+no equivalent in the narrow contract, which is delta-only. Inventing a bulk endpoint to populate a
+screen was not warranted.
+
+**The backend restriction is unchanged.** A test asserts `POST /admin/sync` still refuses every
+non-admin, and another asserts the client never fabricates an action.

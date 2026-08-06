@@ -28,11 +28,25 @@ import { ADMIN_ORDERS_SQL, ADMIN_ORDERS_COUNT_SQL, ADMIN_ORDER_ONE_SQL,
          sanitizeOrderPatch, orderUpdateSql, describeOrderPatch,
          recomputeOrderTotal, checkSyncPayload,
          isFinancialActor, patchTouchesMoney } from '../admin-data.js';
+import { describeAccess } from '../admin-access.js';
 
 const r = Router();
 r.use(requireAuth('admin', 'warehouse'));
 
 const UPLOADS = process.env.UPLOADS_DIR || '/uploads';
+
+/* ---- what may this session actually do? ----
+ *
+ * The admin panel is a whole-database editor: every screen mutates a local
+ * snapshot and saves through POST /sync. Since that endpoint became
+ * admin-only (finding SEC-002), a warehouse login had no way to know which of
+ * its controls would work — so it discovered the answer as a 403 on save.
+ *
+ * This tells it, from the same constants the routes enforce with. It is a
+ * RENDERING HINT: hiding a control is a courtesy, and every request is still
+ * authorised server-side. Granting nothing, it is safe for any authenticated
+ * admin-router caller to read about itself. */
+r.get('/access', (req, res) => res.json(describeAccess(req.user)));
 
 /* ============================ zoho sync ============================ */
 

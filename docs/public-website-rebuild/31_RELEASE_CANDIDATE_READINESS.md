@@ -353,3 +353,18 @@ and `C-03` (the stack has never run anywhere).
 A warehouse login now receives a 403 from `POST /admin/sync`. **The admin panel needs a matching UI
 change** so those users see the inventory screens rather than a failed save — a usability regression
 for that role, not a security one.
+
+### Warehouse interface follow-up — closed 2026-08-07
+
+§11's new follow-up is done. The admin panel now derives permitted actions from `GET /admin/access`
+rather than inferring them from the session role, the two legitimate warehouse stock workflows use
+the narrow `/admin/inventory` routes, and the infinite 403 retry loop is gone.
+
+**The backend restriction is unchanged** — `POST /admin/sync` still refuses every non-admin, asserted
+by test.
+
+Suites: API **1,229** · admin frontend **213** · web **466**. All **17** gates pass.
+
+**One new RC verification step:** exercise a real warehouse login end to end against the deployed
+stack — receive stock, transfer between warehouses, fulfil an order — and confirm no screen produces
+a failed save. The workflows are proven against controlled doubles, not against a running system.

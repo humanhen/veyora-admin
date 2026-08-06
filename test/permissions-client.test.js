@@ -201,6 +201,11 @@ test('the admin role alone is never sufficient — no role bypass', async () => 
     'GET /admin/account-permissions/registry',
     'GET /admin/public-content/capabilities',
     'GET /admin/enquiries/capabilities',
+    /* And the admin ACTION set (warehouse interface correction). Distinct
+       from the three above: capabilities are per-account grants, actions
+       describe what this session's role may do on the admin router. Also
+       server-answered — the browser still decides nothing. */
+    'GET /admin/access',
   ]);
 });
 

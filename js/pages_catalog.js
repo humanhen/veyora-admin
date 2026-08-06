@@ -1,6 +1,31 @@
 /* ================= Pages: Catalog — Products, Product form/detail, Production, Inventory, Warehouses, CSV imports, Import Data ================= */
 'use strict';
 
+/* Operator-facing wording for a failed stock operation.
+ *
+ * Every branch is a sentence written for the person holding the stock. The
+ * raw response is never rendered: an API error string, a stack or an
+ * infrastructure detail leaking into the panel is both alarming and useless
+ * to a warehouse operator, and a 403 in particular must not read as a broken
+ * save — it is a decision. */
+function stockErrorMessage(e){
+  const s=e&&e.status;
+  if(s===401)return 'Your session has expired. Sign in again — nothing was changed.';
+  if(s===403)return 'Your account cannot change stock. Nothing was changed.';
+  if(s===404)return 'That SKU or warehouse no longer exists. Reload and try again.';
+  if(s===409){
+    /* The server explains this one properly — negative stock, or not enough
+       at the source — so its message is worth showing. */
+    const detail=e&&e.data&&e.data.error;
+    return detail||'The stock changed while you were working. Reload and try again.';
+  }
+  if(s===400){
+    const detail=e&&e.data&&e.data.error;
+    return detail||'That change was rejected. Check the quantity and try again.';
+  }
+  return 'The stock could not be updated. Nothing was changed — check your connection and try again.';
+}
+
 function pickCSVFile(cb){
   const inp=document.createElement('input');
   inp.type='file';inp.accept='.csv,.txt';
@@ -412,15 +437,54 @@ App.register('product',function(el,args){
       </div>
     </div>`;
 
-    el.querySelector('#pd-edit').onclick=()=>{location.hash='#/product-edit/'+p.id;};
-    el.querySelectorAll('[data-save]').forEach(b=>b.onclick=()=>{
+    const editBtn=el.querySelector('#pd-edit');
+    if(editBtn){
+      /* Editing a product changes prices and identity, which rides on the
+         whole-database sync and is admin-only since finding SEC-002. Hidden
+         rather than shown-and-broken. */
+      if(!App.may('catalogue.edit'))editBtn.remove();
+      else editBtn.onclick=()=>{location.hash='#/product-edit/'+p.id;};
+    }
+
+    /* STOCK EDITS GO THROUGH THE NARROW INVENTORY ROUTE.
+       This used to mutate the local snapshot and call DB.save(), which meant
+       a stock correction travelled on the same request that could re-price
+       the catalogue. It now sends a signed delta to POST /admin/inventory/
+       adjust, which touches quantities and nothing else, records a ledger
+       movement, and takes the actor from the session.
+
+       The shelf field moved with it: shelf is not part of the narrow
+       contract, so it is read-only here rather than silently discarded. */
+    el.querySelectorAll('[data-save]').forEach(b=>b.onclick=async()=>{
+      if(!App.may('inventory.adjust')){
+        return toast('Your account cannot change stock.',true);
+      }
+      /* An in-flight FLAG, not just `disabled`. A disabled button stops a
+         mouse click, but not a second Enter press racing the first, and not a
+         handler invoked directly. The flag is the thing that actually makes a
+         double submission impossible. */
+      if(b._busy)return;
+      b._busy=true;
       const [vi,wid]=b.dataset.save.split(':');
       const v=p.variations[+vi];
-      v.stock=v.stock||{};v.stock[wid]=v.stock[wid]||{qty:0,shelf:''};
-      v.stock[wid].qty=parseInt(el.querySelector(`[data-q="${vi}:${wid}"]`).value,10)||0;
-      v.stock[wid].shelf=el.querySelector(`[data-s="${vi}:${wid}"]`).value.trim();
-      DB.save();DB.audit('stock.set',v.sku,DB.warehouse(wid).code+' qty='+v.stock[wid].qty+' shelf='+v.stock[wid].shelf);
-      toast('Stock saved');render();
+      const current=(v.stock&&v.stock[wid]&&v.stock[wid].qty)||0;
+      const wanted=parseInt(el.querySelector(`[data-q="${vi}:${wid}"]`).value,10);
+      if(isNaN(wanted)||wanted<0){b._busy=false;return toast('Enter a whole number of units.',true);}
+      const delta=wanted-current;
+      if(delta===0){b._busy=false;return toast('That is already the recorded quantity.');}
+
+      b.disabled=true;b.textContent='Saving…';
+      try{
+        const res=await DB.adjustStock(v.sku,wid,delta,'count',
+          'Counted on the product screen');
+        v.stock=v.stock||{};v.stock[wid]=v.stock[wid]||{qty:0,shelf:''};
+        /* Adopted from the SERVER's answer, never assumed. */
+        v.stock[wid].qty=res.qty;
+        toast('Stock updated');render();   /* render() replaces the button */
+      }catch(e){
+        b._busy=false;b.disabled=false;b.textContent='Save';
+        toast(stockErrorMessage(e),true);
+      }
     });
   }
   render();
@@ -651,21 +715,59 @@ App.register('warehouses',function(el){
         foot:`<button class="btn" data-x>Cancel</button><button class="btn btn-dark" data-ok>Transfer</button>`,
         setup(ov,close){
           ov.querySelector('[data-x]').onclick=close;
-          ov.querySelector('[data-ok]').onclick=()=>{
+          /* TRANSFERS GO THROUGH THE NARROW INVENTORY ROUTE, one SKU per
+             call, each atomic on the server. This used to edit the local
+             snapshot and ride the whole-database sync.
+
+             Each SKU is reported individually because a partial result is the
+             realistic outcome: one SKU may have moved before another ran
+             short. Telling the operator "3 of 5 moved, 2 did not and why" is
+             the useful answer; a single "transfer failed" would hide work
+             that actually happened. */
+          const ok=ov.querySelector('[data-ok]');
+          ok.onclick=async()=>{
+            if(!App.may('inventory.transfer')){
+              return toast('Your account cannot transfer stock.',true);
+            }
             const to=ov.querySelector('#tr-to').value;
             const qv=ov.querySelector('#tr-qty').value;
+            ok.disabled=true;ok.textContent='Transferring…';   /* no double submission */
+
+            const moved=[],failed=[];
             for(const sku of state.transfer){
-              const hit=DB.variationBySku(sku);if(!hit)continue;
-              const from=hit.v.stock[state.wh];hit.v.stock[to]=hit.v.stock[to]||{qty:0,shelf:''};
-              const n=qv?Math.min(+qv,from.qty):from.qty;
-              from.qty-=n;hit.v.stock[to].qty+=n;
+              const hit=DB.variationBySku(sku);
+              if(!hit){failed.push(sku+': unknown SKU');continue;}
+              const available=(hit.v.stock&&hit.v.stock[state.wh]&&hit.v.stock[state.wh].qty)||0;
+              const n=qv?Math.min(parseInt(qv,10)||0,available):available;
+              if(n<=0){failed.push(sku+': nothing to move');continue;}
+              try{
+                const res=await DB.transferStock(sku,state.wh,to,n,'Warehouse transfer');
+                /* Both sides adopted from the SERVER's answer. */
+                hit.v.stock=hit.v.stock||{};
+                hit.v.stock[state.wh]=hit.v.stock[state.wh]||{qty:0,shelf:''};
+                hit.v.stock[to]=hit.v.stock[to]||{qty:0,shelf:''};
+                hit.v.stock[state.wh].qty=res.from.qty;
+                hit.v.stock[to].qty=res.to.qty;
+                moved.push(sku);
+              }catch(e){
+                failed.push(sku+': '+stockErrorMessage(e));
+              }
             }
-            DB.save();DB.audit('stock.transfer',state.transfer.join(', '),DB.warehouse(state.wh).code+' → '+DB.warehouse(to).code);
-            state.transfer=[];close();render();toast('Stock transferred');
+
+            state.transfer=moved.length?state.transfer.filter(s=>!moved.includes(s)):state.transfer;
+            close();render();
+            if(moved.length&&!failed.length)toast(moved.length+' SKU(s) transferred');
+            else if(moved.length)toast(moved.length+' moved, '+failed.length+' did not: '+failed[0],true);
+            else toast('Nothing was transferred — '+(failed[0]||'no eligible stock'),true);
           };
         }});
     };
-    el.querySelector('#wh-manage').onclick=()=>{
+    /* Creating and deleting warehouses rides the whole-database sync, so it
+       is admin-only. Removed rather than disabled: a warehouse operator has
+       no use for a control they can never press. */
+    const manageBtn=el.querySelector('#wh-manage');
+    if(manageBtn&&!App.may('catalogue.edit')){ manageBtn.remove(); }
+    else if(manageBtn) manageBtn.onclick=()=>{
       Modal.open({title:'Manage Warehouses',
         body:`
         <div class="flex-col">${d.warehouses.map(w=>`

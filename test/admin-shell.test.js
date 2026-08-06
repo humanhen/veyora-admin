@@ -57,7 +57,15 @@ test('the capability filter leaves every unrestricted nav entry untouched', () =
   const sandbox = loadAdmin(ALL);
   sandbox.localStorage.setItem('veyora_session', JSON.stringify({ id: 'u', name: 'A', role: 'admin' }));
   sandbox.App.ready = true;
-  sandbox.App.caps = new Set();          // holds nothing
+  sandbox.App.caps = new Set();          // holds no capability
+  /* Holds every ADMIN ACTION. Nav entries now carry two independent
+     preconditions — `requires` (a per-account capability) and `action` (a
+     server-reported admin action, added by the warehouse interface
+     correction). This test is about the capability filter, so the action side
+     is satisfied and only `requires` is exercised. */
+  sandbox.App.access = Object.fromEntries(
+    sandbox.NAV.flatMap(n => [n, ...(n.items || [])])
+      .map(n => n.action).filter(Boolean).map(a => [a, true]));
   sandbox.App.renderNav();
 
   const nav = sandbox.document.getElementById('side-nav');
@@ -70,6 +78,26 @@ test('the capability filter leaves every unrestricted nav entry untouched', () =
     for (const item of group.items) {
       assert.ok(nav.querySelector(`[href="#/${item.route}"]`), `grouped entry ${item.route} vanished`);
     }
+  }
+});
+
+test('an entry with an action gate is hidden when the action is not held', () => {
+  /* The other half: with no actions held, every action-gated entry goes and
+     every ungated one stays. This is what a warehouse session sees. */
+  const sandbox = loadAdmin(ALL);
+  sandbox.localStorage.setItem('veyora_session', JSON.stringify({ id: 'u', name: 'W', role: 'warehouse' }));
+  sandbox.App.ready = true;
+  sandbox.App.caps = new Set();
+  sandbox.App.access = {};               // fails closed
+  sandbox.App.renderNav();
+
+  const nav = sandbox.document.getElementById('side-nav');
+  const all = sandbox.NAV.flatMap(n => [n, ...(n.items || [])]).filter(n => n.route);
+  for (const entry of all) {
+    const shown = !!nav.querySelector(`[href="#/${entry.route}"]`);
+    const expected = !entry.requires && !entry.action;
+    assert.equal(shown, expected,
+      `${entry.route} should be ${expected ? 'shown' : 'hidden'} with nothing held`);
   }
 });
 

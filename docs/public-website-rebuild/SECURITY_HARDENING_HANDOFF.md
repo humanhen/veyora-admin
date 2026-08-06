@@ -532,3 +532,32 @@ anywhere**.
 
 **New follow-up:** the admin panel needs a UI change for warehouse logins, which now receive a 403
 from `POST /admin/sync`.
+
+---
+
+## Follow-up — warehouse interface correction, 2026-08-07
+
+The one follow-up this workstream created is closed. Starting commit `92a1ebd`.
+
+**The regression:** the panel is a whole-database editor, so a warehouse login got a 403 on save —
+and `pushSync` retried it **every five seconds forever**, with a toast each time.
+
+**Approach:** server-derived action discovery (`GET /admin/access`), derived from the same constants
+the routes enforce with, rather than `role === 'warehouse'` scattered through nine page files.
+
+**Preserved:** fulfilment, collection, dispatch, tracking, backorder conversion (all already on
+dedicated routes and untouched); stock count/correction and warehouse transfer, **rewired** to
+`POST /admin/inventory/adjust` and `/transfer`; all read-only screens.
+
+**Removed from the warehouse view:** product edit, warehouse management, and 18 commercial or
+administrative nav entries.
+
+**Two defects fixed:** the infinite 403 retry loop (now one honest message plus a "View only" badge),
+and a double-submit guard that relied on `disabled` — which stops a mouse click but not a second
+Enter racing the first.
+
+**Tests:** API **1,229** (+15), admin frontend **213** (+26), web 466. All 17 gates pass.
+The DOM shim gained descendant-selector support, which the app already used.
+
+**Backend untouched:** a test asserts `POST /admin/sync` still refuses every non-admin, and another
+asserts the client never fabricates an action.

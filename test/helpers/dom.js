@@ -188,12 +188,31 @@ class Element {
 }
 
 /* ---------------------------------------------------------------------------
-   Selector matching — #id, .class, tag, [attr], [attr=value], and a tag or
-   class followed by an attribute filter. Anything else throws.
+   Selector matching — #id, .class, tag, [attr], [attr=value], a tag or class
+   followed by an attribute filter, and DESCENDANT combinators
+   ("`.topbar .topbar-spacer`"). Anything else still throws, deliberately: an
+   unsupported query must fail loudly rather than silently match nothing and
+   turn a real regression into a green test.
    --------------------------------------------------------------------------- */
 function matches(el, sel){
   const parts = String(sel).trim().split(/\s*,\s*/);
-  return parts.some(part => matchOne(el, part.trim()));
+  return parts.some(part => matchCompound(el, part.trim()));
+}
+
+/** Handles a descendant chain by matching right-to-left: the element must
+ *  satisfy the last simple selector, and each preceding one must be satisfied
+ *  by some ancestor, in order. */
+function matchCompound(el, sel){
+  const steps = sel.split(/\s+/).filter(Boolean);
+  if (steps.length === 1) return matchOne(el, steps[0]);
+  if (!matchOne(el, steps[steps.length - 1])) return false;
+  let i = steps.length - 2;
+  let node = el.parentNode;
+  while (node && i >= 0) {
+    if (node.tagName && matchOne(node, steps[i])) i -= 1;
+    node = node.parentNode;
+  }
+  return i < 0;
 }
 
 function matchOne(el, sel){

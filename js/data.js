@@ -170,8 +170,27 @@ const DB = (function(){
     return changes;
   }
 
+  /* Whether this session may use the whole-database sync at all. Set from the
+     server's own answer (GET /admin/access) during boot; null until then.
+     A warehouse session is false, and must never reach pushSync — see below. */
+  let canSync = null;
+
   async function pushSync(){
     if (!db || state !== 'ready') return;
+
+    /* DO NOT ATTEMPT A SYNC THIS SESSION CANNOT PERFORM.
+       The panel is a whole-database editor, and POST /admin/sync is
+       admin-only since finding SEC-002. Without this guard a warehouse login
+       got a 403 on every save — and the catch below retried it every five
+       seconds forever, with a toast each time. Refusing locally turns an
+       endless failure loop into one honest message. */
+    if (canSync === false){
+      const changes = computeChanges();
+      if (!changes.length) return;
+      setSyncBadge('readonly');
+      return;
+    }
+
     if (syncing) { dirty = true; return; }
     const changes = computeChanges();
     if (!changes.length) return;
@@ -196,6 +215,16 @@ const DB = (function(){
       setSyncBadge('saved');
     } catch(e){
       if (e.status === 401){ Auth.logout(); location.reload(); return; }
+      /* A 403 is a decision, not a transient failure. Retrying it forever —
+         which is what this did — produces an endless toast loop and never
+         succeeds. Stop, record that this session cannot sync, and say so
+         once. */
+      if (e.status === 403){
+        canSync = false;
+        setSyncBadge('readonly');
+        toast('Your account cannot change this data. Nothing was saved.', true);
+        return;
+      }
       console.error('sync failed', e);
       setSyncBadge('error');
       toast('Save failed — retrying… (' + e.message + ')', true);
@@ -220,7 +249,11 @@ const DB = (function(){
       saving: ['#fef3c7','#b45309','Saving…'],
       saved:  ['#dcfce7','#15803d','Saved'],
       error:  ['#fee2e2','#b91c1c','Save failed'],
+      /* Not an error — this account is not permitted to change this data, and
+         saying "Save failed" would send someone looking for a fault. */
+      readonly: ['#e5e7eb','#4b5563','View only'],
     }[st];
+    if (!styles) return;
     el.style.background = styles[0]; el.style.color = styles[1];
     el.textContent = styles[2];
     if (st === 'saved') setTimeout(() => { if (el.textContent === 'Saved') el.textContent = ''; el.style.background='transparent'; }, 2500);
@@ -528,6 +561,63 @@ const DB = (function(){
        There is no optimistic local write. The server validates, recomputes the
        total from the stored lines, audits, and returns the saved order; the
        caller replaces its copy with that. */
+    /* ---- server-derived action discovery (warehouse interface correction) ----
+
+       The panel is a whole-database editor and POST /admin/sync is admin-only
+       since finding SEC-002. Rather than scatter `role === 'warehouse'` checks
+       through nine page files — which drift from the server and teach the next
+       contributor that the browser decides authority — the server answers.
+
+       This is a RENDERING HINT. Every request is still authorised server-side;
+       hiding a control is a courtesy, not a control. */
+    async adminAccess(){
+      const res = await apiCall('GET', '/admin/access');
+      const a = (res && res.actions) || {};
+      /* Strict booleans: a partial or malformed response must read as "no
+         action", never as truthy. */
+      const actions = {};
+      for (const key of Object.keys(a)) actions[String(key)] = a[key] === true;
+      canSync = actions['sync.write'] === true;
+      return { role: String((res && res.role) || ''), actions };
+    },
+
+    /** True only once the server has said so. Null-safe for callers that run
+        before discovery completes — they get `false`, which fails closed. */
+    get canSync(){ return canSync === true; },
+
+    /* ---- narrow warehouse inventory workflows ----
+
+       These replace the stock edits that used to ride on the whole-database
+       sync. Fixed paths built here, `apiCall` still private, and the server
+       takes the actor from the session — there is no way to send one. */
+
+    /** One quantity change. `delta` is a signed integer; `reason` is one of
+        the server's closed set (receipt, count, damage, return, correction). */
+    async adjustStock(sku, warehouseId, delta, reason, note){
+      const res = await apiCall('POST', '/admin/inventory/adjust',
+        { sku: String(sku), warehouseId: String(warehouseId),
+          delta: Number(delta), reason: String(reason),
+          note: note == null ? '' : String(note) });
+      if (!res || !res.stock) throw malformed();
+      return { sku: String(res.stock.sku), warehouseId: String(res.stock.warehouseId),
+               qty: Number(res.stock.qty) || 0 };
+    },
+
+    /** An atomic move between two warehouses. */
+    async transferStock(sku, fromWarehouseId, toWarehouseId, qty, note){
+      const res = await apiCall('POST', '/admin/inventory/transfer',
+        { sku: String(sku), fromWarehouseId: String(fromWarehouseId),
+          toWarehouseId: String(toWarehouseId), qty: Number(qty),
+          note: note == null ? '' : String(note) });
+      if (!res || !res.transfer) throw malformed();
+      const t = res.transfer;
+      return {
+        sku: String(t.sku),
+        from: { warehouseId: String(t.from.warehouseId), qty: Number(t.from.qty) || 0 },
+        to: { warehouseId: String(t.to.warehouseId), qty: Number(t.to.qty) || 0 },
+      };
+    },
+
     async patchOrder(idOrNumber, patch){
       const res = await apiCall('PATCH', '/admin/orders/'+encodeURIComponent(idOrNumber), patch);
       if (res && res.order) replaceOrder(res.order);

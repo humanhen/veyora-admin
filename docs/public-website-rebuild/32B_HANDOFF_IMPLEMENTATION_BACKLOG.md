@@ -370,3 +370,21 @@ confirmation · `SEC-017`/`MED-002` upload content verification.
 **The admin panel needs a UI change for warehouse logins.** A warehouse user now receives a 403 from
 `POST /admin/sync`; the panel should show the inventory screens rather than a failed save. A
 usability regression for that role, not a security one.
+
+### Warehouse interface follow-up — CLOSED 2026-08-07
+
+The one follow-up the Security Hardening workstream created is done.
+
+**Was:** a warehouse login received a 403 from the whole-database sync, and the panel retried it every
+five seconds forever. **Now:** the panel asks `GET /admin/access` what this session may do — derived
+server-side from the same constants the routes enforce with — and hides what it cannot use.
+
+Stock count/correction and warehouse transfer are rewired to the narrow `/admin/inventory` routes.
+Product edit, warehouse management and 18 commercial or administrative nav entries are gone from the
+warehouse view. Fulfilment, collection, dispatch, tracking and backorder conversion were already on
+dedicated routes and are untouched.
+
+Two defects fixed on the way: the infinite 403 retry, and a double-submit guard that relied on
+`disabled` — which stops a mouse click but not a second Enter racing the first.
+
+Detail: [34_SECURITY_HARDENING.md](34_SECURITY_HARDENING.md) §11.
