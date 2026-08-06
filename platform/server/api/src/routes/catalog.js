@@ -4,6 +4,7 @@ import { q } from '../db.js';
 import { requireAuth, optionalAuth, AGENT_ROLES } from '../authmw.js';
 import { priceForCustomer } from '../pricing.js';
 import { pricingIdentity } from '../ordering.js';
+import { portalLink } from '../origins.js';
 
 const r = Router();
 
@@ -369,9 +370,13 @@ async function resolveSkuMatches(skus) {
   };
 }
 
+/* A PORTAL link. 04_TARGET_ARCHITECTURE.md §8.1 keeps shared curated lists on
+   the portal host deliberately — they show customer pricing to a signed-in
+   viewer, so they must never move to the public site. The old `PUBLIC_URL`
+   fallback would have pointed exactly there after the cutover, breaking every
+   shared link already sent to a customer (finding SEC-004). */
 function listUrl(slug) {
-  const base = (process.env.PUBLIC_URL || 'https://veyora.design').replace(/\/+$/, '');
-  return `${base}/#/list/${slug}`;
+  return portalLink(`/#/list/${slug}`);
 }
 
 // Public: view a shared list (guest sees frames only, customer sees prices).

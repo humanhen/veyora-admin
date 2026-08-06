@@ -2,16 +2,28 @@
    Mirrors the old veyora.com transactional look: dark header, light body,
    gift/details cards, rounded CTA, dark footer.
 
-   Deliberately dependency-free: this module renders strings and must not reach
-   for the database or any driver, so callers pass the currency + rate in.
-   currency.js stays the source of truth for the supported currency list. */
+   Deliberately driver-free: this module renders strings and must not reach for
+   the database or any network client, so callers pass the currency + rate in.
+   currency.js stays the source of truth for the supported currency list.
+
+   The one import is `origins.js`, which is pure configuration resolution with
+   no I/O of its own. Links have to come from somewhere, and reading
+   `process.env` inline here is exactly how the ambiguous `PUBLIC_URL` ended up
+   controlling six links and a cookie flag at once. */
+import { portalLink, adminLink } from './origins.js';
 
 const INK = '#221F20';
 const MAROON = '#5c4a4a';
 const BG = '#f4f2ef';
 const CARD = '#ffffff';
 const MUTED = '#8a857f';
-const PUBLIC = () => process.env.PUBLIC_URL || 'https://veyora.design';
+/* Every link in transactional email is a PORTAL or ADMIN destination — an
+   order view, a backorder list, the admin order screen. None of them is a
+   public-website link, which is why both helpers come from the origin contract
+   and neither reads the ambiguous `PUBLIC_URL`. See src/origins.js and finding
+   SEC-004. */
+const PORTAL = (path = '') => portalLink(path);
+const ADMIN = (path = '') => adminLink(path);
 
 function shell(title, inner, toEmail) {
   const year = new Date().getFullYear();
@@ -239,7 +251,7 @@ export function orderConfirmation({ name, email, order, hidePrices, backorder,
       p(`<span style="color:${MUTED}">These pieces were not in stock, so they are <b>not</b> part of the allocated quantities above. They are recorded on backorder <b>${esc(backorder.number)}</b> and our team will process them when stock becomes available.</span>`)
     ) : '') +
     valueTableHtml(totals, opts) +
-    `<div style="text-align:center;margin-top:22px">${button('View Order', `${PUBLIC()}/#/order/${order.id}`)}</div>`;
+    `<div style="text-align:center;margin-top:22px">${button('View Order', PORTAL(`/#/order/${order.id}`))}</div>`;
 
   const text = joinLines(
     `Dear ${name || 'there'},`,
@@ -261,7 +273,7 @@ export function orderConfirmation({ name, email, order, hidePrices, backorder,
     ] : [],
     valueRows(totals, opts).map(([k, v]) => `${k}: ${v} ${currency}`),
     '',
-    `View your order: ${PUBLIC()}/#/order/${order.id}`);
+    `View your order: ${PORTAL(`/#/order/${order.id}`)}`);
 
   return { subject: `Veyora order ${order.number} received`,
            html: shell('Order Confirmed', inner, email), text };
@@ -281,7 +293,7 @@ export function backorderConfirmation({ name, email, backorder, hidePrices,
     `<table role="presentation" width="100%" cellpadding="0" cellspacing="0">${
       itemRows(backorder.items, opts)}</table>` +
     valueTableHtml(totals, opts) +
-    `<div style="text-align:center;margin-top:22px">${button('View Backorders', `${PUBLIC()}/#/backorders`)}</div>`;
+    `<div style="text-align:center;margin-top:22px">${button('View Backorders', PORTAL(`/#/backorders`))}</div>`;
 
   const text = joinLines(
     `Dear ${name || 'there'},`,
@@ -296,7 +308,7 @@ export function backorderConfirmation({ name, email, backorder, hidePrices,
     textItems(backorder.items, opts),
     valueRows(totals, opts).map(([k, v]) => `${k}: ${v} ${currency}`),
     '',
-    `View your backorders: ${PUBLIC()}/#/backorders`);
+    `View your backorders: ${PORTAL(`/#/backorders`)}`);
 
   return { subject: `Veyora backorder ${backorder.number} received`,
            html: shell('Backorder Received', inner, email), text };
@@ -343,7 +355,7 @@ export function staffOrderAlert({ order, backorder, customer, agent, lines,
         <td style="font-size:11px;color:${MUTED};text-transform:uppercase;letter-spacing:1px;text-align:center;padding-bottom:4px">Pick</td>
         <td style="font-size:11px;color:${MUTED};text-transform:uppercase;letter-spacing:1px;text-align:center;padding-bottom:4px">B/O</td>
       </tr>${rows}</table>` +
-    (order ? `<div style="text-align:center;margin-top:22px">${button('Open in Admin', `${PUBLIC()}/admin/#/orders`)}</div>` : '');
+    (order ? `<div style="text-align:center;margin-top:22px">${button('Open in Admin', ADMIN(`/#/orders`))}</div>` : '');
 
   const text = joinLines(
     `${kind} ${ref}`,
@@ -356,7 +368,7 @@ export function staffOrderAlert({ order, backorder, customer, agent, lines,
       `      ${textIdentity(l)}`,
       `      requested ${l.requested} · allocate ${l.allocated} · backorder ${l.backordered}`
         + ` — ${fmtMoney(l.requested * l.price, currency, rate)}`)),
-    order ? ['', `Open in admin: ${PUBLIC()}/admin/#/orders`] : []);
+    order ? ['', `Open in admin: ${ADMIN(`/#/orders`)}`] : []);
 
   return { subject: `[Veyora] ${kind} ${ref} — ${customer?.business || customer?.email || 'customer'}`,
            html: shell(kind, inner, null), text };

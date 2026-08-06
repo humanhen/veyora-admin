@@ -222,25 +222,20 @@ const HOST_EXCEPTIONS = [
     pattern: /process\.env\.SMTP_FROM \|\| 'Veyora <info@veyora\.com>'/g,
     reason: 'the same sender fallback, in the code the compose default feeds',
   },
+  /* The three R-01 link fallbacks that used to live here — in authmw.js,
+     emails.js and routes/catalog.js — are GONE, not muted. Every one of them
+     now builds its URL from the explicit origin contract in src/origins.js
+     (finding SEC-004, Security Hardening Phase 1), so there is nothing left to
+     except. The stale-exception rule below is what surfaced their removal:
+     when the fix landed, the gate failed until the pins were deleted, which is
+     exactly the behaviour a pin list should have. */
   {
-    file: 'platform/server/api/src/authmw.js',
-    pattern: /process\.env\.PUBLIC_URL \|\| 'https:\/\/veyora\.design'/g,
-    reason: 'password-reset link base. After the catch-all cutover this fallback points at the '
-      + 'PUBLIC site, not the portal — links already in inboxes would 404',
-    blocker: 'R-01',
-  },
-  {
-    file: 'platform/server/api/src/emails.js',
-    pattern: /process\.env\.PUBLIC_URL \|\| 'https:\/\/veyora\.design'/g,
-    reason: 'transactional email link base — same cutover consequence as authmw.js',
-    blocker: 'R-01',
-  },
-  {
-    file: 'platform/server/api/src/routes/catalog.js',
-    pattern: /\(process\.env\.PUBLIC_URL \|\| 'https:\/\/veyora\.design'\)/g,
-    reason: 'shared-list URL base. Shared links already sent to customers would land on the public '
-      + 'site after the cutover',
-    blocker: 'R-01',
+    file: 'platform/server/docker-compose.yml',
+    pattern: /\$\{PUBLIC_URL:-http:\/\/209\.46\.125\.226\}/g,
+    reason: 'pre-existing bare-IP fallback for the deprecated PUBLIC_URL. Left alone deliberately: '
+      + 'an existing .env always sets PUBLIC_URL (deploy.sh writes it on first run), so this default '
+      + 'is unreachable in practice, and changing a live deployment default unattended is the kind '
+      + 'of edit that breaks a server nobody is watching',
   },
   /* Comments and sample text. Not shipped behaviour, but pinned so the set
      stays closed and a new occurrence still fails. */
@@ -251,9 +246,9 @@ const HOST_EXCEPTIONS = [
   },
   {
     file: 'platform/server/.env.example',
-    pattern: /DOMAIN=veyora\.design\nPUBLIC_URL=https:\/\/veyora\.design/g,
-    reason: 'pre-existing example values for the two variables that predate this release; the '
-      + 'variables this release adds all use example.test',
+    pattern: /DOMAIN=veyora\.design[\s\S]{0,400}?PUBLIC_URL=https:\/\/veyora\.design/g,
+    reason: 'pre-existing example values for the two variables that predate this release; every '
+      + 'variable added since uses example.test, and PUBLIC_URL is now marked deprecated here',
   },
   {
     file: 'platform/server/api/src/emails.js',
@@ -280,7 +275,15 @@ const HOST_EXCEPTIONS = [
 gate('secret-and-host-scan', 'no secret or production hostname in a shipped artefact', () => {
   if (!trackedFiles) return { ok: false, detail: 'git ls-files failed' };
 
-  const HOSTS = [/\bveyora\.design\b/i, /\bveyora\.com\b/i, /\bveyora-vps\b/i, /\bwww\.veyora\./i];
+  const HOSTS = [
+    /\bveyora\.design\b/i, /\bveyora\.com\b/i, /\bveyora-vps\b/i, /\bwww\.veyora\./i,
+    /* A bare routable IPv4 address is a production host by another name, and
+       the name-based patterns above cannot see it. Loopback, link-local and
+       the three RFC-1918 private ranges are excluded: they are legitimate in
+       config and tests. This caught a real one — the compose fallback for the
+       deprecated PUBLIC_URL — which the name patterns had missed entirely. */
+    /\b(?!0\.|10\.|127\.|169\.254\.|172\.(?:1[6-9]|2\d|3[01])\.|192\.168\.|255\.)(?:\d{1,3}\.){3}\d{1,3}\b/,
+  ];
   /* Secret SHAPES, not secret names: an assignment of a long opaque literal to
      something called a secret/key/token/password. `${VAR}`, `${VAR:?}` and
      `process.env.X` are references, not secrets, and are not matched. */

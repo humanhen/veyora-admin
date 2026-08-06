@@ -197,11 +197,34 @@ test('the exception list cannot be widened into a blanket skip', () => {
 });
 
 test('open release blockers are reported by register id, not hidden', () => {
+  /* The MECHANISM is what this asserts, not a particular blocker. It must
+     still count and name any exception carrying a register id — see the
+     regression test below for why none does today. */
   assert.match(code, /blocker/);
+  assert.match(code, /open release blockers/);
   const r = run('secret-and-host-scan');
   assert.equal(r.status, 0, r.stdout);
-  assert.match(r.stdout, /declared exception \[R-01\]/, 'R-01 consequences must be named on every run');
   assert.match(r.stdout, /open release blockers/);
+});
+
+test('the three R-01 link fallbacks are gone, not merely excepted', () => {
+  /* Regression test for finding SEC-004 (Security Hardening Phase 1).
+     authmw.js, emails.js and routes/catalog.js each used to fall back to a
+     hard-coded production host that becomes the PUBLIC site after the
+     cutover, so password-reset, order and shared-list links already in
+     customers' inboxes would have 404'd. All three now build their URLs from
+     the explicit origin contract.
+
+     Asserted two ways, because either alone could pass while the problem
+     returned: no exception may carry the R-01 marker, AND the run must report
+     zero open blockers. */
+  const block = source.slice(source.indexOf('const HOST_EXCEPTIONS'), source.indexOf("gate('secret-and-host-scan'"));
+  assert.ok(!/blocker:\s*'R-01'/.test(block),
+    'an R-01 exception is back — the origin contract has regressed');
+
+  const r = run('secret-and-host-scan');
+  assert.match(r.stdout, /0 of them open release blockers/,
+    'the scan must report no open release blockers');
 });
 
 // ---------------------------------------------------------------------------

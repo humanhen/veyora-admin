@@ -29,7 +29,25 @@ services:
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASS: ${SMTP_PASS:-}
       SMTP_FROM: ${SMTP_FROM:-Veyora <info@veyora.com>}
+      # DEPRECATED. Kept so an existing .env keeps working: src/origins.js
+      # accepts it as a fallback for PORTAL_ORIGIN and logs a deprecation.
+      # It no longer influences cookie security in any way (finding AUTH-002).
+      # The bare-IP default is pre-existing and is declared in the release
+      # gate's host-scan exception list rather than changed unattended.
       PUBLIC_URL: ${PUBLIC_URL:-http://209.46.125.226}
+      # Where portal and admin links point. Falls back to PUBLIC_URL when
+      # unset, so this is additive for an existing deployment — but set it
+      # explicitly before the cutover, because that is the moment PUBLIC_URL
+      # stops meaning "the portal".
+      PORTAL_ORIGIN: ${PORTAL_ORIGIN:-}
+      ADMIN_ORIGIN: ${ADMIN_ORIGIN:-}
+      # Session-cookie security. Explicit, and never derived from a link
+      # variable. Unset it and production defaults to Secure.
+      COOKIE_SECURE: ${COOKIE_SECURE:-}
+      # Reverse-proxy hops in front of the API. One (Caddy) in this topology.
+      # Do NOT raise this without adding a proxy: each hop is one more
+      # X-Forwarded-For entry a client could forge to choose its own req.ip.
+      TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-1}
       INGEST_KEY: ${INGEST_KEY:-}
       ZOHO_CLIENT_ID: ${ZOHO_CLIENT_ID:-}
       ZOHO_CLIENT_SECRET: ${ZOHO_CLIENT_SECRET:-}

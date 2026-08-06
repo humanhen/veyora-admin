@@ -14,12 +14,25 @@ import accountPermissionRoutes from './routes/account-permissions.js';
 import adminEnquiryRoutes from './routes/admin-enquiries.js';
 import publicRoutes from './routes/public.js';
 import publicFormRoutes from './routes/public-forms.js';
+import { origins } from './origins.js';
 import { ensureSchema } from './migrate.js';
 import { startZohoSchedule } from './zoho.js';
 import { startServer } from './startup.js';
 
 const app = express();
-app.set('trust proxy', true);
+
+/* Trust EXACTLY the number of reverse proxies in front of this service — one
+   (Caddy) in the approved topology, configurable via TRUST_PROXY_HOPS.
+ *
+ * This was `true`, which means "trust every hop". Express then takes `req.ip`
+ * from the LEFT-MOST X-Forwarded-For entry, a value the client fully controls,
+ * so any IP-keyed decision — rate limiting above all — could be bypassed by
+ * varying one header per request. With a hop count, Express counts in from the
+ * right and returns the address the proxy itself observed.
+ *
+ * See src/origins.js and 34_SECURITY_HARDENING.md §3. */
+app.set('trust proxy', origins.trustProxyHops);
+
 app.use(express.json({ limit: '64mb' }));
 app.use(cookieParser());
 

@@ -1,15 +1,22 @@
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import { q } from './db.js';
+import { COOKIE_OPTIONS, portalLink } from './origins.js';
 
 const SECRET = process.env.JWT_SECRET;
 if (!SECRET) throw new Error('JWT_SECRET is required');
 
 const ACCESS_TTL = '30m';
 const REFRESH_DAYS = 30;
-// Secure flag on when served over HTTPS (PUBLIC_URL set to https, i.e. prod).
-const SECURE_COOKIES = /^https:/i.test(process.env.PUBLIC_URL || '');
-const COOKIE_OPTS = { httpOnly: true, sameSite: 'lax', secure: SECURE_COOKIES, path: '/' };
+
+/* Cookie security comes from the origin contract, NOT from a link variable.
+   This used to read
+       const SECURE_COOKIES = /^https:/i.test(process.env.PUBLIC_URL || '');
+   which meant repointing PUBLIC_URL at the public site during the cutover —
+   or unsetting it, or setting it without a scheme — silently dropped `Secure`
+   from both session cookies with no error and no failing test. See
+   src/origins.js and 34_SECURITY_HARDENING.md §2 (finding AUTH-002). */
+const COOKIE_OPTS = COOKIE_OPTIONS;
 
 export function signAccess(user) {
   return jwt.sign({ sub: user.id, role: user.role }, SECRET, { expiresIn: ACCESS_TTL });
@@ -96,9 +103,13 @@ export function setPasswordToken(userId, purpose = 'activation') {
   return jwt.sign({ sub: userId, purpose }, SECRET, { expiresIn: '3d' });
 }
 
+/* A PORTAL link. Setting a password happens in the portal SPA, never on the
+   public website — and after the cutover the old `PUBLIC_URL` fallback would
+   have pointed at the public site, where `/#/set-password/...` does not exist.
+   Reset links already sitting in customers' inboxes would have 404'd. That is
+   R-01's breakage, and finding SEC-004. */
 export function setPasswordLink(userId, purpose = 'activation') {
-  const base = process.env.PUBLIC_URL || 'https://veyora.design';
-  return `${base}/#/set-password/${setPasswordToken(userId, purpose)}`;
+  return portalLink(`/#/set-password/${setPasswordToken(userId, purpose)}`);
 }
 
 /** Like requireAuth, but anonymous visitors get a read-only guest identity
