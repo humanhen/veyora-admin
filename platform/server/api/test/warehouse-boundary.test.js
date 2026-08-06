@@ -130,9 +130,13 @@ test('3 — the collections a warehouse login could previously rewrite are named
   /* Regression guard on the finding itself: these are commercial or evidential
      and must never be reachable by a fulfilment role. */
   for (const collection of ['promotions', 'invoices', 'payments', 'creditNotes',
-                            'shippingRules', 'freeShipping', 'audit', 'users']) {
+                            'shippingRules', 'freeShipping', 'users']) {
     assert.ok(collection in SIMPLE_COLLECTIONS, `${collection} should still exist as a collection`);
   }
+  /* `audit` was on this list too. Phase 4 removed it from the syncable set
+     entirely rather than merely gating it — see SEC-015. */
+  assert.ok(!('audit' in SIMPLE_COLLECTIONS),
+    'the audit log must not be a syncable collection');
   const sync = code('routes/admin.js');
   assert.match(sync, /restricted to administrators/);
 });

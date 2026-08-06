@@ -511,4 +511,26 @@ export async function ensureSchema() {
     on form_submissions (handling_status)`);
   await q(`create index if not exists form_submissions_created_at_idx
     on form_submissions (created_at desc)`);
+
+  /* ---- append-only audit history (mirrors db/migrations/0010) ----
+     Finding SEC-015. `audit` was a synced collection, so the generic
+     whole-database sync could UPDATE and DELETE audit rows. Reuses exactly the
+     pattern the inventory ledger has used since it was built (see
+     inventory_movements_immutable above) rather than inventing a second
+     mechanism. Additive: INSERT is untouched, no row is modified, nothing is
+     dropped. Corrections are compensating records, never mutations. */
+  await q(`create or replace function audit_log_immutable() returns trigger as $$
+    begin
+      raise exception 'audit_log is append-only (% blocked)', tg_op;
+    end $$ language plpgsql`);
+  await q(`do $$ begin
+    if not exists (select 1 from pg_trigger where tgname = 't_audit_log_no_update') then
+      create trigger t_audit_log_no_update before update on audit_log
+        for each row execute function audit_log_immutable();
+    end if;
+    if not exists (select 1 from pg_trigger where tgname = 't_audit_log_no_delete') then
+      create trigger t_audit_log_no_delete before delete on audit_log
+        for each row execute function audit_log_immutable();
+    end if;
+  end $$`);
 }

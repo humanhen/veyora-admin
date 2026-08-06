@@ -46,7 +46,7 @@ images or browser binaries.
 | 1 — Origin and cookie contract | complete | `fix: separate authentication and public origin security` |
 | 2 — Authentication abuse controls | complete | `fix: add bounded authentication rate limiting` |
 | 3 — Warehouse sync writes | complete | `fix: replace broad warehouse sync writes` |
-| 4 — Audit-log integrity | pending | |
+| 4 — Audit-log integrity | complete | `fix: enforce append-only audit history` |
 | 5 — Permission and release safety | pending | |
 | 6 — Regression and handoff | pending | |
 
@@ -368,3 +368,63 @@ pins that so it is not mistaken for a gap, and not silently lost.
   staff need it, it wants its own narrow route rather than a widened gate.
 
 **Next:** Phase 4 — append-only audit history.
+
+### Phase 4 — complete
+
+**Files changed**
+
+| Path | Change |
+|---|---|
+| `platform/server/db/migrations/0010_audit_log_append_only.sql` | new — UPDATE/DELETE triggers |
+| `platform/server/api/src/migrate.js` | `ensureSchema()` mirror |
+| `platform/server/api/src/shape.js` | **`audit` removed from the syncable set** |
+| `js/pages_ops.js` | the Undo control removed (REP-007) |
+| `platform/server/api/test/audit-integrity.test.js` | new — 16 tests |
+| `platform/server/api/test/warehouse-boundary.test.js` | assertion updated for the removed collection |
+
+**Tests:** API **1,193** passing (1,177 + 16), root admin frontend **187**, 0 failing.
+Free space 8.2 GB.
+
+**Three independent layers, any one sufficient**
+
+1. **Database** — `audit_log_immutable()` raises on UPDATE and DELETE, via
+   `t_audit_log_no_update` / `t_audit_log_no_delete`. This **reuses the exact pattern
+   `inventory_movements` has used since it was built** rather than inventing a second mechanism.
+2. **Collection map** — `audit` is gone from `SIMPLE_COLLECTIONS`, so the sync loop now answers
+   *"unknown collection"* for it. Removed rather than gated.
+3. **Endpoint** — `POST /admin/sync` is admin-only as of Phase 3.
+
+`INSERT` is deliberately untouched, so `audit()` in `db.js` works exactly as before.
+
+**Non-destructive, deliberately**
+
+No row modified, no column dropped, no type changed, no data converted. The migration writes nothing
+at all. The `undone` column is **left in place** — dropping a column is destructive and this
+migration is not — it simply can no longer be flipped, which is correct.
+
+**The Undo control is gone (REP-007)**
+
+It never reverted anything. It set `undone = true` on the original row and inserted a second row
+reading *"Reversed event <id>"*, while the action it claimed to have reversed remained in force.
+**The audit log actively misstated what had happened**, which is worse than a missing feature. It is
+now also impossible: the table rejects the update and `audit` is not syncable.
+
+A real undo belongs on the entity being undone — a compensating order amendment, a re-grant — each
+writing its own new audit entry.
+
+**Corrections are compensating records, not mutations** — the same discipline the inventory ledger
+already follows, stated in the migration header.
+
+**Honest scope**
+
+A trigger cannot fire without PostgreSQL, and this suite has none. The 16 tests assert **definition**
+— the triggers exist in both the migration and the mirror, the function raises rather than swallowing,
+the migration is non-destructive, no application path can reach an UPDATE or DELETE, and exactly two
+reviewed writers exist, both of which only append. **Proving the trigger actually fires is an RC
+verification step** against a disposable database, recorded as such.
+
+**Second writer found and reviewed:** `credential-migration.js` also inserts an audit entry when that
+supervised script runs. Legitimate — it appends. The test now pins both writers, so a third would
+fail until someone confirms it only ever appends.
+
+**Next:** Phase 5 — permission bootstrap and release-safety review.

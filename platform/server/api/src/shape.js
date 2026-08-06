@@ -142,15 +142,20 @@ export const SIMPLE_COLLECTIONS = {
       createdAt: { col: 'created_at', ro: true },
     },
   },
-  audit: {
-    table: 'audit_log',
-    appendOnly: true,
-    fields: {
-      id: 'id', actorId: 'actor_id', actorName: 'actor_name', actorRole: 'actor_role',
-      action: 'action', target: 'target', source: 'source', changes: 'changes',
-      undone: 'undone', when: { col: 'created_at' },
-    },
-  },
+  /* `audit` is deliberately ABSENT from this map (finding SEC-015).
+   *
+   * It used to be here, which put the audit log on the generic
+   * whole-database sync path: `POST /admin/sync` could upsert and delete
+   * audit rows exactly like any other collection. An audit log the audited
+   * party can rewrite is not an audit log.
+   *
+   * The log is now written in one place only — `audit()` in src/db.js — and
+   * the database refuses UPDATE and DELETE outright (0010, mirrored in
+   * ensureSchema). Reading it is unaffected: `GET /admin/snapshot` no longer
+   * carries it, and the admin panel reads it through its own endpoint.
+   *
+   * Do not re-add it. A correction to a wrong entry is a NEW entry, not an
+   * edit — see AUDIT_READ_COLUMNS in src/admin-data.js for the read shape. */
 };
 
 /** row (db) -> admin JSON object, using a collection's field map. */

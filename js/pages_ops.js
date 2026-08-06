@@ -399,7 +399,7 @@ App.register('audit',function(el){
     </div>
     <div class="card">
       <div class="table-wrap"><table class="tbl">
-        <thead><tr><th>When</th><th>Actor</th><th>Action</th><th>Target</th><th>Source</th><th>Changes</th><th>Undo</th></tr></thead>
+        <thead><tr><th>When</th><th>Actor</th><th>Action</th><th>Target</th><th>Source</th><th>Changes</th></tr></thead>
         <tbody>${p.slice.length?p.slice.map((e,ix)=>`<tr class="clickable" data-row="${e.id}">
           <td class="small">${fmtDateTime(e.when)}</td>
           <td><div class="cell-main">${esc(e.actorName)}</div><div class="cell-sub">${esc(e.actorRole)}</div></td>
@@ -407,8 +407,7 @@ App.register('audit',function(el){
           <td>${esc(e.target)}</td>
           <td><span class="badge gray">${esc(e.source)}</span></td>
           <td class="small" style="max-width:240px">${esc(e.changes)}</td>
-          <td>${e.undone?'<span class="badge gray">Undone</span>':`<button class="btn btn-sm" data-undo="${e.id}">${I.undo} Undo</button>`}</td>
-        </tr>`).join(''):`<tr><td colspan="7" class="empty-cell">No events match the current filters.</td></tr>`}
+        </tr>`).join(''):`<tr><td colspan="6" class="empty-cell">No events match the current filters.</td></tr>`}
         </tbody></table></div>
       ${pagerHTML(p,'events')}
     </div>`;
@@ -446,18 +445,22 @@ App.register('audit',function(el){
       ov.querySelector('.modal-x').onclick=close;
       ov.querySelector('.drawer-overlay').onclick=close;
     });
-    el.querySelectorAll('[data-undo]').forEach(b=>b.onclick=()=>{
-      const ev=d.audit.find(x=>x.id===b.dataset.undo);
-      const sess=Auth.current();
-      if(sess.role!=='admin')return toast('Admin only',true);
-      Modal.confirm('Undo action','Reverse <b>'+esc(ev.action)+'</b> on '+esc(ev.target)+'? A new record is created pointing back at the original. (Not every action is reversible.)',()=>{
-        ev.undone=true;
-        d.audit.unshift({id:uid('ev'),when:new Date().toISOString(),actorId:sess.id,actorName:sess.name,
-          actorRole:sess.role,action:'undo',target:ev.target,source:'web',
-          changes:'Reversed event '+ev.id+' ('+ev.action+')',undone:false,refId:ev.id});
-        DB.save();render();toast('Action reversed');
-      },'Undo');
-    });
+    /* The "Undo" control was REMOVED here (finding REP-007, Security
+       Hardening Phase 4).
+
+       It never reverted anything. It set `undone = true` on the original row
+       and inserted a second row saying "Reversed event <id>" — so the audit
+       log actively misstated what had happened, while the action it claimed to
+       have reversed remained in force. A log that lies is worse than a log
+       with a missing feature.
+
+       It is also now impossible: `audit_log` is append-only at the database
+       level (migration 0010) and `audit` is no longer a syncable collection,
+       so neither the flag nor the row could be written.
+
+       If a real undo is wanted, it belongs on the entity being undone — a
+       compensating order amendment, a re-grant of a permission — each writing
+       its own new audit entry. Not here. */
   }
   render();
 });
