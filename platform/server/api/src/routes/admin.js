@@ -753,6 +753,32 @@ r.post('/sync', async (req, res, next) => {
         error: gate.error, collections: gate.collections });
     }
 
+    /* ROLE GATE — finding SEC-002.
+     *
+     * This endpoint is a whole-database row editor across 18 collections. It
+     * previously admitted `warehouse` and gated exactly one collection
+     * (`users`), leaving promotions, invoices, payments, credit notes,
+     * shipping rules, settings — which carries the FX rates — and the audit
+     * log writable by a fulfilment login.
+     *
+     * The sharpest case was `products`: receiving stock went through it, and
+     * upsertProduct writes price and sale_price on the product and every
+     * variation, so the same request that received a delivery could re-price
+     * the catalogue.
+     *
+     * Warehouse staff now use the narrow workflow routes under
+     * /admin/inventory (adjust, transfer), which touch quantities and nothing
+     * else. The whole payload is refused rather than filtered: a partial
+     * write would tell the caller its stock change was rejected while its
+     * other changes had already landed. */
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({
+        error: 'This endpoint is restricted to administrators. '
+          + 'Warehouse operations use the dedicated routes under /admin/inventory.',
+        code: 'ADMIN_ONLY',
+      });
+    }
+
     const remaps = [];
     const touched = new Set();
     await tx(async (c) => {

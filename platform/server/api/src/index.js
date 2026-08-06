@@ -12,6 +12,7 @@ import adminRoutes from './routes/admin.js';
 import adminPublicContentRoutes from './routes/admin-public-content.js';
 import accountPermissionRoutes from './routes/account-permissions.js';
 import adminEnquiryRoutes from './routes/admin-enquiries.js';
+import adminInventoryRoutes from './routes/admin-inventory.js';
 import publicRoutes from './routes/public.js';
 import publicFormRoutes from './routes/public-forms.js';
 import { origins } from './origins.js';
@@ -82,6 +83,14 @@ app.use('/admin/account-permissions', accountPermissionRoutes);
    here is `enquiries.view` / `enquiries.manage` — two capabilities nobody
    holds until they are granted one account at a time. */
 app.use('/admin/enquiries', adminEnquiryRoutes);
+
+/* Narrow warehouse inventory operations (Security Hardening Phase 3). Mounted
+   before the general /admin router so its own role gate runs first. These are
+   the routes a `warehouse` login uses instead of the whole-database sync,
+   which now refuses every non-admin caller (finding SEC-002). They move
+   quantities and record a ledger movement; they touch no price and no
+   commercial field. */
+app.use('/admin/inventory', adminInventoryRoutes);
 
 app.use('/admin', adminRoutes);
 

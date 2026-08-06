@@ -45,7 +45,7 @@ images or browser binaries.
 | 0 — Verify and map | complete | *(no commit — Phase 0 alone does not check point)* |
 | 1 — Origin and cookie contract | complete | `fix: separate authentication and public origin security` |
 | 2 — Authentication abuse controls | complete | `fix: add bounded authentication rate limiting` |
-| 3 — Warehouse sync writes | pending | |
+| 3 — Warehouse sync writes | complete | `fix: replace broad warehouse sync writes` |
 | 4 — Audit-log integrity | pending | |
 | 5 — Permission and release safety | pending | |
 | 6 — Regression and handoff | pending | |
@@ -295,3 +295,76 @@ would have been decorative. A test asserts the setting the limiter depends on.
   token, so it is not an unauthenticated guessing surface.
 
 **Next:** Phase 3 — remove warehouse access to generic admin writes.
+
+### Phase 3 — complete
+
+**Files changed**
+
+| Path | Change |
+|---|---|
+| `platform/server/api/src/routes/admin-inventory.js` | new — narrow warehouse operations |
+| `platform/server/api/src/routes/admin.js` | generic sync now refuses every non-admin |
+| `platform/server/api/src/index.js` | new router mounted before the general `/admin` |
+| `platform/server/api/test/warehouse-boundary.test.js` | new — 27 tests |
+
+**Tests:** API **1,177** passing (1,150 + 27), 0 failing. Free space 8.2 GB.
+
+**Warehouse workflow classification**
+
+| Action | Path | Classification |
+|---|---|---|
+| Order fulfilment, item collection, dispatch, tracking | `PATCH /admin/orders/:id` | **already supported by a dedicated route** |
+| Backorder conversion | `POST /admin/backorders/:id/convert` | already supported |
+| Reservation / release | automatic in the ordering path | already supported, not a manual action |
+| Reads — orders, backorders, movements, reconciliation | existing `GET` routes | kept, separately controlled |
+| **Inventory receiving** | *was* generic sync → `products` | **new narrow route** `POST /admin/inventory/adjust` |
+| **Stock adjustment, count, damage, return** | *was* generic sync → `products` | **same new route**, closed reason set |
+| **Transfer between warehouses** | *was* generic sync → `products` | **new narrow route** `POST /admin/inventory/transfer` |
+| Production status, returns, spare parts, prices, promotions, invoices, payments, settings | generic sync | **admin-only** |
+
+**The sharpest case, and it was not in the audit's wording**
+
+Receiving stock went through the `products` collection, and `upsertProduct` writes `price` and
+`sale_price` on the product *and every variation*. **The same request that received a delivery could
+re-price the entire catalogue**, with nothing in the payload distinguishing the two intents.
+
+**What changed**
+
+`POST /admin/sync` now refuses any caller whose role is not `admin`, **before the transaction opens**,
+with a message naming where warehouse work should go instead. The whole payload is refused rather
+than filtered — a partial write would tell the caller its stock change was rejected while its other
+changes had already landed. The pre-existing per-collection `users` check is kept as defence in
+depth.
+
+**The new routes**
+
+`POST /admin/inventory/adjust` — SKU, warehouse, integer delta, reason from a closed set
+(`receipt`, `count`, `damage`, `return`, `correction`), optional note. Locks the stock row, refuses
+to take a balance negative, records a ledger movement, audits.
+
+`POST /admin/inventory/transfer` — atomic two-legged move; locks both warehouses **in a stable
+order** so opposing transfers cannot deadlock; refuses on insufficient stock and rolls back.
+
+Both take the actor from `req.user`, reject unknown request fields rather than ignoring them, and
+write exactly one table directly (`stock`), delegating the ledger to the existing `recordMovement()`
+rather than a second hand-rolled `INSERT` that could drift.
+
+**A real gap found while testing:** the schemas accepted a numeric *string* — `Number('5')` is 5 — so
+`{"delta": "5"}` passed. Now strictly typed, because an explicit request schema means explicit types
+and a client sending a string has a misunderstanding worth surfacing.
+
+**Verified rather than changed**
+
+Order discounts were **already** admin-only via `patchTouchesMoney` + `isFinancialActor`. A test now
+pins that so it is not mistaken for a gap, and not silently lost.
+
+**Unresolved limitations**
+
+- The admin panel's frontend still assumes it can sync every collection. A warehouse login will now
+  receive a 403 from `POST /admin/sync`; **the panel needs a matching UI change** so warehouse users
+  see the inventory screens rather than a failed save. Recorded as follow-up — it is a usability
+  regression for that role, not a security one.
+- Production status still moves through the generic sync, so it is admin-only for now. If warehouse
+  staff need it, it wants its own narrow route rather than a widened gate.
+
+**Next:** Phase 4 — append-only audit history.
