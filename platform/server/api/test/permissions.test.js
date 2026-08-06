@@ -99,7 +99,22 @@ test('the registry contains exactly the approved capabilities', () => {
     'permissions.manage',
     'enquiries.view',
     'enquiries.manage',
+    'customer_contacts.view',
+    'customer_contacts.manage',
   ]);
+});
+
+/* Store contact capabilities are separate keys too, and for the same reason.
+   Being able to edit a customer's payment terms is not authority to read the
+   named people who work there, and reusing `users.manage` — or any content or
+   enquiry capability — would silently confer it. */
+test('store contact capabilities are distinct from every other capability', () => {
+  const contact = PERMISSION_KEYS.filter((k) => k.startsWith('customer_contacts.'));
+  assert.deepEqual(contact, ['customer_contacts.view', 'customer_contacts.manage']);
+  for (const key of contact) {
+    assert.ok(!key.includes('public_content'), `${key} must not be a public_content key`);
+    assert.ok(!key.includes('enquiries'), `${key} must not be an enquiry key`);
+  }
 });
 
 /* Enquiry capabilities are separate keys, not aliases of the content ones.

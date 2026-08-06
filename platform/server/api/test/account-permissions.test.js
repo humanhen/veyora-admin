@@ -32,7 +32,11 @@ const migrationSql = fs.readFileSync(path.join(MIGRATIONS, '0008_account_permiss
    from their own migration, so "is this key storable?" is a question about the
    migrations as a whole, not about 0008 alone. */
 const enquiryMigrationSql = fs.readFileSync(path.join(MIGRATIONS, '0009_enquiry_operations.sql'), 'utf8');
-const allMigrationSql = `${migrationSql}\n${enquiryMigrationSql}`;
+const contactMigrationSql = fs.readFileSync(path.join(MIGRATIONS, '0012_customer_contacts.sql'), 'utf8');
+/* Every migration that has widened the capability CHECK. The widening one is
+   always the LAST of these — see 6b, which reads `latestWidenedSql`. */
+const allMigrationSql = `${migrationSql}\n${enquiryMigrationSql}\n${contactMigrationSql}`;
+const latestWidenedSql = contactMigrationSql;
 const migrateJs = fs.readFileSync(path.join(SRC, 'migrate.js'), 'utf8');
 const managementCode = stripComments(fs.readFileSync(path.join(SRC, 'routes', 'account-permissions.js'), 'utf8'));
 const publicContentCode = stripComments(fs.readFileSync(path.join(SRC, 'routes', 'admin-public-content.js'), 'utf8'));
@@ -191,14 +195,18 @@ test('6 — only registered keys can be stored: the CHECK lists every registered
    registry rather than against a hand-copied list: a key dropped from the
    CHECK while a grant still carries it would leave a row the database refuses
    to update and the application still honours. */
-test('6b — the widened CHECK is a strict superset of the original four', () => {
-  const widened = enquiryMigrationSql.slice(enquiryMigrationSql.indexOf('permission_key in'));
+test('6b — the latest widened CHECK is a strict superset of every earlier one', () => {
+  const widened = latestWidenedSql.slice(latestWidenedSql.indexOf('permission_key in'));
   for (const key of PERMISSION_KEYS) {
     assert.ok(widened.includes(`'${key}'`), `widened CHECK missing ${key}`);
   }
-  // 0008 itself is not edited: a migration that has run is immutable.
+  /* Earlier migrations are NOT edited: one that has run somewhere is
+     immutable, so each widening adds a new drop-and-recreate rather than
+     rewriting history. */
   assert.ok(migrationSql.includes("'permissions.manage'"));
   assert.ok(!migrationSql.includes('enquiries.'), '0008 must not be rewritten');
+  assert.ok(!migrationSql.includes('customer_contacts.'), '0008 must not be rewritten');
+  assert.ok(!enquiryMigrationSql.includes('customer_contacts.'), '0009 must not be rewritten');
 });
 
 test('7 — no destructive SQL in either definition', () => {

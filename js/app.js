@@ -60,6 +60,10 @@ const NAV=[
   ]},
   {group:'Customers',icon:'users',items:[
     {route:'users',label:'Users',icon:'user',action:'users.manage'},
+    /* `requires` is a CAPABILITY, not an action: reading the named people who
+       work at a customer is a per-account grant, and `users.manage` — which
+       covers a customer's commercial record — does not imply it. */
+    {route:'store-contacts',label:'Store Contacts',icon:'user',requires:'customer_contacts.view'},
     {route:'leads',label:'Leads',icon:'lead',action:'users.manage'},
     {route:'chains',label:'Chains',icon:'chain',action:'users.manage'},
     {route:'suitcases',label:'Suitcases',icon:'suitcase',action:'users.manage'},
@@ -173,6 +177,26 @@ const App={
       if(enq.view)held.add('enquiries.view');
       if(enq.manage)held.add('enquiries.manage');
       this._enqContract={statuses:enq.statuses,transitions:enq.transitions};
+    }catch(e){/* fail closed — see above */}
+
+    /* Store contact capabilities (Final Handover Phase 2). A third separate
+       probe, for the third time and the same reason: being able to publish
+       brand copy, or read an enquiry, says nothing about whether this account
+       may read the named people who work at a customer. The frozen contract —
+       the responsibility allowlist and the channel list — rides along and is
+       cached for the session as a rendering hint only.
+
+       Same all-paths-fail-closed rule. */
+    try{
+      const cc=await DB.contactCapabilities();
+      if(cc.view)held.add('customer_contacts.view');
+      if(cc.manage)held.add('customer_contacts.manage');
+      this._contactContract={
+        responsibilities:cc.responsibilities,
+        contactMethods:cc.contactMethods,
+        methodRequires:cc.methodRequires,
+        verificationStaleDays:cc.verificationStaleDays,
+      };
     }catch(e){/* fail closed — see above */}
 
     /* Admin ACTIONS, distinct from capabilities (warehouse interface

@@ -72,6 +72,26 @@ const DEFINITIONS = [
       'Record how an enquiry is being handled — under review, responded, closed, or spam. ' +
       'Never deletes a submission and never edits what was submitted.',
   },
+  /* Store contacts (Final Handover Phase 2). Deliberately NOT folded into any
+     existing capability. A store contact is a named person at a customer with
+     a mobile number and a job — reading the list is reading personal data
+     about people who never dealt with Veyora directly, and it is not implied
+     by being able to edit a customer's payment terms. */
+  {
+    key: 'customer_contacts.view',
+    label: 'View store contacts',
+    description:
+      'Read the people who work at a customer — names, job titles, responsibilities, phone ' +
+      'numbers and email addresses. Confers no ability to change anything.',
+  },
+  {
+    key: 'customer_contacts.manage',
+    label: 'Manage store contacts',
+    description:
+      'Add, edit, archive and reactivate store contacts, set which one is primary, and link ' +
+      'or unlink an existing portal account. Never creates a login, never deletes a contact, ' +
+      'and never sends anything.',
+  },
 ];
 
 /* Frozen at every level: a caller cannot push a new definition, mutate a

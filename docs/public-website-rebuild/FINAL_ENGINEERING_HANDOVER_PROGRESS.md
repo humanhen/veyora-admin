@@ -76,7 +76,7 @@ before and after.
 |---|---|---|
 | 0 — Verify, plan, handoff | complete | *(no commit — Phase 0 alone does not check point)* |
 | 1 — Notification outbox and enquiry delivery | **complete** | `feat: add reliable enquiry notification delivery` |
-| 2 — Customer/store contacts | pending | |
+| 2 — Customer/store contacts | **complete** | `feat: add governed store contact management` |
 | 3 — Stripe test-mode payment architecture | pending | |
 | 4 — Auditable finance operations | pending | |
 | 5 — Invoice PDF | pending | |
@@ -223,3 +223,164 @@ optional data, which would have failed a notification terminally over a missing 
 schema-mirror assertion compared whitespace rather than structure.
 
 - **Next:** Phase 2 — governed customer and store contact management.
+
+### Phase 2 — complete
+
+**The defect.** `users` conflates three different things. A row with role `customer` is a **business**
+— customer number, payment terms, balance, pricing — and it simultaneously carries `first_name`,
+`last_name`, `email` and `phone` as though it were a **person**. It is also the **login**.
+
+That breaks the moment reality intrudes. A store has an owner, a manager, a buyer and someone in
+accounts payable. The buyer leaves. Whoever edits the customer record to put the new buyer's mobile
+in has just changed the login email, or overwritten the owner's number, or both — and there was
+never anywhere to record that the person who left was the buyer in the first place.
+
+#### The three concepts, now separate
+
+| Concept | Meaning | Where it lives |
+|---|---|---|
+| **Veyora sales rep** | An internal Veyora agent | `users.agent_id` — **unchanged**, and this phase never writes it |
+| **Store contact** | A person who works for the customer | `customer_contacts` — new. No login, no capability, no authority |
+| **Portal user** | An account that may authenticate | Still `users`. A contact *may* be linked to one, explicitly |
+
+#### Schema
+
+`0012_customer_contacts.sql` (mirrored idempotently in `ensureSchema()`), with the full specified
+field set. Entirely additive: `users` is not altered — no column added, dropped or retyped, no
+default changed, no constraint touched, and **no row back-filled**.
+
+Four database-level rules, so the failure modes are unrepresentable rather than merely discouraged:
+
+```sql
+-- one active primary per store, as a partial unique index rather than a trigger
+create unique index customer_contacts_one_primary_idx
+  on customer_contacts (customer_id) where is_primary and is_active;
+
+constraint customer_contacts_archived_not_primary check (is_active or not is_primary),
+constraint customer_contacts_active_named        check (not is_active or (first_name <> '' and last_name <> '')),
+constraint customer_contacts_active_reachable    check (not is_active or email <> '' or mobile <> '' or office_phone <> '')
+```
+
+The primary rule is an index and not a trigger for a specific reason: two concurrent requests cannot
+both read "no primary yet" and both write one. A fifth partial unique index stops two contacts
+claiming the same portal account, where neither record would look wrong on its own.
+
+`email_normalised` and `mobile_normalised` are stored **alongside** the typed values, never instead
+of them. A person's number should be displayed the way they gave it; matching it needs a canonical
+form. The phone normaliser deliberately does **not** guess a country code — prefixing a bare local
+number with whatever country the customer record says would produce a number that dials somewhere
+real and wrong.
+
+#### Capabilities
+
+`customer_contacts.view` and `customer_contacts.manage`. No automatic grant, no role fallback, no
+wildcard, and not implied by `users.manage`: being able to edit a customer's payment terms is not
+authority to read the named people who work there.
+
+#### API
+
+Ten narrow routes at `/admin/customer-contacts`, mounted before the general `/admin` router so its
+own gate runs first. Each action is a **named path**, not a mode field in a body — a route that can
+archive or promote depending on a payload key is one whose authorisation has to be re-derived from
+the payload on every read of the code.
+
+Everything the brief asked for is enforced:
+
+- **archive, never delete** — no DELETE route, no DELETE statement, no client method that could
+  reach one. An order or an audit entry naming the buyer must still resolve to a person after that
+  person moves on;
+- **the primary is replaced, not vacated** — archiving it, or deactivating it through an ordinary
+  edit, is refused with a sentence telling the operator what to do instead;
+- **reactivation re-validates** — a contact archived years ago may no longer satisfy the active
+  rules, and the operator gets an explanation rather than a database error;
+- **partial updates validate the MERGED contact** — clearing the last email while the preferred
+  method is still `email` is refused. A field-by-field check passes it and produces a contact nobody
+  can reach;
+- **no portal account is ever created**, and a link only ever points at the customer's own active
+  account. Linking a contact at one store to an account at another would hand that person a session
+  into somebody else's orders;
+- **verification is its own action** — an edit never stamps it, because editing a note is not the
+  same as ringing the store to check the number;
+- **the audit records field names, never values.** `describeUpdate()` is pure and exported precisely
+  so that property is asserted directly rather than inferred from a mock.
+
+#### Admin interface
+
+A new governed **Store Contacts** screen showing the assigned Veyora sales rep (read-only), the
+primary contact, additional contacts, portal-access relationship, responsibilities, preferred
+channel and verification status, with Add, Edit, Make primary, Archive, Reactivate, Mark verified,
+and Link/Unlink portal account — each gated on `customer_contacts.manage`.
+
+Call, email and WhatsApp appear as **ordinary links a human clicks**. There is no send anywhere on
+this screen, no template and no queue. A contact form pre-ticks **no responsibility at all**: a
+responsibility is a statement about what somebody actually does, and defaulting one would be the
+system inventing it.
+
+Two states are shown as plain sentences rather than as errors or blank panels: a store with no
+contacts (normal — every legacy customer starts that way) and a store with no primary.
+
+#### Migration planner
+
+`src/contact-migration-planner.js` plus `scripts/plan-store-contacts.js`. It **proposes** primary
+contacts from the legacy fields and applies nothing. It cannot reach a database — structurally, not
+by promise: nothing in the module or the CLI imports `pg`, `db.js`, any network client, or reads
+`DATABASE_URL`, and a test asserts it, exactly as one does for `plan-permission-bootstrap.js`.
+
+Three states — `propose`, `review`, `skip` — each with closed, legended reason codes, output as
+byte-identical JSON and CSV for the same input. Every CSV field is quoted unconditionally, so a
+business name containing a comma cannot shift every later column.
+
+Four rules it will not break: it never infers a job title, never infers a responsibility, never
+proposes a contact with no name or no reachable channel, and proposes the portal link as a proposal
+only. `approvedDecisions()` is the only shape an applier may read, and a `skip` **can never be
+approved into existence** — a tick in a spreadsheet is not a decision to override a rule the
+reviewer may not have read.
+
+Run against six invented records in the scratchpad (no real data): 1 propose, 1 review, 4 skip, with
+`NO_NAME`, `NOT_A_CUSTOMER`, `ALREADY_HAS_CONTACTS`, `NO_CHANNEL`, `NAME_LOOKS_GENERIC` and
+`GENERIC_MAILBOX` all firing as specified.
+
+#### Deliberate non-features
+
+No consent column, no marketing subscription, no automatic portal account, no inferred
+responsibility, no back-fill, no bulk applier, and no dependency added.
+
+#### Files
+
+| File | Change |
+|---|---|
+| `platform/server/db/migrations/0012_customer_contacts.sql` | new — the table, indexes and widened capability CHECK |
+| `platform/server/api/src/migrate.js` | idempotent mirror; capability CHECK widened |
+| `platform/server/api/src/permission-registry.js` | the two new capabilities |
+| `platform/server/api/src/customer-contacts.js` | new — closed sets, validation, normalisation, serializer |
+| `platform/server/api/src/routes/admin-customer-contacts.js` | new — ten governed routes |
+| `platform/server/api/src/contact-migration-planner.js` | new — the planner |
+| `platform/server/api/scripts/plan-store-contacts.js` | new — the CLI |
+| `platform/server/api/src/index.js` | router mounted before the general /admin router |
+| `js/data.js` | `shapeContact()` and ten client methods |
+| `js/app.js` | contact capability probe; nav entry |
+| `js/pages_store_contacts.js` | new — the screen |
+| `index.html` | the new page script |
+| `platform/server/api/test/customer-contacts.test.js` | new — 80 tests |
+| `test/store-contacts-page.test.js` | new — 30 tests |
+| `test/helpers/dom.js` | `:checked` / `:disabled` / `:enabled` support |
+| `account-permissions.test.js`, `permissions.test.js`, `admin-shell.test.js`, `permissions-client.test.js` | capability-set pins extended |
+
+#### Verification
+
+| Suite | Before | After |
+|---|---|---|
+| API | 1,284 | **1,365** |
+| Root admin frontend | 223 | **253** |
+| Astro web | 466 | **466** |
+| **Total** | 1,973 | **2,084 passing, 0 failing** |
+
+Release gate: **17/17 in 139 s**. `git diff --check` clean. Free space 8.1 GB.
+
+Four existing tests failed and were **extended, not weakened**: three pin the capability set
+exhaustively so that adding a key is a deliberate change, and one pins the exact list of server
+calls `loadCaps()` makes. A fifth — the nav capability filter — turned out to have a real gap: its
+grouped-entry branch never excluded `requires`, because until now no grouped entry had one. It now
+asserts both halves.
+
+- **Next:** Phase 3 — Stripe test-mode payment architecture.

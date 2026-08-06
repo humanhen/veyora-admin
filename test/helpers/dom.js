@@ -216,10 +216,21 @@ function matchCompound(el, sel){
 }
 
 function matchOne(el, sel){
-  const re = /^([a-zA-Z][\w-]*)?((?:[#.][\w-]+)*)((?:\[[^\]]+\])*)$/;
+  /* `:checked` and `:disabled` reflect the live PROPERTY, not the attribute —
+     which is the whole point of using them: a checkbox the operator ticked has
+     `checked === true` and no attribute at all. A page that reads its own form
+     with `[data-x]:checked` is doing the ordinary browser thing, so the shim
+     supports it rather than forcing the page into a less idiomatic query. */
+  const re = /^([a-zA-Z][\w-]*)?((?:[#.][\w-]+)*)((?:\[[^\]]+\])*)((?::[a-z-]+)*)$/;
   const m = re.exec(sel);
   if (!m) throw new Error(`dom shim: unsupported selector "${sel}"`);
-  const [, tag, idsAndClasses, attrs] = m;
+  const [, tag, idsAndClasses, attrs, pseudos] = m;
+  for (const token of pseudos.match(/:[a-z-]+/g) || []) {
+    if (token === ':checked') { if (el.checked !== true) return false; }
+    else if (token === ':disabled') { if (el.disabled !== true) return false; }
+    else if (token === ':enabled') { if (el.disabled === true) return false; }
+    else throw new Error(`dom shim: unsupported pseudo-class "${token}"`);
+  }
   if (tag && el.tagName !== tag.toUpperCase()) return false;
   for (const token of idsAndClasses.match(/[#.][\w-]+/g) || []) {
     if (token[0] === '#') { if (el.id !== token.slice(1)) return false; }
@@ -366,7 +377,8 @@ function loadAdmin(files, shell = ['content', 'toast-root', 'modal-root', 'side-
   const sources = files.map(f => `/* ==== ${f} ==== */\n${fs.readFileSync(path.join(ROOT, f), 'utf8')}`);
   const EXPORTS = ['Auth', 'NAV', 'App', 'DB', 'I', 'Modal', 'esc', 'toast', 'paginate',
     'pagerHTML', 'bindPager', 'statusBadge', 'debounce', 'PERM_GROUPS',
-    'ENQ_STATUS_LABELS', 'ENQ_FORM_LABELS', 'ENQ_FIELD_ORDER'];
+    'ENQ_STATUS_LABELS', 'ENQ_FORM_LABELS', 'ENQ_FIELD_ORDER',
+    'SC_RESPONSIBILITY_LABELS', 'SC_METHOD_LABELS'];
   const epilogue = EXPORTS.map(n => `try{ if(typeof ${n} !== 'undefined') window.${n} = ${n}; }catch(e){}`).join('\n');
 
   vm.runInContext(sources.join('\n;\n') + '\n;\n' + epilogue, sandbox, { filename: 'admin-bundle.js' });

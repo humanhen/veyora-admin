@@ -194,13 +194,16 @@ test('the admin role alone is never sufficient — no role bypass', async () => 
   /* Access is decided by asking the server, never by reading the role.
      loadCaps makes exactly three server calls and no more: the registry probe
      for permissions.manage (B2.4B1), the public-content capability read
-     (B2.4B2A) and the enquiry capability read (WS2 Phase 2). Each is answered
-     by the server; none consults the session's role, and none is inferred
-     from another — a content capability says nothing about enquiry access. */
+     (B2.4B2A), the enquiry capability read (WS2 Phase 2) and the store
+     contact capability read (Final Handover Phase 2). Each is answered by
+     the server; none consults the session's role, and none is inferred from
+     another — a content capability says nothing about enquiry access, and
+     neither says anything about the people who work at a customer. */
   assert.deepEqual(calls.map((c) => `${c.method} ${c.path}`), [
     'GET /admin/account-permissions/registry',
     'GET /admin/public-content/capabilities',
     'GET /admin/enquiries/capabilities',
+    'GET /admin/customer-contacts/capabilities',
     /* And the admin ACTION set (warehouse interface correction). Distinct
        from the three above: capabilities are per-account grants, actions
        describe what this session's role may do on the admin router. Also

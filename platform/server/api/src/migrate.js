@@ -479,7 +479,9 @@ export async function ensureSchema() {
       'public_content.publish',
       'permissions.manage',
       'enquiries.view',
-      'enquiries.manage'
+      'enquiries.manage',
+      'customer_contacts.view',
+      'customer_contacts.manage'
     ))`);
 
   /* `handling_status` is NOT `delivery_state`. delivery_state records whether
@@ -581,6 +583,68 @@ export async function ensureSchema() {
   await q(`do $$ begin
     if not exists (select 1 from pg_trigger where tgname = 't_notification_outbox_touch') then
       create trigger t_notification_outbox_touch before update on notification_outbox
+        for each row execute function touch_updated_at();
+    end if;
+  end $$`);
+
+  /* ---- store contacts (mirrors db/migrations/0012) ----
+     `users` conflates the STORE, one person's contact details, and the login.
+     This separates the person out. Entirely additive: `users` is untouched and
+     every existing customer simply has no contacts yet, which is a real state
+     and not an error. Nothing is back-filled — a contact invented by a
+     migration is a person nobody chose, with a number nobody confirmed. */
+  await q(`create table if not exists customer_contacts (
+    id                        text primary key default veyora_id('cc'),
+    customer_id               text not null references users(id) on delete cascade,
+    first_name                text not null default '',
+    last_name                 text not null default '',
+    job_title                 text not null default '',
+    responsibilities          text[] not null default '{}',
+    mobile                    text not null default '',
+    mobile_normalised         text not null default '',
+    office_phone              text not null default '',
+    office_extension          text not null default '',
+    email                     text not null default '',
+    email_normalised          text not null default '',
+    preferred_contact_method  text not null default 'email'
+                              check (preferred_contact_method in (
+                                'email', 'mobile_call', 'whatsapp', 'office_phone')),
+    preferred_language        text not null default '',
+    is_primary                boolean not null default false,
+    is_active                 boolean not null default true,
+    portal_user_id            text references users(id) on delete set null,
+    notes                     text not null default '',
+    last_verified_at          timestamptz,
+    created_at                timestamptz not null default now(),
+    updated_at                timestamptz not null default now(),
+    constraint customer_contacts_archived_not_primary
+      check (is_active or not is_primary),
+    constraint customer_contacts_active_named
+      check (not is_active or (first_name <> '' and last_name <> '')),
+    constraint customer_contacts_active_reachable
+      check (not is_active or email <> '' or mobile <> '' or office_phone <> '')
+  )`);
+  /* One active primary per store, enforced by a partial unique index rather
+     than a trigger: two concurrent requests cannot both read "no primary yet"
+     and both write one. */
+  await q(`create unique index if not exists customer_contacts_one_primary_idx
+    on customer_contacts (customer_id) where is_primary and is_active`);
+  await q(`create index if not exists customer_contacts_customer_idx
+    on customer_contacts (customer_id, is_active, is_primary)`);
+  await q(`create index if not exists customer_contacts_email_normalised_idx
+    on customer_contacts (email_normalised) where email_normalised <> ''`);
+  await q(`create index if not exists customer_contacts_mobile_normalised_idx
+    on customer_contacts (mobile_normalised) where mobile_normalised <> ''`);
+  await q(`create index if not exists customer_contacts_portal_user_idx
+    on customer_contacts (portal_user_id) where portal_user_id is not null`);
+  /* A portal account belongs to at most one contact: without this, two people
+     could both be recorded as signing in with it and neither record would look
+     wrong on its face. */
+  await q(`create unique index if not exists customer_contacts_portal_user_unique_idx
+    on customer_contacts (portal_user_id) where portal_user_id is not null`);
+  await q(`do $$ begin
+    if not exists (select 1 from pg_trigger where tgname = 't_customer_contacts_touch') then
+      create trigger t_customer_contacts_touch before update on customer_contacts
         for each row execute function touch_updated_at();
     end if;
   end $$`);

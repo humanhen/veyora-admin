@@ -16,7 +16,7 @@ const { loadAdmin, ROOT } = require('./helpers/dom.js');
 const SHIPPED = ['index.html', 'css', 'js', 'assets'];
 const PAGE_FILES = ['js/pages_core.js', 'js/pages_sales.js', 'js/pages_customers.js',
   'js/pages_catalog.js', 'js/pages_finance.js', 'js/pages_ops.js', 'js/pages_permissions.js',
-  'js/pages_public_content.js', 'js/pages_enquiries.js'];
+  'js/pages_public_content.js', 'js/pages_enquiries.js', 'js/pages_store_contacts.js'];
 const ALL = ['js/util.js', 'js/data.js', 'js/app.js', ...PAGE_FILES];
 
 // ---------------------------------------------------------------------------
@@ -75,8 +75,14 @@ test('the capability filter leaves every unrestricted nav entry untouched', () =
   }
   for (const group of sandbox.NAV.filter(n => n.group)) {
     assert.ok(nav.querySelector(`[data-group="${group.group}"]`), `group ${group.group} vanished`);
-    for (const item of group.items) {
+    for (const item of group.items.filter(i => !i.requires)) {
       assert.ok(nav.querySelector(`[href="#/${item.route}"]`), `grouped entry ${item.route} vanished`);
+    }
+    /* ...and a grouped entry that DOES ask for a capability is gone, which
+       is the same rule the top-level entries follow. */
+    for (const item of group.items.filter(i => i.requires)) {
+      assert.equal(nav.querySelector(`[href="#/${item.route}"]`), null,
+        `gated grouped entry ${item.route} must be hidden with no capability held`);
     }
   }
 });
@@ -112,7 +118,13 @@ test('only the governance entries are capability gated, and each names a real ca
     ['account-permissions', 'permissions.manage'],
     ['enquiries', 'enquiries.view'],
     ['public-content', 'public_content.view'],
+    ['store-contacts', 'customer_contacts.view'],
   ]);
+  /* Every gated entry names a key the registry actually issues. A typo here
+     would hide the entry from everybody, silently and forever. */
+  for (const [, key] of gated) {
+    assert.match(key, /^(public_content|permissions|enquiries|customer_contacts)\./, key);
+  }
 });
 
 // ---------------------------------------------------------------------------

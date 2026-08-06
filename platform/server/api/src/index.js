@@ -13,6 +13,7 @@ import adminPublicContentRoutes from './routes/admin-public-content.js';
 import accountPermissionRoutes from './routes/account-permissions.js';
 import adminEnquiryRoutes from './routes/admin-enquiries.js';
 import adminInventoryRoutes from './routes/admin-inventory.js';
+import adminCustomerContactRoutes from './routes/admin-customer-contacts.js';
 import publicRoutes from './routes/public.js';
 import publicFormRoutes from './routes/public-forms.js';
 import nodemailer from 'nodemailer';
@@ -95,6 +96,14 @@ app.use('/admin/enquiries', adminEnquiryRoutes);
    quantities and record a ledger movement; they touch no price and no
    commercial field. */
 app.use('/admin/inventory', adminInventoryRoutes);
+
+/* Governed store contacts (Final Handover Phase 2). Mounted before the general
+   /admin router for the same reason as the enquiry router: a store contact is
+   a named person at a customer with a mobile number, and none of the roles
+   adminRoutes admits implies authority to read one. Authority here is
+   `customer_contacts.view` / `customer_contacts.manage`, neither of which is
+   granted by any migration or implied by any role. */
+app.use('/admin/customer-contacts', adminCustomerContactRoutes);
 
 app.use('/admin', adminRoutes);
 

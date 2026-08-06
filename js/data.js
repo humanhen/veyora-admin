@@ -410,6 +410,46 @@ const DB = (function(){
     };
   }
 
+  /* ---------- store contact shaping (Final Handover Phase 2) ----------
+
+     Explicit, allowlisted shaping. Nothing is spread, so a column the API
+     might expose later — `email_normalised`, an internal flag — cannot arrive
+     on a screen nobody designed it for.
+
+     A store contact is a named person at a customer, with a mobile number and
+     a job. That is why this is an allowlist and not a copy. */
+  function shapeContact(c){
+    const r = c || {};
+    const v = r.verification || {};
+    return {
+      id: String(r.id||''),
+      customerId: String(r.customerId||''),
+      firstName: String(r.firstName||''),
+      lastName: String(r.lastName||''),
+      jobTitle: String(r.jobTitle||''),
+      responsibilities: Array.isArray(r.responsibilities) ? r.responsibilities.map(String) : [],
+      mobile: String(r.mobile||''),
+      officePhone: String(r.officePhone||''),
+      officeExtension: String(r.officeExtension||''),
+      email: String(r.email||''),
+      preferredContactMethod: String(r.preferredContactMethod||'email'),
+      preferredLanguage: String(r.preferredLanguage||''),
+      isPrimary: r.isPrimary === true,
+      isActive: r.isActive !== false,
+      portalUserId: r.portalUserId==null?null:String(r.portalUserId),
+      notes: String(r.notes||''),
+      lastVerifiedAt: r.lastVerifiedAt==null?null:String(r.lastVerifiedAt),
+      createdAt: r.createdAt==null?null:String(r.createdAt),
+      updatedAt: r.updatedAt==null?null:String(r.updatedAt),
+      concurrencyToken: r.concurrencyToken==null?null:String(r.concurrencyToken),
+      verification: {
+        verifiedAt: v.verifiedAt==null?null:String(v.verifiedAt),
+        state: String(v.state||'never'),
+        daysSince: v.daysSince==null?null:Number(v.daysSince),
+      },
+    };
+  }
+
   /* ---------- public-content administration shaping (B2.4B2A) ----------
 
      PUBLIC_CONTENT_EDITABLE mirrors EDITABLE_FIELDS in the API's
@@ -900,6 +940,100 @@ const DB = (function(){
         { status: String(status), concurrencyToken, note: note == null ? '' : String(note) });
       if (!res || !res.enquiry) throw malformed();
       return shapeEnquiryDetail(res.enquiry);
+    },
+
+    /* ---- governed store contacts (Final Handover Phase 2) ----
+
+       Ten calls against /admin/customer-contacts. Every path segment is
+       encoded, every response is shaped through the allowlist above, and every
+       write carries the concurrency token from the matching read.
+
+       Deliberately ABSENT: any delete. The API has no DELETE route and this
+       client has no function that could reach one — a contact is archived,
+       never erased, because an order that names the buyer must still resolve
+       to a person after that person moves on.
+
+       Also absent: anything that creates a portal account, records consent,
+       or sends a message. The screen renders tel:, mailto: and WhatsApp links
+       for a human to click; nothing here contacts anybody. */
+
+    /** The caller's own two contact capabilities, plus the frozen contract the
+        screen renders its responsibility and channel pickers from. */
+    async contactCapabilities(){
+      const res = await apiCall('GET', '/admin/customer-contacts/capabilities');
+      const c = (res && res.capabilities) || {};
+      const k = (res && res.contract) || {};
+      return {
+        view: c.view === true,
+        manage: c.manage === true,
+        responsibilities: Array.isArray(k.responsibilities) ? k.responsibilities.map(String) : [],
+        contactMethods: Array.isArray(k.contactMethods) ? k.contactMethods.map(String) : [],
+        methodRequires: (k.methodRequires && typeof k.methodRequires === 'object') ? { ...k.methodRequires } : {},
+        verificationStaleDays: Number(k.verificationStaleDays) || 0,
+      };
+    },
+
+    /** Every contact for one store, plus the assigned Veyora sales rep. */
+    async storeContacts(customerId){
+      const res = await apiCall('GET', '/admin/customer-contacts/' + encodeURIComponent(customerId));
+      if (!res || !Array.isArray(res.contacts)) throw malformed();
+      const rep = res.salesRep || null;
+      const cu = res.customer || {};
+      return {
+        customer: {
+          id: String(cu.id||''), business: String(cu.business||''),
+          customerNumber: String(cu.customerNumber||''), status: String(cu.status||''),
+        },
+        /* Null is a real answer — a store with no rep assigned — and is shown
+           as that rather than as a blank name. */
+        salesRep: rep ? {
+          id: String(rep.id||''), name: String(rep.name||''),
+          role: String(rep.role||''), email: String(rep.email||''),
+        } : null,
+        contacts: res.contacts.map(shapeContact),
+        hasPrimary: res.hasPrimary === true,
+      };
+    },
+
+    async createStoreContact(customerId, fields){
+      const res = await apiCall('POST', '/admin/customer-contacts/' + encodeURIComponent(customerId), fields);
+      if (!res || !res.contact) throw malformed();
+      return shapeContact(res.contact);
+    },
+
+    /* One private helper behind six named actions. The ACTION is part of the
+       path, not a mode field in the body: a single endpoint that can archive
+       or promote depending on a payload key is one whose authorisation has to
+       be re-derived from the payload every time somebody reads the code. */
+    async _contactAction(customerId, contactId, action, body){
+      const res = await apiCall('POST',
+        '/admin/customer-contacts/' + encodeURIComponent(customerId)
+        + '/' + encodeURIComponent(contactId) + '/' + action, body || {});
+      if (!res || !res.contact) throw malformed();
+      return shapeContact(res.contact);
+    },
+
+    async updateStoreContact(customerId, contactId, fields, concurrencyToken){
+      return api._contactAction(customerId, contactId, 'update',
+        Object.assign({}, fields, { concurrencyToken }));
+    },
+    async makeStoreContactPrimary(customerId, contactId, concurrencyToken){
+      return api._contactAction(customerId, contactId, 'make-primary', { concurrencyToken });
+    },
+    async archiveStoreContact(customerId, contactId, concurrencyToken){
+      return api._contactAction(customerId, contactId, 'archive', { concurrencyToken });
+    },
+    async reactivateStoreContact(customerId, contactId, concurrencyToken){
+      return api._contactAction(customerId, contactId, 'reactivate', { concurrencyToken });
+    },
+    async verifyStoreContact(customerId, contactId, concurrencyToken){
+      return api._contactAction(customerId, contactId, 'verify', { concurrencyToken });
+    },
+    async linkStoreContactPortal(customerId, contactId, portalUserId, concurrencyToken){
+      return api._contactAction(customerId, contactId, 'link-portal', { portalUserId, concurrencyToken });
+    },
+    async unlinkStoreContactPortal(customerId, contactId, concurrencyToken){
+      return api._contactAction(customerId, contactId, 'unlink-portal', { concurrencyToken });
     },
 
     /** Re-queues one failed staff alert (Final Handover Phase 1).
