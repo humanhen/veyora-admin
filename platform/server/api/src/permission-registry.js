@@ -92,6 +92,42 @@ const DEFINITIONS = [
       'or unlink an existing portal account. Never creates a login, never deletes a contact, ' +
       'and never sends anything.',
   },
+  /* Payments (Final Handover Phase 3). FOUR keys, not one, because these are
+     four genuinely different authorities. Seeing that an invoice was paid,
+     asking a customer to pay, sending money back, and correcting the books are
+     different jobs; the person who does one frequently must not thereby be
+     able to do the others. `payments.refund` above all moves money OUT, and is
+     the most consequential capability in the system after
+     `permissions.manage`. */
+  {
+    key: 'payments.view',
+    label: 'View payment state',
+    description:
+      'Read whether an invoice has been paid online, the provider reference, and the history of ' +
+      'payment attempts. Confers no ability to take, send or change money.',
+  },
+  {
+    key: 'payments.collect',
+    label: 'Collect payment',
+    description:
+      'Create or re-send a secure Stripe-hosted payment link for an issued invoice. The amount ' +
+      'always comes from the invoice; this never charges a card and never marks anything paid.',
+  },
+  {
+    key: 'payments.refund',
+    label: 'Refund payment',
+    description:
+      'Send money back to a customer for a settled invoice. Requires an explicit confirmation ' +
+      'and a stated reason, is capped at what was actually settled, and is never triggered by ' +
+      'anything a customer can send.',
+  },
+  {
+    key: 'payments.reconcile',
+    label: 'Reconcile payments',
+    description:
+      'Review payment events that could not be applied — an amount that did not match, an ' +
+      'unknown invoice, a session stuck mid-flight — and record how each was resolved.',
+  },
 ];
 
 /* Frozen at every level: a caller cannot push a new definition, mutate a

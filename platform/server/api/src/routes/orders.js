@@ -697,6 +697,12 @@ r.get('/invoices', async (req, res) => {
     invoices: rows.map(i => ({
       id: i.id, number: i.number, orderNumber: i.order_number, amount: i.amount,
       provider: i.provider, status: i.status, issuedOn: i.issued_on,
+      /* Settlement state (Final Handover Phase 3). Defaults to 'on_terms' so a
+         row written before 0013 ran reads as outstanding on account terms —
+         which is exactly what it is — rather than as anything settled. The
+         storefront shows a Pay button only for this state. */
+      settlementState: i.settlement_state || 'on_terms',
+      settlementCurrency: i.settlement_currency || 'USD',
     })),
   });
 });

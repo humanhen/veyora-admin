@@ -77,7 +77,7 @@ before and after.
 | 0 — Verify, plan, handoff | complete | *(no commit — Phase 0 alone does not check point)* |
 | 1 — Notification outbox and enquiry delivery | **complete** | `feat: add reliable enquiry notification delivery` |
 | 2 — Customer/store contacts | **complete** | `feat: add governed store contact management` |
-| 3 — Stripe test-mode payment architecture | pending | |
+| 3 — Stripe test-mode payment architecture | **complete** (one item prepared, not applied — see the log) | `feat: add Stripe invoice payment foundation` |
 | 4 — Auditable finance operations | pending | |
 | 5 — Invoice PDF | pending | |
 | 6 — Account statements | pending | |
@@ -384,3 +384,184 @@ grouped-entry branch never excluded `requires`, because until now no grouped ent
 asserts both halves.
 
 - **Next:** Phase 3 — Stripe test-mode payment architecture.
+
+### Phase 3 — complete
+
+**The approved flow, implemented exactly.** Order → Veyora invoice → **the customer remains on
+account terms** → an authorised user creates a Stripe-hosted payment session → the customer follows
+the secure link → a **signed webhook** confirms payment → Veyora records settlement transactionally.
+
+Paying online is an **option beside** account terms, never a precondition for ordering. Nothing in
+this phase touches `orders`, checkout, or the existing invoicing route, and a deployment with no
+Stripe configuration behaves exactly as it does today.
+
+#### The one security property everything else rests on
+
+> **Only a verified webhook may settle an invoice.**
+
+A browser arriving on the success page proves that a browser followed a redirect. A signed webhook
+is a statement by Stripe verified against a shared secret. Those are different things, and the
+subsystem is built on the difference:
+
+- there is **no route** that sets `settlement_state = 'paid'` — a test asserts that no route file
+  contains such a statement, and that `webhook.js` does;
+- no route reads a `session_id` or `success` query parameter and settles on it;
+- the webhook is mounted with `express.raw()` **before** `express.json()`, because the signature is
+  computed over the exact bytes and a re-serialised body would never verify. That ordering is
+  load-bearing and is asserted;
+- with no webhook secret configured, startup **throws** rather than accepting unverified webhooks.
+
+#### Configuration that cannot be half-live
+
+`resolveStripeConfig()` is pure, takes an env map, and has three properties:
+
+1. **The API boots without Stripe.** Unset, or `STRIPE_ENABLED=false`, gives a *disabled*
+   configuration with a stated reason — not a throw. `enabled: false` is a first-class state and
+   every payment action refuses with a sentence rather than a broken page.
+2. **A half-configured Stripe is a refusal, not a guess.** Enabled with no webhook secret, or no
+   return URLs, throws at startup.
+3. **Test and live are never confused.** The mode is derived from the key prefix, a mismatched
+   test/live pair throws, and **a live key outside production is refused outright** — the usual way
+   that happens is a staging box copied from production configuration, and the usual outcome is a
+   real card charged during a test.
+
+The API version is pinned. `publicView()` is the only shape a browser sees: `enabled`, `mode`,
+`testMode`, `disabledReason` — no key of any kind, asserted.
+
+#### Money
+
+Every new column is `bigint` **minor units**, because that is what the provider speaks and every
+conversion between representations is a chance to be out by a factor of a hundred. `toMinorUnits()`
+is the single conversion and it **refuses rather than rounds**: `pg` returns `numeric` as a string
+precisely so no precision is lost, and parsing it into a float reintroduces exactly that error.
+`29.97 * 100` is `2996.9999999999995`; this returns `2997`.
+
+#### Schema (0013, additive)
+
+`invoices.status` is **not** reused. It defaults to `'paid'` alongside `provider = 'Green Invoice'`
+and records something about the legacy external invoicing arrangement — overloading it would make
+"the external system issued this" and "a customer paid us" indistinguishable, the same mistake 0009
+avoided with `delivery_state`. Settlement gets its own column whose default, `on_terms`, is a true
+statement about every existing row, so nothing is back-filled.
+
+Constraints that make the failure modes unrepresentable:
+
+```sql
+check (settlement_state <> 'paid'
+       or (settled_at is not null and settlement_reference <> '' and amount_settled_minor > 0))
+check (amount_refunded_minor >= 0 and amount_refunded_minor <= amount_settled_minor)
+create unique index payment_sessions_one_live_idx on payment_sessions (invoice_id)
+  where status in ('created', 'open');
+provider_event_id text not null unique   -- the deduplication mechanism
+```
+
+`payments` is **extended, not replaced** — a second payments table would mean two answers to "what
+has this customer paid" — with a unique `settlement_key` so a replayed webhook cannot record the
+same money twice.
+
+#### The webhook, in detail
+
+- **signature first** — an unverified body never reaches the database, and the 400 says nothing
+  about *why* it failed;
+- **an exact six-event allowlist** — anything else is acknowledged with 200 so Stripe stops
+  retrying, and recorded as `ignored`. Acknowledging is not acting;
+- **persistent deduplication** via the unique constraint, not an application-level "have I seen
+  this?" that races with itself;
+- **amount and currency verified** against Veyora's own session *and* against the invoice, so a
+  session created before the amount changed cannot settle it. A mismatch is a reconciliation
+  exception, never a settlement;
+- **out-of-order safe** — every transition is a no-op when already applied, so an expiry arriving
+  after a completion does not un-pay an invoice;
+- **`payment_status` is what settles**, not session status: `checkout.session.completed` fires for
+  delayed methods where nothing was captured;
+- **no raw payload is stored or logged** — an allowlisted summary is built key by key from a fresh
+  object literal;
+- **a dispute does not flip the invoice back to unpaid** — the money has not moved, and doing so
+  would misstate receivables for something often resolved in Veyora's favour;
+- **no automatic refund.** `charge.refunded` *records* a refund that already happened; nothing a
+  customer can send moves money outward.
+
+#### Four capabilities, not one
+
+`payments.view`, `payments.collect`, `payments.refund`, `payments.reconcile`. Seeing that an invoice
+was paid, asking a customer to pay, sending money back, and correcting the books are four different
+jobs. No role fallback, no wildcard, and none granted by any migration. A test asserts no
+`payments.*` or `payments.manage` catch-all exists.
+
+A refund additionally requires an explicit `confirm: true`, a stated reason of 3–500 characters, and
+an amount within what remains refundable. The admin UI confirms by **typing REFUND**, not by
+clicking.
+
+#### The dependency
+
+The official Stripe Node SDK, `stripe@22.4.0`, pinned exactly. **Zero runtime dependencies**,
+16 MB unpacked (almost all TypeScript definitions). Free space 8.1 GB before, 8.0 GB after — well
+above the 6 GB floor. Loaded **dynamically** and only when Stripe is enabled, so an API with no
+payment configuration never instantiates it; a test asserts no module imports it statically.
+
+It was chosen over a hand-built client — against this repository's own `xlsx-lite` precedent — for
+one reason: `constructEvent`. Webhook verification is an HMAC over a timestamped payload with a
+tolerance window and a timing-safe comparison, and it is the only thing between the internet and
+"this invoice is paid". A subtly wrong reimplementation does not fail loudly; it accepts forged
+events.
+
+**Pre-existing finding, not introduced here:** `npm audit` reports a high-severity advisory against
+`nodemailer` ≤ 9.0.0 (the repository has `^6.9.13`). Stripe contributes nothing to it. Upgrading is
+a breaking change outside this phase's scope and is carried into the Phase 8 handover package.
+
+#### What was NOT delivered, and why
+
+**The storefront "Pay securely" control is a prepared patch, not an applied change.**
+`platform/server/storefront/` is a protected path under an existing repository guard
+(`test/admin-shell.test.js`), whose stated reason is *"the storefront, which another developer is
+working on."* Editing it would create a conflict for that developer, and editing the guard to permit
+it is exactly the reflexive widening the guard's own comment warns against.
+
+Everything the customer flow needs **is built and tested**: `GET /user/invoices/:id/payment` returns
+the payment state with a payability verdict and a reason, `POST /user/invoices/:id/pay` returns a
+hosted link for the caller's **own** invoice (another customer's is a 404, not a 403), and
+`/user/invoices` now carries `settlementState`. The complete, ready-to-apply storefront diff is at
+`docs/public-website-rebuild/prepared-patches/storefront-invoice-payment.patch` (97 lines): a
+"Pay securely" button shown only for a payable invoice, per-state notes for paid / confirming /
+refunded / cancelled, a double-click guard, and a standing note that card payment is optional and
+changes nothing about account terms.
+
+**This is the one item in Phase 3 left for the user to apply or authorise.**
+
+#### Files
+
+| File | Change |
+|---|---|
+| `platform/server/db/migrations/0013_stripe_payments.sql` | new |
+| `platform/server/api/src/migrate.js` | mirror; capability CHECK widened |
+| `platform/server/api/src/permission-registry.js` | four payment capabilities |
+| `platform/server/api/src/payments/stripe-config.js` | new — validated configuration |
+| `platform/server/api/src/payments/stripe-client.js` | new — the client boundary |
+| `platform/server/api/src/payments/client-instance.js` | new — lazy, dynamic SDK load |
+| `platform/server/api/src/payments/invoice-payments.js` | new — money, payability, serializers |
+| `platform/server/api/src/payments/sessions.js` | new — session service |
+| `platform/server/api/src/payments/webhook.js` | new — verification and settlement |
+| `platform/server/api/src/routes/admin-payments.js` | new — four gated surfaces + refunds |
+| `platform/server/api/src/routes/payments.js` | new — customer routes + webhook |
+| `platform/server/api/src/routes/orders.js` | `settlementState` on the customer invoice list |
+| `platform/server/api/src/index.js` | raw-body webhook mount before the JSON parser |
+| `platform/server/.env.example` | the whole Stripe block |
+| `js/data.js`, `js/app.js`, `js/pages_finance.js` | payment client, probe, admin UI |
+| `platform/server/api/test/stripe-payments.test.js` | new — 80 tests |
+| `test/invoice-payment-page.test.js` | new — 27 tests |
+| `docs/public-website-rebuild/prepared-patches/storefront-invoice-payment.patch` | new — the unapplied customer UI |
+
+#### Verification
+
+| Suite | Before | After |
+|---|---|---|
+| API | 1,365 | **1,446** |
+| Root admin frontend | 253 | **280** |
+| Astro web | 466 | **466** |
+| **Total** | 2,084 | **2,192 passing, 0 failing** |
+
+Release gate: **17/17 in 140 s**. `git diff --check` clean. Free space 8.0 GB.
+No test contacts Stripe; there is no key, no network call and no SDK instance in the suite, asserted
+structurally.
+
+- **Next:** Phase 4 — auditable finance operations.

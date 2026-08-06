@@ -101,7 +101,25 @@ test('the registry contains exactly the approved capabilities', () => {
     'enquiries.manage',
     'customer_contacts.view',
     'customer_contacts.manage',
+    'payments.view',
+    'payments.collect',
+    'payments.refund',
+    'payments.reconcile',
   ]);
+});
+
+/* Payments are FOUR keys, not one. Seeing that an invoice was paid, asking a
+   customer to pay, sending money back, and correcting the books are four
+   different jobs; collapsing them into a single `payments.manage` would mean
+   everyone who can send an invoice a payment link can also refund it. */
+test('payment capabilities are four separate keys, none implying another', () => {
+  const payment = PERMISSION_KEYS.filter((k) => k.startsWith('payments.'));
+  assert.deepEqual(payment,
+    ['payments.view', 'payments.collect', 'payments.refund', 'payments.reconcile']);
+  /* And no wildcard or catch-all exists that would confer them together. */
+  for (const forbidden of ['payments.*', 'payments.manage', 'payments.all', 'finance.*']) {
+    assert.ok(!PERMISSION_KEYS.includes(forbidden), `${forbidden} must not be a key`);
+  }
 });
 
 /* Store contact capabilities are separate keys too, and for the same reason.

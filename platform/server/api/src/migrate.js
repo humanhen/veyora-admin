@@ -481,7 +481,11 @@ export async function ensureSchema() {
       'enquiries.view',
       'enquiries.manage',
       'customer_contacts.view',
-      'customer_contacts.manage'
+      'customer_contacts.manage',
+      'payments.view',
+      'payments.collect',
+      'payments.refund',
+      'payments.reconcile'
     ))`);
 
   /* `handling_status` is NOT `delivery_state`. delivery_state records whether
@@ -645,6 +649,147 @@ export async function ensureSchema() {
   await q(`do $$ begin
     if not exists (select 1 from pg_trigger where tgname = 't_customer_contacts_touch') then
       create trigger t_customer_contacts_touch before update on customer_contacts
+        for each row execute function touch_updated_at();
+    end if;
+  end $$`);
+
+  /* ---- Stripe invoice payments (mirrors db/migrations/0013) ----
+     Paying online is an OPTION beside account terms, never a precondition for
+     ordering. `invoices.status` is NOT reused: it records something about the
+     legacy external invoicing arrangement, and overloading it would make "the
+     external system issued this" and "a customer paid us" indistinguishable.
+     Settlement gets its own column whose default is true of every existing
+     row, so nothing is back-filled. Money on every new column is in MINOR
+     UNITS, because that is what the provider speaks and every conversion is a
+     chance to be out by a hundred. */
+  await q(`alter table invoices
+    add column if not exists settlement_state text not null default 'on_terms',
+    add column if not exists settlement_currency text not null default 'USD',
+    add column if not exists amount_settled_minor bigint not null default 0,
+    add column if not exists amount_refunded_minor bigint not null default 0,
+    add column if not exists settled_at timestamptz,
+    add column if not exists settlement_reference text not null default ''`);
+  await q(`alter table invoices drop constraint if exists invoices_settlement_state_valid`);
+  await q(`alter table invoices add constraint invoices_settlement_state_valid
+    check (settlement_state in ('on_terms', 'processing', 'paid', 'refunded', 'void'))`);
+  /* The state that asserts money arrived cannot be reached without the
+     reference that proves it. */
+  await q(`alter table invoices drop constraint if exists invoices_paid_evidenced`);
+  await q(`alter table invoices add constraint invoices_paid_evidenced
+    check (settlement_state <> 'paid'
+           or (settled_at is not null and settlement_reference <> '' and amount_settled_minor > 0))`);
+  await q(`alter table invoices drop constraint if exists invoices_refund_within_settled`);
+  await q(`alter table invoices add constraint invoices_refund_within_settled
+    check (amount_refunded_minor >= 0 and amount_refunded_minor <= amount_settled_minor)`);
+  await q(`create index if not exists invoices_settlement_state_idx
+    on invoices (settlement_state) where settlement_state <> 'on_terms'`);
+
+  await q(`create table if not exists payment_sessions (
+    id                      text primary key default veyora_id('ps'),
+    invoice_id              text not null references invoices(id) on delete cascade,
+    customer_id             text references users(id) on delete set null,
+    provider                text not null default 'stripe' check (provider in ('stripe')),
+    status                  text not null default 'created'
+                            check (status in ('created', 'open', 'completed',
+                                              'expired', 'cancelled', 'failed')),
+    amount_minor            bigint not null check (amount_minor > 0),
+    currency                text not null,
+    provider_session_id     text not null default '',
+    provider_payment_intent text not null default '',
+    hosted_url              text not null default '',
+    idempotency_key         text not null unique,
+    requested_by            text references users(id) on delete set null,
+    expires_at              timestamptz,
+    completed_at            timestamptz,
+    last_error              text not null default '',
+    created_at              timestamptz not null default now(),
+    updated_at              timestamptz not null default now(),
+    constraint payment_sessions_completed_evidenced
+      check (status <> 'completed' or (completed_at is not null and provider_payment_intent <> ''))
+  )`);
+  /* At most one live session per invoice, as a partial unique index: two
+     concurrent requests cannot both read "no open session" and both create
+     one, which would give Veyora two ways to be paid for the same invoice. */
+  await q(`create unique index if not exists payment_sessions_one_live_idx
+    on payment_sessions (invoice_id) where status in ('created', 'open')`);
+  await q(`create index if not exists payment_sessions_invoice_idx
+    on payment_sessions (invoice_id, created_at desc)`);
+  await q(`create unique index if not exists payment_sessions_provider_session_idx
+    on payment_sessions (provider_session_id) where provider_session_id <> ''`);
+  await q(`create index if not exists payment_sessions_intent_idx
+    on payment_sessions (provider_payment_intent) where provider_payment_intent <> ''`);
+  await q(`do $$ begin
+    if not exists (select 1 from pg_trigger where tgname = 't_payment_sessions_touch') then
+      create trigger t_payment_sessions_touch before update on payment_sessions
+        for each row execute function touch_updated_at();
+    end if;
+  end $$`);
+
+  /* The deduplication ledger. `provider_event_id` is UNIQUE, so a retried
+     delivery collides on insert and is acknowledged without being processed
+     twice — one database constraint rather than an application-level "have I
+     seen this?" that races with itself. The RAW PAYLOAD IS NOT STORED: what is
+     kept is an allowlisted summary the application built. */
+  await q(`create table if not exists payment_events (
+    id                  text primary key default veyora_id('pev'),
+    provider            text not null default 'stripe' check (provider in ('stripe')),
+    provider_event_id   text not null unique,
+    event_type          text not null,
+    status              text not null default 'received'
+                        check (status in ('received', 'processed', 'ignored', 'failed')),
+    invoice_id          text references invoices(id) on delete set null,
+    payment_session_id  text references payment_sessions(id) on delete set null,
+    amount_minor        bigint,
+    currency            text not null default '',
+    summary             jsonb not null default '{}',
+    last_error          text not null default '',
+    received_at         timestamptz not null default now(),
+    processed_at        timestamptz
+  )`);
+  await q(`create index if not exists payment_events_invoice_idx on payment_events (invoice_id)`);
+  await q(`create index if not exists payment_events_status_idx
+    on payment_events (status) where status in ('received', 'failed')`);
+  await q(`create index if not exists payment_events_received_idx on payment_events (received_at desc)`);
+
+  /* `payments` is EXTENDED rather than replaced: a second payments table would
+     mean two answers to "what has this customer paid". */
+  await q(`alter table payments
+    add column if not exists invoice_id text references invoices(id) on delete set null,
+    add column if not exists currency text not null default 'USD',
+    add column if not exists amount_minor bigint,
+    add column if not exists payment_session_id text references payment_sessions(id) on delete set null,
+    add column if not exists settlement_key text`);
+  await q(`create unique index if not exists payments_settlement_key_idx
+    on payments (settlement_key) where settlement_key is not null`);
+  await q(`create index if not exists payments_invoice_idx
+    on payments (invoice_id) where invoice_id is not null`);
+
+  /* Refunds get their own table rather than a negative payment: a refund has a
+     reason, an authoriser and its own provider reference, and "a payment that
+     is actually a refund" is how a receivables report ends up wrong. */
+  await q(`create table if not exists payment_refunds (
+    id                   text primary key default veyora_id('rfn'),
+    invoice_id           text not null references invoices(id) on delete cascade,
+    payment_id           text references payments(id) on delete set null,
+    provider             text not null default 'stripe' check (provider in ('stripe')),
+    provider_refund_id   text not null default '',
+    amount_minor         bigint not null check (amount_minor > 0),
+    currency             text not null,
+    status               text not null default 'pending'
+                         check (status in ('pending', 'succeeded', 'failed', 'cancelled')),
+    reason               text not null default '',
+    authorised_by        text references users(id) on delete set null,
+    idempotency_key      text not null unique,
+    last_error           text not null default '',
+    created_at           timestamptz not null default now(),
+    updated_at           timestamptz not null default now()
+  )`);
+  await q(`create index if not exists payment_refunds_invoice_idx on payment_refunds (invoice_id)`);
+  await q(`create unique index if not exists payment_refunds_provider_idx
+    on payment_refunds (provider_refund_id) where provider_refund_id <> ''`);
+  await q(`do $$ begin
+    if not exists (select 1 from pg_trigger where tgname = 't_payment_refunds_touch') then
+      create trigger t_payment_refunds_touch before update on payment_refunds
         for each row execute function touch_updated_at();
     end if;
   end $$`);

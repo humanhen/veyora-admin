@@ -450,6 +450,55 @@ const DB = (function(){
     };
   }
 
+  /* ---------- invoice payment shaping (Final Handover Phase 3) ----------
+
+     Explicit and allowlisted, like every other shaping function here. Two
+     things are deliberately absent and can never arrive: a Stripe key of any
+     kind (the API never sends one) and a raw provider event (there isn't one
+     to send — only an allowlisted summary is ever stored).
+
+     `hostedUrl` is a BEARER LINK: anyone holding it can pay. It is carried
+     only when the API chose to include it, and the pages below never put it in
+     a list or a log. */
+  function shapePaymentSession(s){
+    if(!s) return null;
+    const r = s;
+    const out = {
+      id: String(r.id||''),
+      invoiceId: String(r.invoiceId||''),
+      status: String(r.status||''),
+      amountMinor: Number(r.amountMinor)||0,
+      currency: String(r.currency||''),
+      providerReference: String(r.providerReference||''),
+      expiresAt: r.expiresAt==null?null:String(r.expiresAt),
+      completedAt: r.completedAt==null?null:String(r.completedAt),
+      lastError: String(r.lastError||''),
+      createdAt: r.createdAt==null?null:String(r.createdAt),
+    };
+    if (typeof r.hostedUrl === 'string' && r.hostedUrl) out.hostedUrl = r.hostedUrl;
+    return out;
+  }
+
+  function shapeInvoicePayment(p){
+    const r = p || {};
+    return {
+      invoiceId: String(r.invoiceId||''),
+      invoiceNumber: String(r.invoiceNumber||''),
+      amount: String(r.amount||'0'),
+      currency: String(r.currency||'USD'),
+      /* Defaults to the honest base state rather than to anything that reads
+         as settled: an unrecognised or missing value must never render as
+         "paid". */
+      settlementState: String(r.settlementState||'on_terms'),
+      amountSettledMinor: Number(r.amountSettledMinor)||0,
+      amountRefundedMinor: Number(r.amountRefundedMinor)||0,
+      settledAt: r.settledAt==null?null:String(r.settledAt),
+      settlementReference: String(r.settlementReference||''),
+      issuedOn: r.issuedOn==null?null:String(r.issuedOn),
+      session: shapePaymentSession(r.session),
+    };
+  }
+
   /* ---------- public-content administration shaping (B2.4B2A) ----------
 
      PUBLIC_CONTENT_EDITABLE mirrors EDITABLE_FIELDS in the API's
@@ -940,6 +989,85 @@ const DB = (function(){
         { status: String(status), concurrencyToken, note: note == null ? '' : String(note) });
       if (!res || !res.enquiry) throw malformed();
       return shapeEnquiryDetail(res.enquiry);
+    },
+
+    /* ---- governed invoice payments (Final Handover Phase 3) ----
+
+       Five calls against /admin/payments. Deliberately ABSENT: anything that
+       could mark an invoice paid. The API has no such route — only a verified
+       Stripe webhook settles an invoice — so there is no client method that
+       could reach one, and no amount of UI state can assert a payment. */
+
+    /** The caller's own four payment capabilities, plus whether online payment
+        is configured at all. The `stripe` block carries no key: it is
+        `enabled`, `mode`, `testMode` and a reason. */
+    async paymentCapabilities(){
+      const res = await apiCall('GET', '/admin/payments/capabilities');
+      const c = (res && res.capabilities) || {};
+      const s = (res && res.stripe) || {};
+      return {
+        view: c.view === true,
+        collect: c.collect === true,
+        refund: c.refund === true,
+        reconcile: c.reconcile === true,
+        stripe: {
+          enabled: s.enabled === true,
+          mode: String(s.mode||'disabled'),
+          testMode: s.testMode === true,
+          disabledReason: String(s.disabledReason||''),
+        },
+      };
+    },
+
+    async invoicePayment(invoiceId){
+      const res = await apiCall('GET', '/admin/payments/invoice/' + encodeURIComponent(invoiceId));
+      if (!res || !res.payment) throw malformed();
+      return shapeInvoicePayment(res.payment);
+    },
+
+    /** Creates the secure link, or returns the live one. Safe to press twice:
+        the server reuses an open session rather than opening another. */
+    async collectInvoicePayment(invoiceId){
+      const res = await apiCall('POST',
+        '/admin/payments/invoice/' + encodeURIComponent(invoiceId) + '/collect', {});
+      if (!res || !res.payment) throw malformed();
+      return { reused: res.reused === true, payment: shapeInvoicePayment(res.payment) };
+    },
+
+    /** Sends money back. `confirm` is sent explicitly rather than implied by
+        calling this: a refund reached by a mis-click is money gone, and the
+        server refuses a body without it. */
+    async refundInvoicePayment(invoiceId, reason, amount){
+      const body = { confirm: true, reason: String(reason||'') };
+      if (amount) body.amount = String(amount);
+      const res = await apiCall('POST',
+        '/admin/payments/invoice/' + encodeURIComponent(invoiceId) + '/refund', body);
+      if (!res || !res.refund) throw malformed();
+      const r = res.refund;
+      return {
+        refundId: String(r.refundId||''), amountMinor: Number(r.amountMinor)||0,
+        currency: String(r.currency||''), status: String(r.status||''),
+        providerReference: String(r.providerReference||''),
+        settlementState: String(r.settlementState||''),
+      };
+    },
+
+    /** Payment events that could not be applied. Returns the summary the API
+        built — there is no raw payload to return. */
+    async paymentReconciliation(){
+      const res = await apiCall('GET', '/admin/payments/reconciliation');
+      if (!res || !Array.isArray(res.exceptions)) throw malformed();
+      return res.exceptions.map(e => ({
+        id: String(e.id||''),
+        providerEventId: String(e.providerEventId||''),
+        eventType: String(e.eventType||''),
+        status: String(e.status||''),
+        invoiceId: e.invoiceId==null?null:String(e.invoiceId),
+        amountMinor: e.amountMinor==null?null:Number(e.amountMinor),
+        currency: String(e.currency||''),
+        lastError: String(e.lastError||''),
+        receivedAt: String(e.receivedAt||''),
+      }));
     },
 
     /* ---- governed store contacts (Final Handover Phase 2) ----

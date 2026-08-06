@@ -199,6 +199,25 @@ const App={
       };
     }catch(e){/* fail closed — see above */}
 
+    /* Payment capabilities (Final Handover Phase 3). A fourth separate probe.
+       FOUR keys come back, not one: seeing that an invoice was paid, asking a
+       customer to pay, sending money back and correcting the books are four
+       different authorities, and the panel must be able to show a viewer the
+       state without showing them a refund button.
+
+       `_stripe` is cached as a rendering hint so a screen can say "test mode"
+       or "online payment is switched off" without a second call. It carries no
+       key — the API never sends one. Same all-paths-fail-closed rule. */
+    this._stripe = { enabled:false, mode:'disabled', testMode:false, disabledReason:'' };
+    try{
+      const pay=await DB.paymentCapabilities();
+      if(pay.view)held.add('payments.view');
+      if(pay.collect)held.add('payments.collect');
+      if(pay.refund)held.add('payments.refund');
+      if(pay.reconcile)held.add('payments.reconcile');
+      this._stripe=pay.stripe;
+    }catch(e){/* fail closed — see above */}
+
     /* Admin ACTIONS, distinct from capabilities (warehouse interface
        correction). Capabilities are per-account grants; actions describe what
        this session's ROLE may do on the admin router — above all whether it

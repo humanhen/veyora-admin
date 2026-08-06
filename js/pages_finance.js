@@ -225,6 +225,33 @@ App.register('collection',function(el){
 });
 
 /* ============================================================ INVOICES */
+/* ---------- invoice payment presentation (Final Handover Phase 3) ----------
+
+   Plain English for each settlement state. `on_terms` deliberately reads as
+   "On terms" rather than "Unpaid": an invoice outstanding on agreed account
+   terms is not a delinquent one, and every existing invoice is in that state.
+
+   `processing` is its own word because it is genuinely different from both
+   paid and unpaid — a hosted session completed and Veyora is waiting for the
+   signed webhook that is the only evidence money moved. */
+const PAY_STATE_LABELS={
+  'on_terms':'On terms',
+  'processing':'Confirming…',
+  'paid':'Paid',
+  'refunded':'Refunded',
+  'void':'Void',
+};
+const payStateLabel=k=>PAY_STATE_LABELS[k]||k||'—';
+
+/* Minor units to a display string. Mirrors fromMinorUnits() on the server; the
+   SERVER's figure is authoritative and this only formats it. */
+function payMoney(minor,currency){
+  const n=Number(minor)||0;
+  const sign=n<0?'-':'';
+  const abs=Math.abs(n);
+  return sign+Math.floor(abs/100)+'.'+String(abs%100).padStart(2,'0')+' '+String(currency||'');
+}
+
 App.register('invoices',function(el){
   const state=App._inv2||(App._inv2={cust:'',from:'',to:'',provider:'',page:1});
 
@@ -272,11 +299,13 @@ App.register('invoices',function(el){
           <td><div class="row-actions">
             <button class="icon-btn" data-dl="${iv.id}" title="Download PDF">${I.download}</button>
             <button class="icon-btn" data-ext="${iv.id}" title="Open at provider">${I.external}</button>
+            ${App.can('payments.view')?`<button class="icon-btn" data-pay="${iv.id}" title="Payment">${I.payments}</button>`:''}
           </div></td>
         </tr>`).join(''):`<tr><td colspan="8" class="empty-cell">No invoices found</td></tr>`}
         </tbody></table></div>
       ${list.length>10?pagerHTML(p):''}
     </div>
+    ${paymentBannerHTML()}
     <div class="small muted" style="margin-top:10px">An invoice is generated from an order via the <b>Generate Invoice</b> button on the order screen.</div>`;
 
     const cq=el.querySelector('#iv-cust');
@@ -289,7 +318,212 @@ App.register('invoices',function(el){
     /* Truthful: invoices are records in this system; no file is produced. */
     el.querySelectorAll('[data-dl]').forEach(b=>b.onclick=()=>toast('No invoice document is generated yet — open the order and use Print order.'));
     el.querySelectorAll('[data-ext]').forEach(b=>b.onclick=()=>toast('Opening invoice at the provider…'));
+    el.querySelectorAll('[data-pay]').forEach(b=>b.onclick=()=>paymentModal(b.dataset.pay));
+    const rec=el.querySelector('#pay-reconcile');
+    if(rec)rec.onclick=reconciliationModal;
   }
+
+  /* ---------- payment (Final Handover Phase 3) ---------- */
+
+  /** A standing note about the payment provider's state.
+   *
+   *  Test mode is announced LOUDLY and permanently rather than discovered when
+   *  a customer's payment never arrives. Stripe being off is stated as a fact
+   *  about configuration, not as a failure. */
+  function paymentBannerHTML(){
+    if(!App.can('payments.view'))return '';
+    const s=App._stripe||{};
+    const reconcile=App.can('payments.reconcile')
+      ? '<button class="btn btn-sm" id="pay-reconcile" style="margin-left:auto">Reconciliation</button>' : '';
+    if(!s.enabled){
+      return `<div class="dashed-banner" style="margin-top:12px;display:flex;align-items:center;gap:10px">
+        <span>Online card payment is switched off${s.disabledReason?' — '+esc(s.disabledReason):''}.
+        Invoices remain payable on account terms exactly as before.</span>${reconcile}</div>`;
+    }
+    if(s.testMode){
+      return `<div class="dashed-banner" style="margin-top:12px;display:flex;align-items:center;gap:10px">
+        <span><b>Stripe is in TEST mode.</b> Payment links here take test cards only and move no real money.</span>${reconcile}</div>`;
+    }
+    return `<div class="dashed-banner" style="margin-top:12px;display:flex;align-items:center;gap:10px">
+      <span>Stripe is live. Payment links here take real money.</span>${reconcile}</div>`;
+  }
+
+  function paymentModal(invoiceId){
+    let payment=null, busy=false, notice=null;
+
+    function body(){
+      if(notice&&!payment)return `<div class="perm-notice ${notice.kind}"><div class="small">${esc(notice.text)}</div></div>`;
+      if(!payment)return '<div class="muted small">Loading payment state…</div>';
+      const st=payment.settlementState;
+      const s=payment.session;
+      const stripe=App._stripe||{};
+      return `
+      ${notice?`<div class="perm-notice ${notice.kind}" style="margin-bottom:10px"><div class="small">${esc(notice.text)}</div></div>`:''}
+      <div class="summary-row"><span>Invoice</span><b>${esc(payment.invoiceNumber)}</b></div>
+      <div class="summary-row"><span>Amount</span><b>${esc(payment.amount)} ${esc(payment.currency)}</b></div>
+      <div class="summary-row"><span>State</span><span class="badge outline">${esc(payStateLabel(st))}</span></div>
+      ${st==='paid'||st==='refunded'?`
+        <div class="summary-row"><span>Settled</span><b>${esc(payMoney(payment.amountSettledMinor,payment.currency))}</b></div>
+        ${payment.amountRefundedMinor?`<div class="summary-row"><span>Refunded</span><b>${esc(payMoney(payment.amountRefundedMinor,payment.currency))}</b></div>`:''}
+        <div class="summary-row"><span>Provider reference</span><span class="small">${esc(payment.settlementReference||'—')}</span></div>
+        ${payment.settledAt?`<div class="summary-row"><span>Settled at</span><span class="small">${esc(fmtDateShort(payment.settledAt))}</span></div>`:''}`:''}
+      ${s?`<div class="section-label" style="margin-top:12px">LAST PAYMENT LINK</div>
+        <div class="summary-row"><span>Status</span><span class="badge outline">${esc(s.status)}</span></div>
+        ${s.expiresAt?`<div class="summary-row"><span>Expires</span><span class="small">${esc(fmtDateShort(s.expiresAt))}</span></div>`:''}
+        ${s.lastError?`<div class="summary-row"><span>Last error</span><span class="small">${esc(s.lastError)}</span></div>`:''}
+        ${s.hostedUrl?`<div class="field" style="margin-top:8px">
+          <label>Secure payment link</label>
+          <input class="input" id="pay-link" readonly value="${esc(s.hostedUrl)}">
+          <div class="small muted">Anyone holding this link can pay this invoice. Send it to the customer directly.</div>
+        </div>`:''}`
+        :'<div class="small muted" style="margin-top:12px">No payment link has been created for this invoice.</div>'}
+      ${!stripe.enabled?'<div class="small muted" style="margin-top:10px">Online payment is switched off, so no link can be created.</div>':''}
+      <div class="small muted" style="margin-top:12px">
+        An invoice is only ever marked paid by a signed confirmation from the payment provider.
+        Nothing on this screen can assert a payment.
+      </div>`;
+    }
+
+    function foot(){
+      const st=payment&&payment.settlementState;
+      const canCollect=App.can('payments.collect')&&(App._stripe||{}).enabled&&st==='on_terms';
+      const canRefund=App.can('payments.refund')&&(st==='paid'||st==='refunded')
+        &&Number(payment.amountRefundedMinor)<Number(payment.amountSettledMinor);
+      return `<button class="btn" data-x>Close</button>
+        ${canRefund?`<button class="btn" data-refund ${busy?'disabled':''}>Refund…</button>`:''}
+        ${canCollect?`<button class="btn btn-dark" data-collect ${busy?'disabled':''}>${busy?'Working…':(payment.session&&payment.session.hostedUrl?'Get link':'Create payment link')}</button>`:''}`;
+    }
+
+    const modal=Modal.open({title:'Invoice payment',size:'wide',body:body(),foot:foot(),
+      setup(ov,close){ wire(ov,close); }});
+
+    function repaint(){
+      const ov=modal.el;
+      ov.querySelector('.modal-body').innerHTML=body();
+      ov.querySelector('.modal-foot').innerHTML=foot();
+      wire(ov,modal.close);
+    }
+
+    function wire(ov,close){
+      ov.querySelector('[data-x]').onclick=close;
+      const link=ov.querySelector('#pay-link');
+      if(link)link.onclick=()=>{link.select();};
+      const collect=ov.querySelector('[data-collect]');
+      /* `busy` is checked in the handler, not only reflected in `disabled`: a
+         direct handler call would bypass the attribute, and creating a second
+         session is exactly what must not happen. */
+      if(collect)collect.onclick=async()=>{
+        if(busy)return;
+        busy=true;notice=null;repaint();
+        try{
+          const out=await DB.collectInvoicePayment(invoiceId);
+          payment=out.payment;
+          notice={kind:'ok',text:out.reused
+            ? 'This invoice already had an open payment link — the same one is shown below.'
+            : 'A secure payment link has been created. Send it to the customer.'};
+          DB.audit('payment.collect',payment.invoiceNumber,'payment link created','web');
+        }catch(e){ notice=describePay(e); }
+        finally{ busy=false;repaint(); }
+      };
+      const refund=ov.querySelector('[data-refund]');
+      if(refund)refund.onclick=()=>{ if(!busy)refundModal(); };
+    }
+
+    /** A refund is confirmed by TYPING, not by clicking. The reason is
+     *  mandatory because a refund nobody can explain six months later is the
+     *  problem this field exists to prevent. */
+    function refundModal(){
+      const remaining=Number(payment.amountSettledMinor)-Number(payment.amountRefundedMinor);
+      Modal.open({title:'Refund payment',size:'wide',
+        body:`<div class="info-banner">${I.eye}<div>This sends money back to the customer through Stripe.
+          Up to <b>${esc(payMoney(remaining,payment.currency))}</b> remains refundable on invoice
+          <b>${esc(payment.invoiceNumber)}</b>.</div></div>
+          <div class="field"><label for="rf-amount">Amount (blank refunds everything remaining)</label>
+            <input class="input" id="rf-amount" placeholder="${esc(payMoney(remaining,payment.currency).split(' ')[0])}"></div>
+          <div class="field"><label for="rf-reason">Reason (required, recorded in the audit log)</label>
+            <textarea class="input" id="rf-reason" rows="2" maxlength="500"></textarea></div>
+          <div class="field"><label for="rf-confirm">Type REFUND to confirm</label>
+            <input class="input" id="rf-confirm" autocomplete="off"></div>`,
+        foot:`<button class="btn" data-x>Cancel</button><button class="btn btn-dark" data-ok disabled>Send refund</button>`,
+        setup(ov,close){
+          const ok=ov.querySelector('[data-ok]');
+          const confirm=ov.querySelector('#rf-confirm');
+          const reason=ov.querySelector('#rf-reason');
+          const check=()=>{ ok.disabled=!(confirm.value.trim()==='REFUND'&&reason.value.trim().length>=3); };
+          confirm.oninput=check; reason.oninput=check;
+          ov.querySelector('[data-x]').onclick=close;
+          let sending=false;
+          ok.onclick=async()=>{
+            if(sending||confirm.value.trim()!=='REFUND')return;
+            sending=true;ok.disabled=true;
+            try{
+              const out=await DB.refundInvoicePayment(invoiceId,reason.value,ov.querySelector('#rf-amount').value.trim());
+              close();
+              notice={kind:'ok',text:`${payMoney(out.amountMinor,out.currency)} refunded.`};
+              DB.audit('payment.refund',payment.invoiceNumber,'refund sent','web');
+              toast('Refund sent');
+              await load();
+            }catch(e){
+              sending=false;ok.disabled=false;
+              const n=describePay(e);
+              ov.querySelector('.modal-body').insertAdjacentHTML('beforeend',
+                `<div class="perm-notice err" style="margin-top:10px"><div class="small">${esc(n.text)}</div></div>`);
+            }
+          };
+        }});
+    }
+
+    async function load(){
+      try{ payment=await DB.invoicePayment(invoiceId); }
+      catch(e){ notice=describePay(e); }
+      repaint();
+    }
+    load();
+  }
+
+  function reconciliationModal(){
+    Modal.open({title:'Payment reconciliation',size:'wide',
+      body:'<div class="muted small">Loading…</div>',
+      foot:'<button class="btn" data-x>Close</button>',
+      setup(ov,close){
+        ov.querySelector('[data-x]').onclick=close;
+        DB.paymentReconciliation().then(list=>{
+          ov.querySelector('.modal-body').innerHTML=list.length?`
+            <div class="small muted" style="margin-bottom:8px">
+              Payment events the platform could not apply. Each is recorded with the reason;
+              none of them changed an invoice.
+            </div>
+            <div class="table-wrap"><table class="tbl">
+              <thead><tr><th>Received</th><th>Event</th><th>Reason</th><th class="num">Amount</th></tr></thead>
+              <tbody>${list.map(e=>`<tr>
+                <td class="small">${esc(fmtDateShort(e.receivedAt))}</td>
+                <td class="small">${esc(e.eventType)}</td>
+                <td class="small">${esc(e.lastError||e.status)}</td>
+                <td class="num small">${e.amountMinor==null?'—':esc(payMoney(e.amountMinor,e.currency))}</td>
+              </tr>`).join('')}</tbody></table></div>`
+            :'<div class="small">Nothing to reconcile — every payment event was applied.</div>';
+        }).catch(e=>{
+          ov.querySelector('.modal-body').innerHTML=
+            `<div class="perm-notice err"><div class="small">${esc(describePay(e).text)}</div></div>`;
+        });
+      }});
+  }
+
+  /* Every branch is a sentence for an operator. A raw API error never renders. */
+  function describePay(e){
+    const s=e&&e.status, code=e&&e.data&&e.data.code;
+    if(s===401)return {kind:'err',text:'Your session has expired. Sign in again — nothing was changed.'};
+    if(s===403)return {kind:'err',text:'Your account does not hold the payment capability that needs. Nothing was changed.'};
+    if(s===404)return {kind:'err',text:'That invoice could not be found.'};
+    if(s===409&&code==='ALREADY_PAID')return {kind:'warn',text:'This invoice has already been paid.'};
+    if(s===409&&code==='PAYMENT_PENDING')return {kind:'warn',text:'A payment for this invoice is being confirmed. Nothing was changed.'};
+    if(s===409&&code==='EXCEEDS_REMAINING')return {kind:'err',text:(e.data&&e.data.error)||'That is more than remains refundable.'};
+    if(s===409)return {kind:'warn',text:(e.data&&e.data.error)||'That change was refused. Nothing was changed.'};
+    if(s===502)return {kind:'err',text:(e.data&&e.data.error)||'The payment provider could not be reached. Nothing was charged.'};
+    if(s===400)return {kind:'err',text:(e.data&&e.data.error)||'That request was rejected. Nothing was changed.'};
+    return {kind:'err',text:'That could not be completed. Nothing was changed — check your connection and try again.'};
+  }
+
   render();
 });
 

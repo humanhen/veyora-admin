@@ -1,0 +1,97 @@
+diff --git a/platform/server/storefront/js/pages_account.js b/platform/server/storefront/js/pages_account.js
+index ac3486e..bdcc051 100644
+--- a/platform/server/storefront/js/pages_account.js
++++ b/platform/server/storefront/js/pages_account.js
+@@ -1,6 +1,69 @@
+ /* My account: profile, addresses, password, favourites, spare parts, invoices. */
+ 'use strict';
+ 
++/* ---------- invoice payment (Final Handover Phase 3) ----------
++
++   Paying by card is an OPTION beside account terms, never a replacement for
++   them. The button therefore appears only for an invoice that is genuinely
++   outstanding, and every other state gets a sentence rather than a disabled
++   control with no explanation.
++
++   NOTHING HERE ASSERTS A PAYMENT. Arriving back from Stripe proves only that a
++   browser followed a redirect; the page re-reads the invoice's real state, and
++   an invoice stays "confirming" until a signed webhook settles it. */
++const INVOICE_STATE_NOTES = {
++  'on_terms': '',
++  'processing': 'payment confirming',
++  'paid': 'paid',
++  'refunded': 'refunded',
++  'void': 'cancelled',
++};
++
++function invoiceStateNote(i) {
++  const note = INVOICE_STATE_NOTES[i.settlementState] || '';
++  return note ? `<span class="sub">· ${esc(note)}</span>` : '';
++}
++
++/** Shown only for a payable invoice. A disabled button that never explains
++ *  itself is how a customer ends up telephoning to ask why. */
++function payButton(i) {
++  if (i.settlementState !== 'on_terms') return '';
++  return `<button class="btn sm" data-pay="${esc(i.id)}">Pay securely</button>`;
++}
++
++/**
++ * Asks the API for a hosted payment link and sends the customer to it.
++ *
++ * The button is disabled AND a local flag is set, because a second click that
++ * reaches the handler directly must also be refused. The server reuses an open
++ * session rather than opening a second one, so the worst case is harmless —
++ * but the customer should not see two tabs open either.
++ */
++async function startInvoicePayment(button, invoiceId) {
++  if (button.dataset.busy === '1') return;
++  button.dataset.busy = '1';
++  button.disabled = true;
++  const original = button.textContent;
++  button.textContent = 'Opening…';
++  try {
++    const res = await API.post(`/user/invoices/${encodeURIComponent(invoiceId)}/pay`, {});
++    const url = res && res.payment && res.payment.session && res.payment.session.hostedUrl;
++    if (!url) throw new Error('No secure payment page was returned. Please try again.');
++    /* Stripe's own hosted page. Card details are entered there and never
++       touch Veyora — which is the reason for choosing a hosted flow. */
++    window.location.href = url;
++  } catch (ex) {
++    button.dataset.busy = '0';
++    button.disabled = false;
++    button.textContent = original;
++    /* The server's sentence when it wrote one: it distinguishes "already
++       paid", "being confirmed" and "online payment is switched off — this
++       invoice is payable on your usual account terms", and each of those
++       needs a different response from the customer. */
++    toast(ex.message || 'The payment page could not be opened. Nothing was charged.', true);
++  }
++}
++
+ Routes['#/account'] = {
+   title: 'My Account',
+   async render(el) {
+@@ -54,13 +117,20 @@ Routes['#/account'] = {
+           <div class="card" style="margin-top:14px"><div class="pad">
+             <h3 style="font-size:15px;margin-bottom:8px">Invoices</h3>
+             ${inv.invoices.length ? inv.invoices.slice(0, 8).map(i => `
+-              <div class="summary-row"><span>${esc(i.number)} <span class="sub">${fmtDate(i.issuedOn)}</span></span>
+-                <b>${money(i.amount)}</b></div>`).join('')
++              <div class="summary-row"><span>${esc(i.number)} <span class="sub">${fmtDate(i.issuedOn)}</span>
++                  ${invoiceStateNote(i)}</span>
++                <span style="display:flex;align-items:center;gap:10px">
++                  <b>${money(i.amount)}</b>${payButton(i)}</span></div>`).join('')
+               : '<p class="sub">No invoices yet</p>'}
++            <p class="sub" style="margin-top:10px">Your invoices are payable on your usual account
++              terms. Paying by card here is optional and changes nothing about those terms.</p>
+           </div></div>
+         </div>
+       </div>`;
+ 
++    el.querySelectorAll('[data-pay]').forEach(b =>
++      b.onclick = () => startInvoicePayment(b, b.dataset.pay));
++
+     el.querySelector('#profForm').onsubmit = async (e) => {
+       e.preventDefault();
+       const f = e.target;

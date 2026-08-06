@@ -14,6 +14,8 @@ import accountPermissionRoutes from './routes/account-permissions.js';
 import adminEnquiryRoutes from './routes/admin-enquiries.js';
 import adminInventoryRoutes from './routes/admin-inventory.js';
 import adminCustomerContactRoutes from './routes/admin-customer-contacts.js';
+import adminPaymentRoutes from './routes/admin-payments.js';
+import { customerPaymentRoutes, stripeWebhookRoutes } from './routes/payments.js';
 import publicRoutes from './routes/public.js';
 import publicFormRoutes from './routes/public-forms.js';
 import nodemailer from 'nodemailer';
@@ -21,6 +23,7 @@ import { origins } from './origins.js';
 import { selectAdapter } from './notifications/delivery.js';
 import { startNotificationWorker } from './notifications/worker.js';
 import { notificationWorkerSettings } from './config.js';
+import { initStripeClient } from './payments/client-instance.js';
 import { ensureSchema } from './migrate.js';
 import { startZohoSchedule } from './zoho.js';
 import { startServer } from './startup.js';
@@ -38,6 +41,21 @@ const app = express();
  *
  * See src/origins.js and 34_SECURITY_HARDENING.md §3. */
 app.set('trust proxy', origins.trustProxyHops);
+
+/* THE STRIPE WEBHOOK IS MOUNTED BEFORE THE JSON PARSER, deliberately.
+ *
+ * A Stripe signature is computed over the exact bytes Stripe sent.
+ * `express.json()` parses them and discards them, and re-serialising the
+ * resulting object changes whitespace and key order — so a signature verified
+ * against a re-serialised body would never match, and the only way to make it
+ * "work" would be to stop verifying. That is the one thing standing between
+ * the internet and "this invoice is paid".
+ *
+ * `express.raw()` therefore applies to this path and this path only. The 1 MB
+ * cap is far above any real Stripe event and far below anything that could be
+ * used to exhaust memory. This ordering is load-bearing and a test asserts it.
+ */
+app.use('/webhooks', express.raw({ type: 'application/json', limit: '1mb' }), stripeWebhookRoutes);
 
 app.use(express.json({ limit: '64mb' }));
 app.use(cookieParser());
@@ -60,6 +78,10 @@ app.use('/user', cartRoutes);
 app.use('/user', orderRoutes);
 app.use('/user', accountRoutes);
 app.use('/user', agentRoutes);
+/* Customer payment: read the state of their OWN invoice, and ask for a secure
+   hosted link. Neither route can report a payment - only the signed webhook
+   above may settle an invoice. */
+app.use('/user', customerPaymentRoutes);
 
 app.get('/admin/country-list', requireAuth(), (req, res) => {
   res.json({ countries: [
@@ -104,6 +126,12 @@ app.use('/admin/inventory', adminInventoryRoutes);
    `customer_contacts.view` / `customer_contacts.manage`, neither of which is
    granted by any migration or implied by any role. */
 app.use('/admin/customer-contacts', adminCustomerContactRoutes);
+
+/* Governed payment operations (Final Handover Phase 3). Mounted before the
+   general /admin router: authority here is four separate payment
+   capabilities, none granted by any migration and none implied by a role.
+   No route on it can mark an invoice paid. */
+app.use('/admin/payments', adminPaymentRoutes);
 
 app.use('/admin', adminRoutes);
 
@@ -151,6 +179,12 @@ startServer({
     if (!adapter.configured) {
       console.warn('[notifications] no email provider configured — notifications will queue, not send');
     }
+    initStripeClient().then((client) => {
+      if (!client.enabled && client.mode === 'disabled') {
+        console.warn('[payments] Stripe is not configured - online payment is unavailable; ordering on account terms is unaffected');
+      }
+    }).catch(() => {});
+
     startNotificationWorker(
       { query: (sql, params) => pool.query(sql, params) },
       adapter,
