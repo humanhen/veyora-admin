@@ -2059,3 +2059,67 @@ frontend, `api/src/index.js`, `api/src/migrate.js`, `api/src/routes/public.js`,
 `.env` file are unchanged, as are all pricing, inventory, ordering and Zoho behaviour. The other
 developer's branch was never inspected, referenced or merged. No commit was made and nothing was
 pushed.
+
+---
+
+## 21. Fast-track morning correction — enquiry form CSRF verified behind a proxy — 2026-08-06
+
+Closes the one deliberate gap the overnight workstream left open. **CSRF was not disabled, not
+broadened, and no wildcard was introduced.**
+
+### Root cause
+
+The overnight run found a real production defect — with `security.allowedDomains` empty, Astro falls
+back to `http://localhost` when reconstructing the request origin, so behind Caddy every form POST
+would answer 403 — and fixed it correctly. What it could not do was verify the fix, because its tests
+posted **directly to the standalone server's internal port**, bypassing the reverse proxy that
+rewrites `Host` and adds `X-Forwarded-*`. Astro then reconstructed an origin that could not match.
+The configuration was right; the test topology was wrong.
+
+### Verified
+
+A Node-core reverse proxy in front of the real built server, measured:
+
+| Path | Astro's `url.origin` | Form POST |
+|---|---|---|
+| Direct to the internal port | `http://localhost` | 403 for any Origin |
+| **Proxied**, Host + `X-Forwarded-*` rewritten | the public origin | **200**, and the submission reached the API |
+| Proxied, `Origin: https://evil.test` | the public origin | **403**, reaching no API |
+| Proxied, no `Origin` | the public origin | **403** |
+
+### Files
+
+**Added:** `platform/server/web/test/helpers/reverse-proxy.ts`, `platform/server/web/test/enquiry-e2e.test.ts`.
+**Modified:** `astro.config.mjs` (defensive origin validation), `test/http-routes.test.ts` (placeholder
+removed), `test/astro-config.test.ts` (+3 allowlist-contract tests), docs 24 and the handoff.
+
+### Allowed-domain configuration
+
+One entry derived from `PUBLIC_SITE_ORIGIN`: exact hostname, pinned protocol, port omitted when the
+origin has none (so 443 matches in production). Never a wildcard, never a literal — asserted by test.
+A malformed or non-http(s) origin now fails the build in `astro.config.mjs` as well as in
+`validate-env.mjs`, so a bare `astro build` cannot emit a weakened allowlist.
+
+### Direct-server policy
+
+A POST straight to the internal server is **rejected by design** — it is not an alternative public
+host. Tested and documented rather than engineered around. `GET /healthz` is unaffected.
+
+### Verification
+
+- **API 998**, **root admin frontend 141**, **web 435** (412 before; the placeholder became 21
+  end-to-end tests plus 3 config tests). Astro production build succeeds.
+- `node --check` clean; deploy payload assembles (1.4 MB); `git diff --check` clean.
+- No pre-existing test was removed to obtain a green result.
+
+### Still required
+
+**An RC smoke test over real HTTPS.** The local proxy reproduces the header contract Caddy is
+expected to provide; it is not Caddy. Submit each form from a browser after the next RC deploy and
+confirm a 200 plus a `pending` row in `form_submissions`.
+
+### Confirmation
+
+No production system, VPS, live database or DNS was contacted. No permission bootstrap SQL, no
+capability grant, no publication, no real catalogue data, no deployment, and nothing pushed. Astro's
+CSRF checking remains enabled throughout.

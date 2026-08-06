@@ -39,7 +39,30 @@ const siteOrigin = process.env.PUBLIC_SITE_ORIGIN || 'http://localhost:4321';
    Derived from PUBLIC_SITE_ORIGIN, never hard-coded, for the same reason the
    `site` above is — and read from process.env directly rather than by
    importing ./src/env.ts, per the note above. */
-const { hostname: siteHostname, protocol: siteProtocol, port: sitePort } = new URL(siteOrigin);
+/* Parsed defensively rather than trusted. `npm run build` runs
+   scripts/validate-env.mjs first, which rejects a missing, malformed or
+   non-http(s) PUBLIC_SITE_ORIGIN in production — but a bare `astro build`
+   skips that gate, and an allowlist is the wrong thing to derive optimistically.
+   Failing the build is the correct outcome: a weakened allowlist would be
+   silent, and would surface later as either a broken form or a trusted host
+   nobody chose. */
+const siteUrl = (() => {
+  let url;
+  try {
+    url = new URL(siteOrigin);
+  } catch {
+    throw new Error(`PUBLIC_SITE_ORIGIN must be an absolute http(s) URL, got: "${siteOrigin}"`);
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw new Error(`PUBLIC_SITE_ORIGIN must use http or https, got: "${siteOrigin}"`);
+  }
+  if (url.hostname === '' || url.hostname === '*' || url.hostname.includes('*')) {
+    throw new Error(`PUBLIC_SITE_ORIGIN must name an exact host, got: "${siteOrigin}"`);
+  }
+  return url;
+})();
+
+const { hostname: siteHostname, protocol: siteProtocol, port: sitePort } = siteUrl;
 
 export default defineConfig({
   output: 'server',

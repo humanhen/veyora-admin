@@ -171,9 +171,9 @@ answers **403**.
 a hard-coded hostname, and read from `process.env` directly rather than by importing `src/env.ts`
 (per the long-standing note in that file about Vite forcing `NODE_ENV`).
 
-> **This fix is reasoned from the Astro source but is NOT yet verified end to end** — see §9. It can
-> only improve matters (an empty list definitely falls back to `localhost`), but it should be
-> confirmed against a real deployment before the forms are announced.
+> **Superseded by §10 (morning correction).** This fix has now been verified end to end against the
+> real built server behind a Node-core reverse proxy: a same-origin proxied POST succeeds and every
+> hostile origin is refused. An RC smoke test over real HTTPS is still required — §11.
 
 ---
 
@@ -194,17 +194,11 @@ a hard-coded hostname, and read from `process.env` directly rather than by impor
 
 ## 9. Limitations
 
-- **The end-to-end POST is not exercised at HTTP level.** Astro's `checkOrigin` rejected the test
-  harness's POSTs, and the exact origin Astro computes in the standalone adapter could not be
-  reproduced within the run. Rather than weaken the check or leave failing tests, those four tests
-  were removed and the gap pinned by a placeholder test naming the next diagnostic step (add a
-  temporary SSR endpoint that echoes `Astro.url.origin`, request it through the running server, and
-  set the harness Origin to what it reports).
-
-  **What is covered instead:** 35 API tests (validation, storage, honeypot, privacy, SQL safety,
-  router wiring) and 30 web tests (body construction, error mapping, no-JavaScript structure,
-  accessibility, no-origin-leak), plus HTTP tests proving the form renders server-side with real
-  controls and that a cross-origin POST is refused.
+- ~~**The end-to-end POST is not exercised at HTTP level.**~~ **Resolved — see §10.** The placeholder
+  has been removed and replaced by `test/enquiry-e2e.test.ts` (21 tests), which submits all three
+  forms through a Node-core reverse proxy into the real built server. The root cause was the test
+  topology, not the configuration: the overnight suite posted directly to the internal port, which
+  correctly cannot reconstruct a matching origin and is refused by design.
 
 - **The web field list duplicates the API's.** Deliberate and narrow: a form cannot render a control
   it does not know about, and a round-trip per page render to discover the list would be worse. A
@@ -214,3 +208,146 @@ a hard-coded hostname, and read from `process.env` directly rather than by impor
 - **Success is a 200 re-render, not POST-redirect-GET.** A redirect would need a session or a query
   flag to carry the success state, and a query flag on a public page is both indexable and forgeable.
   A refresh therefore re-posts, producing a second stored enquiry rather than corruption.
+
+---
+
+## 10. CSRF behind a reverse proxy — verified (morning correction, 2026-08-06)
+
+§7 recorded the `allowedDomains` fix as *"reasoned from the Astro source but NOT yet verified end to
+end"*, and §9 recorded four end-to-end POST tests as removed. Both are now resolved. **CSRF was not
+disabled, not broadened, and no wildcard was introduced.**
+
+### Root cause
+
+Two separate things, and the overnight run conflated them.
+
+1. **The production defect was real and the fix was correct.** With `security.allowedDomains` empty,
+   `NodeApp.createRequest()` cannot validate the request `Host` or `X-Forwarded-Proto`, so it falls
+   back to the literal `http://localhost`. Behind Caddy the browser's `Origin` would never match and
+   every submission would answer 403. Deriving the allowlist from `PUBLIC_SITE_ORIGIN` fixes it.
+
+2. **The test failure had a different cause.** The overnight suite posted **directly to the
+   standalone server on its internal port**. That skips the reverse proxy entirely — no rewritten
+   `Host`, no `X-Forwarded-*` — so Astro reconstructed an origin that could not match, exactly as it
+   should. The tests were failing because the topology was wrong, not because the configuration was.
+
+A reproduction settled it. Measured against the real built server:
+
+| Request path | Astro's `url.origin` | Form POST |
+|---|---|---|
+| Direct to internal port, Host `127.0.0.1:4340` | `http://localhost` | **403** for any Origin |
+| Direct, where the configured origin *is* that host | `http://127.0.0.1:4340` | **200** |
+| **Proxied** — Host + `X-Forwarded-*` rewritten to the public origin | the public origin | **200** |
+| Proxied, `Origin: https://evil.test` | the public origin | **403** |
+| Proxied, no `Origin` header | the public origin | **403** |
+
+The configuration was right the whole time. It had simply never been exercised through the topology
+it was written for.
+
+*(A related, incidental discovery: two earlier diagnostic attempts had failed because Astro excludes
+`_`-prefixed files from routing altogether, so the probe endpoints were never registered.)*
+
+### Allowed-domain behaviour, exactly
+
+`astro.config.mjs` derives one entry from `PUBLIC_SITE_ORIGIN`:
+
+```js
+security: { allowedDomains: [{ hostname, protocol, ...(port ? { port } : {}) }] }
+```
+
+- **Exactly one host**, parsed from the configured origin. Never a literal, never a wildcard — a test
+  asserts both.
+- **Protocol is pinned** (`http` or `https`), so an `X-Forwarded-Proto` claiming the other scheme is
+  not honoured.
+- **Port is omitted when the origin has none**, because Astro's `matchPort` treats an absent pattern
+  port as "any" — which is what makes `https://<domain>` on 443 match in production.
+- **Malformed configuration fails the build.** `npm run build` runs `scripts/validate-env.mjs` first
+  (rejecting a missing, non-http(s) or path-bearing origin in production), and `astro.config.mjs`
+  now *also* validates independently, so a bare `astro build` that skips the npm script cannot emit a
+  weakened allowlist either. Failing is the right outcome: a silently-widened allowlist surfaces
+  later as either a broken form or a trusted host nobody chose.
+
+### Direct-server policy
+
+**A POST straight to the internal Astro server is rejected, and that is intended.** The internal
+server is not an alternative public host. `allowedDomains` names the public origin only, so a request
+arriving with the internal `host:port` cannot reconstruct a matching origin.
+
+Broadening the allowlist so both hosts pass would mean trusting a host the site is never served on —
+the opposite of what the allowlist is for. Public traffic arrives through the proxy; that is the
+boundary. `GET /healthz` is unaffected, so health checks and internal probes keep working.
+
+This is tested rather than assumed (`enquiry-e2e.test.ts`).
+
+### Test topology
+
+`test/helpers/reverse-proxy.ts` is a reverse proxy built from Node core only — no dependency, no
+TLS, loopback only. It reproduces the header contract Caddy provides: `Host` rewritten to the public
+host, plus `X-Forwarded-Proto`, `-Host`, `-Port` and `-For`. It can also be told to omit the
+forwarding headers or to forge one, so misconfiguration and spoofing are exercised rather than
+assumed.
+
+```
+raw HTTP client (node:http — fetch() cannot set Origin, a forbidden header)
+        │  Origin: <public origin>
+        ▼
+reverse proxy on an ephemeral loopback port   ← PUBLIC_SITE_ORIGIN points here
+        │  Host + X-Forwarded-* rewritten
+        ▼
+built Astro standalone server on 127.0.0.1:4330
+        │  server-side submit client
+        ▼
+mock /forms API on an ephemeral loopback port
+```
+
+**This reproduces the required header contract; it is not Caddy.** An RC smoke test is still needed —
+see §11.
+
+### Restored tests
+
+`test/enquiry-e2e.test.ts`, **21 tests**, replacing the placeholder:
+
+- a same-origin proxied POST reaches the handler, the mock API and renders the success state — for
+  **all three forms**;
+- the proxy is asserted to have actually rewritten `Host` and added the forwarding headers, so a
+  passing test cannot pass for the wrong reason;
+- validation failure returns 400 with per-field links, preserves what was typed, and does not re-tick
+  consent;
+- a submitted value is escaped, never rendered as markup;
+- a hostile `Origin` is rejected for all three forms **and reaches no API**;
+- protocol-relative, scheme-less, `null`, wrong-scheme, wrong-port, userinfo-confusion and
+  suffix-extension Origins are all rejected;
+- a missing `Origin` is rejected — the check fails closed;
+- a proxy that omits the forwarding headers fails closed, never open;
+- a forged `X-Forwarded-Host` is not trusted over the allowlist;
+- a direct internal-port POST is rejected, while `GET /healthz` still works;
+- no internal origin, port, `/forms/` path, stack trace or SQL appears in any response, including
+  the 403 body.
+
+`test/astro-config.test.ts` gained three tests pinning the allowlist shape, the absence of any
+wildcard or literal host, that `checkOrigin` is not disabled, and that a malformed origin is refused.
+
+### Results
+
+Web suite **435 passing** (412 before; the placeholder became 23 real tests). API **998**, root admin
+frontend **141**. Astro production build succeeds.
+
+---
+
+## 11. Remaining deployment verification
+
+Local verification is complete; **deployment verification is not, and cannot be from here.**
+
+1. **RC smoke test.** After the next RC deploy, submit each of the three forms from a real browser
+   over HTTPS and confirm a 200 and a stored row. That is the only check that proves Caddy's actual
+   header behaviour matches the contract this proxy reproduces — in particular that it forwards
+   `X-Forwarded-Proto: https` and rewrites `Host` to the public domain.
+2. **Confirm `PUBLIC_SITE_ORIGIN` is set to the public HTTPS origin** in the deployed environment. If
+   it is unset the container refuses to start (`validate-env.mjs`); if it is set to the wrong host
+   the forms will 403 rather than fail open.
+3. **Check `form_submissions`** for the RC rows and confirm `delivery_state = 'pending'`.
+4. **Then** the delivery, retention and monitoring work in §8 remains outstanding.
+
+**No production system, VPS, live database or DNS was contacted during this correction**, and nothing
+was deployed. Astro's CSRF checking was neither disabled nor broadened at any point: the change was
+to tell Astro which single origin to trust, and the tests exist to prove everything else is refused.

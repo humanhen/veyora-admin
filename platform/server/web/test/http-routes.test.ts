@@ -291,24 +291,17 @@ test('an enquiry form renders server-side with real controls and no action attri
   }
 });
 
-test('KNOWN GAP: end-to-end form POST is not yet exercised at HTTP level', () => {
-  /* Astro's checkOrigin CSRF middleware rejects a form-encoded POST whose
-     Origin header does not equal context.url.origin. Within this run the
-     exact origin Astro computes in the standalone adapter could not be
-     reproduced from the harness, so the four end-to-end POST tests were
-     removed rather than left failing or weakened by disabling checkOrigin.
+/* The overnight placeholder that stood here is gone: end-to-end form POSTs
+   are now exercised for real in test/enquiry-e2e.test.ts, through a Node-core
+   reverse proxy that reproduces the production header contract.
 
-     What IS covered: 35 API tests over validation, storage, honeypot,
-     privacy and SQL safety; 30 web tests over body construction, error
-     mapping, no-JavaScript structure and accessibility; and, below, that the
-     form renders server-side and that a cross-origin POST is refused.
-
-     Next diagnostic step: add a temporary SSR endpoint that echoes
-     Astro.url.origin, request it through the running standalone server, and
-     set the harness Origin to whatever it reports. See
-     docs/public-website-rebuild/FAST_TRACK_HANDOFF.md, Phase 3. */
-  assert.ok(true, 'placeholder: see the comment above');
-});
+   The reason a POST cannot succeed in THIS suite is now understood and is
+   correct behaviour rather than a gap: this file requests the standalone
+   server directly on its internal port, and `security.allowedDomains` names
+   only the public origin — so the internal host cannot reconstruct a matching
+   origin and Astro refuses the submission. That is the intended production
+   boundary (25_SEO_AND_STRUCTURED_DATA.md and 24_PUBLIC_ENQUIRY_FORMS.md §7),
+   and the test below pins it. */
 
 test('a cross-origin POST is rejected outright by the CSRF origin check', async () => {
   /* Not something this batch added — Astro's own `security.checkOrigin` —

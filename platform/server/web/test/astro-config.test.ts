@@ -46,3 +46,59 @@ test('no hard-coded veyora.design or veyora.com anywhere in application source',
   const offenders = files.filter((file) => FORBIDDEN.test(fs.readFileSync(file, 'utf8')));
   assert.deepEqual(offenders, [], `hard-coded Veyora domain found in: ${offenders.join(', ')}`);
 });
+
+/* Fast-Track morning correction: `security.allowedDomains` is what makes
+   Astro trust the proxied Host and X-Forwarded-Proto, and therefore what
+   makes the CSRF origin check accept a genuine same-origin form POST behind
+   Caddy. Its shape is load-bearing, so it is pinned here. Its real behaviour
+   is exercised end to end in test/enquiry-e2e.test.ts. */
+
+test('astro config: allowedDomains is derived from PUBLIC_SITE_ORIGIN, exactly and without wildcards', async () => {
+  const source = fs.readFileSync(path.join(root, 'astro.config.mjs'), 'utf8');
+
+  assert.match(source, /security:\s*\{/, 'no security block');
+  assert.match(source, /allowedDomains:\s*\[/, 'no allowedDomains');
+  assert.match(source, /hostname: siteHostname/);
+  assert.match(source, /protocol: siteProtocol\.replace\(':', ''\)/);
+  assert.match(source, /sitePort \? \{ port: sitePort \} : \{\}/,
+    'the port must be omitted when the origin has none, so 80/443 still match');
+
+  // Never a wildcard, and never a literal host.
+  assert.doesNotMatch(source, /hostname:\s*['"`]\*/);
+  assert.doesNotMatch(source, /allowedDomains:\s*\[\s*['"`]\*/);
+  assert.doesNotMatch(source, /hostname:\s*['"`](?!\*)[a-z0-9.-]+['"`]/i,
+    'the allowed host must be derived, never a literal');
+});
+
+test('astro config: CSRF origin checking is left enabled', async () => {
+  const source = fs.readFileSync(path.join(root, 'astro.config.mjs'), 'utf8');
+  /* Astro enables checkOrigin for SSR by default. Turning it off would make
+     every form POST succeed from any origin — the exact failure this
+     configuration exists to prevent. */
+  assert.doesNotMatch(source, /checkOrigin\s*:\s*false/);
+});
+
+test('astro config: a malformed or non-http(s) site origin fails the build rather than weakening the allowlist', async () => {
+  const source = fs.readFileSync(path.join(root, 'astro.config.mjs'), 'utf8');
+  assert.match(source, /must be an absolute http\(s\) URL/);
+  assert.match(source, /must use http or https/);
+  assert.match(source, /must name an exact host/);
+
+  /* And the guard's own predicate rejects, rather than falling back. Mirrors
+     the logic in astro.config.mjs exactly; the assertions above pin that the
+     config still contains it. */
+  const accepts = (raw: string): boolean => {
+    let url: URL;
+    try { url = new URL(raw); } catch { return false; }
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return false;
+    if (url.hostname === '' || url.hostname.includes('*')) return false;
+    return true;
+  };
+
+  for (const bad of ['ftp://example.test', 'not-a-url', 'http://*.example.test', 'https://', '']) {
+    assert.equal(accepts(bad), false, `"${bad}" was not rejected`);
+  }
+  for (const good of ['https://example.test', 'http://127.0.0.1:4321', 'https://sub.example.test']) {
+    assert.equal(accepts(good), true, `"${good}" was wrongly rejected`);
+  }
+});

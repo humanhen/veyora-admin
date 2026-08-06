@@ -47,7 +47,7 @@ unimplemented in a syntactically clean state, and the run continues to later pha
 | 0 — Verify and plan | complete | *(no commit — Phase 0 alone does not check point)* |
 | 1 — Catalogue export preparation | complete | `checkpoint: add safe catalogue export preparation` |
 | 2 — Public catalogue filters | complete | `checkpoint: add public catalogue filter interface` |
-| 3 — Durable enquiry forms | complete (one test gap) | `checkpoint: add durable public enquiry forms` |
+| 3 — Durable enquiry forms | complete (gap closed by the morning correction) | `d52d7c1` + `fix: verify enquiry form CSRF behind proxy` |
 | 4 — Production SEO controls | complete | `checkpoint: complete public SEO controls` |
 | 5 — Integration validation | complete | `checkpoint: complete overnight integration validation` |
 
@@ -335,13 +335,13 @@ Rich Results Test validation (needs a public URL).
 |---|---|---|
 | API | `cd platform/server/api && npm test` | **998 passing, 0 failing** (923 at start) |
 | Root admin frontend | `node --test "test/*.test.js"` | **141 passing, 0 failing** |
-| Web (Astro) | `cd platform/server/web && npm test` | **412 passing, 0 failing** (310 at start) |
+| Web (Astro) | `cd platform/server/web && npm test` | **435 passing, 0 failing** (310 at start; 412 before the morning correction) |
 | Astro production build | `cd platform/server/web && npm run build` | succeeds |
 | `node --check` | every shipped root `js/*.js` and every new API module | clean |
 | Deploy payload | `tar czf - index.html css js assets` | assembles, 1.4 MB |
 | Synthetic catalogue chain | export → audit → reviewed plan, twice | byte-identical; 0 publications proposed; 1 approved / 3 unresolved |
 
-**Total: 1,551 tests passing across three suites.**
+**Total: 1,574 tests passing across three suites** (1,551 overnight + 23 from the morning correction).
 
 ### Defects found and fixed during the run
 
@@ -407,3 +407,82 @@ To review the run's diff as a whole: `git diff ffcb67e..HEAD --stat`.
 **Nothing was pushed and nothing was deployed.** No production system, VPS, live database or DNS was
 contacted at any point; no permission bootstrap SQL was executed; no capability was granted; no
 record was published or unpublished; no real catalogue export was processed.
+
+---
+
+## Morning correction — verify enquiry form CSRF behind a proxy
+
+Run after the overnight workstream, from `81ed3d7`. **Closes the one deliberate gap Phase 3 left.**
+
+### Root cause
+
+Two things the overnight run conflated:
+
+1. **The production defect was real, and the fix was correct.** With `security.allowedDomains` empty,
+   Astro cannot validate the request `Host` or `X-Forwarded-Proto` and falls back to
+   `http://localhost` — so behind Caddy every submission would 403. Deriving the allowlist from
+   `PUBLIC_SITE_ORIGIN` fixes it.
+2. **The test failure had a different cause: the wrong topology.** The overnight suite posted
+   **directly to the standalone server's internal port**, bypassing the proxy entirely. No rewritten
+   `Host`, no `X-Forwarded-*`, so Astro reconstructed an origin that could not match — correct
+   behaviour, mistaken for a bug.
+
+A reverse-proxy reproduction against the real built server settled it:
+
+| Path | `url.origin` | POST |
+|---|---|---|
+| Direct to internal port | `http://localhost` | 403 for any Origin |
+| **Proxied** (Host + `X-Forwarded-*` rewritten) | the public origin | **200** |
+| Proxied, hostile Origin | the public origin | **403** |
+| Proxied, no Origin | the public origin | **403** |
+
+Incidental discovery that had blocked two earlier attempts: **Astro excludes `_`-prefixed files from
+routing entirely**, so the diagnostic probe endpoints were never registered and always 404'd.
+
+### Files changed
+
+| Path | Change |
+|---|---|
+| `platform/server/web/test/helpers/reverse-proxy.ts` | new — Node-core reverse proxy + raw HTTP client |
+| `platform/server/web/test/enquiry-e2e.test.ts` | new — 21 end-to-end tests |
+| `platform/server/web/test/http-routes.test.ts` | placeholder removed, replaced by an explanation of the direct-server policy |
+| `platform/server/web/test/astro-config.test.ts` | +3 tests pinning the allowlist contract |
+| `platform/server/web/astro.config.mjs` | defensive validation of `PUBLIC_SITE_ORIGIN` |
+| `docs/…/24_PUBLIC_ENQUIRY_FORMS.md` | §10–§11 added; §7 and §9 superseded accurately |
+| `docs/…/09_FIRST_BUILD_PACKAGE.md` | correction section |
+| `docs/…/FAST_TRACK_HANDOFF.md` | this section |
+
+### Direct-server policy — decided and tested, not worked around
+
+**A POST straight to the internal Astro server is rejected, and that is intended.** The internal
+server is not an alternative public host; `allowedDomains` names the public origin only. Broadening
+it so both hosts pass would mean trusting a host the site is never served on. `GET /healthz` is
+unaffected.
+
+### Results
+
+| Suite | Before | After |
+|---|---|---|
+| API | 998 | **998** |
+| Root admin frontend | 141 | **141** |
+| Web | 412 | **435** |
+| Astro build | passes | **passes** |
+
+No pre-existing test was removed to obtain a green result — the only removal was the placeholder,
+which was replaced by 21 real tests plus 3 config tests.
+
+### CSRF was not disabled or broadened
+
+`checkOrigin` remains enabled (a test asserts it is never set to `false`). The allowlist holds
+**exactly one derived host**, with no wildcard and no literal — asserted by test. Hostile,
+protocol-relative, scheme-less, `null`, wrong-scheme, wrong-port, userinfo-confusion and
+suffix-extension origins are all refused, and a forged `X-Forwarded-Host` is not trusted.
+
+### Still required
+
+**An RC smoke test over real HTTPS.** The local proxy reproduces the header contract Caddy is
+expected to provide; it is not Caddy. After the next RC deploy, submit each form from a browser and
+confirm a 200 plus a `pending` row in `form_submissions`. Deployment items 1–6 in the overnight
+"remaining production blockers" list are otherwise unchanged.
+
+**Nothing was pushed or deployed.** No production, VPS, live database or DNS was contacted.
