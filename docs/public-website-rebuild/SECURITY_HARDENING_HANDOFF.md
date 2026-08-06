@@ -44,7 +44,7 @@ images or browser binaries.
 |---|---|---|
 | 0 — Verify and map | complete | *(no commit — Phase 0 alone does not check point)* |
 | 1 — Origin and cookie contract | complete | `fix: separate authentication and public origin security` |
-| 2 — Authentication abuse controls | pending | |
+| 2 — Authentication abuse controls | complete | `fix: add bounded authentication rate limiting` |
 | 3 — Warehouse sync writes | pending | |
 | 4 — Audit-log integrity | pending | |
 | 5 — Permission and release safety | pending | |
@@ -218,3 +218,80 @@ reason rather than changed unattended.
   logged, not enforced.
 
 **Next:** Phase 2 — authentication abuse controls.
+
+### Phase 2 — complete
+
+**Files changed**
+
+| Path | Change |
+|---|---|
+| `platform/server/api/src/rate-limit.js` | new — bounded limiter behind a store adapter |
+| `platform/server/api/src/routes/auth.js` | 7 of 8 endpoints limited |
+| `platform/server/api/test/rate-limit.test.js` | new — 28 tests |
+
+**Tests:** API **1,150** passing (1,122 + 28), 0 failing. `git diff --check` clean. Free space 8.2 GB.
+
+**Policies**
+
+| Policy | Per client | Per account | Window | Applies to |
+|---|---:|---:|---|---|
+| `login` | 10 | 5 | 15 min | `/login` |
+| `otp-verify` | 10 | **5** | 15 min | `/verify-activation-otp`, `/verify-forgot-otp` |
+| `otp-request` | 5 | **3** | 15 min | `/request-activation-otp`, `/forgot-password` |
+| `password-set` | 10 | — | 15 min | `/set-password`, `/reset-password` |
+
+Each request is counted against **both** its client address and, where the body names one, a hashed
+account identifier — so one source cannot spray many accounts, and one account cannot be attacked
+from many sources.
+
+**`/logout` is deliberately unlimited.** It destroys a session rather than granting one; limiting it
+would let an attacker keep a victim signed in.
+
+**Why `otp-verify` is the strictest.** A six-digit code is 900,000 values with a 15-minute lifetime.
+At 5 attempts per account per 15 minutes, an exhaustive search is impossible by several orders of
+magnitude. Before this phase there was **no attempt limit at all** on either verifier — the sharpest
+unauthenticated risk in the platform, and only implicit in the audit's AUTH-004.
+
+**No enumeration signal, no PII**
+
+- Account keys are a truncated SHA-256 of the normalised identifier. Enough to count against, useless
+  to read. A test asserts no `@` and no fragment of the address survives.
+- The 429 body is exactly `{ error, retryAfter }` — identical for every policy and every account
+  state, asserted by driving two limiters with a real and a non-existent address and comparing the
+  responses byte for byte.
+- The limiter logs nothing, and never reads a password, a token or a secret. Asserted against
+  credential *access* patterns rather than the word, since `passwordSet` is a policy name.
+
+**Bounded storage**
+
+Fixed-window counters in a `Map`, expired entries swept on every write, and a hard cap of 20,000 keys
+with oldest-first eviction. A test floods 5,000 distinct clients into a 50-key store and asserts it
+never exceeds the cap. *An unbounded limiter is a memory-exhaustion bug wearing a security hat.*
+
+**Documented limitations**
+
+- **In-process, single-container only.** N API containers would allow N times the rate, and a restart
+  clears the state. Stated in the module header, in `RATE_LIMIT_CONTRACT.storage`, and asserted by a
+  test so it cannot be quietly forgotten.
+- Storage sits behind a three-method adapter (`hit`, `reset`, `size`) and `rateLimit()` takes the
+  store as a parameter, so a shared store is a one-class replacement.
+
+**Caddy-level limiting reviewed and rejected as the primary control**
+
+Caddy v2 has **no built-in rate limiting**; it needs the third-party `caddy-ratelimit` plugin, which
+means replacing `caddy:2-alpine` with a custom build. That is a new Docker image, which this run is
+barred from introducing, and it could not be tested here. Recorded as an optional future
+defence-in-depth layer — **not** relied upon, which is why the application-level control exists.
+
+**Depends on Phase 1.** These limits are only meaningful because `trust proxy` is now an explicit hop
+count. Under the previous `true`, `req.ip` came from a client-controlled header and every limit here
+would have been decorative. A test asserts the setting the limiter depends on.
+
+**Unresolved limitations**
+
+- The public enquiry forms keep their own separate in-process throttle. Unifying them is follow-up
+  work, not a regression.
+- No limit is applied to session refresh inside `requireAuth`; it requires an existing valid refresh
+  token, so it is not an unauthenticated guessing surface.
+
+**Next:** Phase 3 — remove warehouse access to generic admin writes.

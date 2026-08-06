@@ -6,9 +6,25 @@ import { q, audit } from '../db.js';
 import { issueSession, clearSession } from '../authmw.js';
 import { sendMail } from '../mail.js';
 import { activationCode, passwordReset } from '../emails.js';
+import { rateLimit, POLICIES } from '../rate-limit.js';
 
 const r = Router();
 const SECRET = process.env.JWT_SECRET;
+
+/* Abuse controls (findings AUTH-004 / SEC-011). Every limiter is keyed on the
+   client address AND, where the request names one, a hashed account
+   identifier — so one source cannot spray many accounts, and one account
+   cannot be attacked from many sources.
+
+   The identifier extractors below deliberately read only what the endpoint
+   already accepts. Nothing here logs or stores an address in the clear. */
+const byEmail = (req) => req.body?.email;
+const byLoginIdent = (req) => req.body?.email || req.body?.username;
+
+const limitLogin = rateLimit(POLICIES.login, { identify: byLoginIdent });
+const limitOtpRequest = rateLimit(POLICIES.otpRequest, { identify: byEmail });
+const limitOtpVerify = rateLimit(POLICIES.otpVerify, { identify: byEmail });
+const limitPasswordSet = rateLimit(POLICIES.passwordSet);
 
 function publicUser(u) {
   return {
@@ -20,7 +36,7 @@ function publicUser(u) {
   };
 }
 
-r.post('/login', async (req, res) => {
+r.post('/login', limitLogin, async (req, res) => {
   const { email, username, password } = req.body || {};
   const ident = (email || username || '').trim().toLowerCase();
   if (!ident || !password) return res.status(400).json({ error: 'missing credentials' });
@@ -71,7 +87,7 @@ async function findByEmail(email) {
   return rows[0] || null;
 }
 
-r.post('/request-activation-otp', async (req, res) => {
+r.post('/request-activation-otp', limitOtpRequest, async (req, res) => {
   const u = await findByEmail(req.body?.email);
   // Do not reveal whether the account exists
   if (u && u.status !== 'disabled') {
@@ -83,7 +99,7 @@ r.post('/request-activation-otp', async (req, res) => {
   res.json({ ok: true });
 });
 
-r.post('/verify-activation-otp', async (req, res) => {
+r.post('/verify-activation-otp', limitOtpVerify, async (req, res) => {
   const u = await findByEmail(req.body?.email);
   if (!u || !(await verifyOtp(u.id, 'activation', req.body?.code))) {
     return res.status(400).json({ error: 'Invalid or expired code' });
@@ -107,9 +123,9 @@ async function handleSetPassword(req, res) {
   res.json({ ok: true });
 }
 
-r.post('/set-password', handleSetPassword);
+r.post('/set-password', limitPasswordSet, handleSetPassword);
 
-r.post('/forgot-password', async (req, res) => {
+r.post('/forgot-password', limitOtpRequest, async (req, res) => {
   const u = await findByEmail(req.body?.email);
   // pending (not-yet-activated) accounts may also use this flow — completing
   // it sets a password and activates them, mirroring the old site's popup
@@ -122,7 +138,7 @@ r.post('/forgot-password', async (req, res) => {
   res.json({ ok: true });
 });
 
-r.post('/verify-forgot-otp', async (req, res) => {
+r.post('/verify-forgot-otp', limitOtpVerify, async (req, res) => {
   const u = await findByEmail(req.body?.email);
   if (!u || !(await verifyOtp(u.id, 'forgot_password', req.body?.code))) {
     return res.status(400).json({ error: 'Invalid or expired code' });
@@ -130,6 +146,6 @@ r.post('/verify-forgot-otp', async (req, res) => {
   res.json({ token: setPassToken(u.id, 'forgot_password') });
 });
 
-r.post('/reset-password', handleSetPassword);
+r.post('/reset-password', limitPasswordSet, handleSetPassword);
 
 export default r;
