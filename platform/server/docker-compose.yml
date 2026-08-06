@@ -47,6 +47,51 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    # /health does `select 1`, so a pass means the API can actually reach the
+    # database — not merely that the process is listening. `web` and `caddy`
+    # wait on this rather than on "the container started", which is the
+    # distinction that stops a deploy reporting success against a stack that
+    # cannot serve a request.
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  # The public Astro website (Fast-Track Workstream 2). Additive: it builds and
+  # runs, but receives no traffic until Caddy is pointed at it — see
+  # Caddyfile.rc and docs/public-website-rebuild/26_RELEASE_DEPLOYMENT_ARCHITECTURE.md.
+  web:
+    build: ./web
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      # Internal service name only. This origin is used server-side by the
+      # Astro server and must never reach public HTML — the site posts forms
+      # to its own path and calls the API from the server for exactly that
+      # reason.
+      PUBLIC_API_ORIGIN: http://api:3000
+      # Required, and deliberately without a default: the container's own
+      # validate-env.mjs gate refuses to start without them, which is the
+      # behaviour we want. A default here would silently serve a wrong
+      # canonical host and break form CSRF.
+      PUBLIC_SITE_ORIGIN: ${PUBLIC_SITE_ORIGIN:?PUBLIC_SITE_ORIGIN is required}
+      PORTAL_ORIGIN: ${PORTAL_ORIGIN:?PORTAL_ORIGIN is required}
+      HOST: 0.0.0.0
+      PORT: 4321
+    # No published ports: the site is reachable only through Caddy.
+    expose:
+      - "4321"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:4321/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
 
   caddy:
     image: caddy:2-alpine
@@ -56,15 +101,26 @@ services:
       - "443:443"
     environment:
       DOMAIN: ${DOMAIN:-}
+      # Used only by Caddyfile.rc (the release-candidate topology). Empty
+      # defaults keep the current Caddyfile working unchanged.
+      PUBLIC_DOMAIN: ${PUBLIC_DOMAIN:-}
+      PORTAL_DOMAIN: ${PORTAL_DOMAIN:-}
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # CADDYFILE selects which topology is live. It defaults to the current,
+      # unchanged Caddyfile, so a deploy cannot cut over by accident; the RC
+      # topology is opted into by setting CADDYFILE=./Caddyfile.rc in .env.
+      # Cutover and rollback are therefore one line plus a reload.
+      - ${CADDYFILE:-./Caddyfile}:/etc/caddy/Caddyfile:ro
       - ./storefront:/srv/storefront:ro
       - ./admin:/srv/admin:ro
       - uploads:/srv/uploads:ro
       - caddy_data:/data
       - caddy_config:/config
     depends_on:
-      - api
+      api:
+        condition: service_healthy
+      web:
+        condition: service_healthy
 
 volumes:
   pgdata:

@@ -1,0 +1,111 @@
+# Veyora platform — RELEASE-CANDIDATE topology.
+#
+# NOT LIVE BY DEFAULT. docker-compose.yml mounts ./Caddyfile unless CADDYFILE
+# is set, so this file only takes effect when an operator deliberately sets
+# CADDYFILE=./Caddyfile.rc and reloads. Rollback is removing that line.
+#
+# This implements 04_TARGET_ARCHITECTURE.md §5.2: the public Astro site takes
+# the catch-all on the public host, and the portal/storefront moves to its own
+# named host. That switch is R-01 (score 20) and R-02 (score 15) — the two
+# highest risks in the programme — which is exactly why it lives here rather
+# than in the file a deploy ships live.
+#
+# Both hosts come from the environment. No production hostname appears in this
+# file, in keeping with the rest of the stack.
+
+(security_headers) {
+	header {
+		# HSTS is meaningful only over TLS and is ignored on plain HTTP.
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "SAMEORIGIN"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		# Deliberately no Access-Control-Allow-Origin: the public API is
+		# same-origin through /api/*, and the Astro server calls it over the
+		# internal network. A CORS header here would be granting cross-origin
+		# access nothing actually needs.
+		-X-Powered-By
+		-Server
+	}
+}
+
+(shared_routes) {
+	# The read/write API. `uri strip_prefix` means the API keeps its own
+	# unprefixed routes and the public origin never has to know them.
+	handle /api/* {
+		uri strip_prefix /api
+		reverse_proxy api:3000
+	}
+
+	# Product images and uploads, on the same path shape the old site used.
+	handle_path /s3/* {
+		root * /srv/uploads
+		file_server
+	}
+}
+
+# ---------------------------------------------------------------------------
+# Public website — Astro, server-rendered, owns the catch-all.
+# ---------------------------------------------------------------------------
+{$PUBLIC_DOMAIN} {
+	import security_headers
+	encode gzip
+
+	# HTML must revalidate so a publish reaches browsers immediately; Astro's
+	# own hashed assets under /_astro/ are immutable and safe to cache hard.
+	@html path / *.html
+	header @html Cache-Control "no-cache"
+	@astro_assets path /_astro/*
+	header @astro_assets Cache-Control "public, max-age=31536000, immutable"
+
+	import shared_routes
+
+	# Everything else is the Astro server, INCLUDING unmatched paths: Astro
+	# owns 404 so the public site returns a real 404 with real metadata,
+	# rather than a static shell answering 200 at every URL (the R-02 failure).
+	#
+	# Caddy v2's reverse_proxy preserves the incoming Host header and adds
+	# X-Forwarded-For / -Proto / -Host. That is precisely the contract the
+	# Astro CSRF origin check depends on — see
+	# 24_PUBLIC_ENQUIRY_FORMS.md §10 and test/enquiry-e2e.test.ts. Do not add
+	# `header_up Host {upstream_hostport}` here: rewriting Host to the
+	# container name would make Astro compute http://web:4321 as its origin
+	# and reject every form POST.
+	handle {
+		reverse_proxy web:4321
+	}
+}
+
+# ---------------------------------------------------------------------------
+# B2B portal + admin panel — never indexable.
+# ---------------------------------------------------------------------------
+{$PORTAL_DOMAIN} {
+	import security_headers
+	encode gzip
+
+	# A blanket directive rather than per-route: the portal has no public
+	# content at any path, and a structural rule cannot be forgotten when a
+	# route is added.
+	header X-Robots-Tag "noindex, nofollow"
+
+	@assets path *.css *.js *.html /
+	header @assets Cache-Control "no-cache"
+
+	import shared_routes
+
+	# Admin panel SPA.
+	redir /admin /admin/ 308
+	handle_path /admin/* {
+		root * /srv/admin
+		try_files {path} /index.html
+		file_server
+	}
+
+	# Storefront SPA takes this host's catch-all — the position it holds today
+	# on the public host. Moving it here is the whole point of the change.
+	handle {
+		root * /srv/storefront
+		try_files {path} /index.html
+		file_server
+	}
+}
