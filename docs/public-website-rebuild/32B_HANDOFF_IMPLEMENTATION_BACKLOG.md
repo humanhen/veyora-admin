@@ -6,13 +6,24 @@ it.
 
 **Nothing in this document has been implemented.** It is a plan.
 
+> ### Revised 2026-08-06
+>
+> **Stripe is approved as the payment provider.** A new workstream **WS10** is added to Group A, and
+> two client-owned items are added to Group D/E. **Apple Pay and Google Pay are not separate backlog
+> items** — Stripe's payment sheet surfaces them where the device supports it, so there is nothing to
+> build, test or maintain for them. Existing B2B net-terms settlement is unchanged.
+>
+> **DEP-009 is downgraded from P0 to P2.** The "two unrelated git histories" finding was a false
+> positive caused by a shallow clone; `main` is a direct ancestor and merging is a fast-forward. See
+> [33](33_GIT_HISTORY_AND_RELEASE_LINE_DIAGNOSIS.md).
+
 | Group | What it is | Items |
 |---|---|---:|
-| **A** | Implement before engineering handoff | 22 |
+| **A** | Implement before engineering handoff | 28 |
 | **B** | Correct before release-candidate deployment | 9 |
-| **C** | Requires business, content or legal input | 22 |
+| **C** | Requires business, content or legal input | 21 |
 | **D** | Requires supervised real-data work | 9 |
-| **E** | Requires supervised deployment | 11 |
+| **E** | Requires supervised deployment | 13 |
 | **F** | Accepted post-handoff enhancements | 11 |
 | **G** | Not applicable or intentionally excluded | 5 |
 
@@ -33,6 +44,7 @@ supply something, or watch it happen.
 | **WS7** | Reliability and observability | A + E |
 | **WS8** | Content and legal enablement | A + C |
 | **WS9** | Release-candidate deployment | B + D + E |
+| **WS10** | **Stripe payments** (new, approved 2026-08-06) | A + D/E for the client-owned half |
 
 ---
 
@@ -67,6 +79,23 @@ the single best candidate for an unattended run.*
 | **INV-008 / NOT-002** | Nothing tells a customer their order shipped — the most-expected message in B2B distribution | Dispatch notification with the tracking number, sent on the `shipped` transition through the outbox | `api/src/emails.js`, `api/src/routes/admin.js`, `api/test/` | S | OPS-008 | **Yes** | Approve the wording |
 | **BACK-005 / NOT-003** | Backorder notifications exist only at creation | Notify on approve, convert and cancel | `api/src/routes/orders.js:604,619`, `api/src/routes/admin.js:74` | S | OPS-008 | **Yes** | Approve the wording |
 | **RET-007 / NOT-004** | No customer communication on returns | Notify on each return status transition | `api/src/routes/orders.js`, `api/src/emails.js` | S | RET-002 | **Yes** | Approve the wording |
+
+### WS10 — Stripe payments *(new — approved 2026-08-06)*
+*Rationale: an approved business decision, not an audit recommendation. Build the whole integration
+against **test keys only**; every live-credential action is client-owned and appears in Group D/E.
+**Apple Pay and Google Pay are deliberately absent from this table** — they are a presentation
+feature of Stripe's payment sheet, not a deliverable.*
+
+| ID | Reason | Proposed outcome | Paths | Effort | Depends on | Unattended | Human gate |
+|---|---|---|---|---|---|---|---|
+| **PAY-002** | Stripe is the approved provider and no integration exists | Server-side payment-intent creation and a Stripe Elements or Checkout client, so **no card data reaches a Veyora server** (keeps PCI scope at SAQ-A). Test keys only, read from the environment, absent by default | new `api/src/payments/stripe.js`, `api/src/routes/`, storefront, `.env.example`, `api/test/` | L | — | **Yes** *(test mode)* | Review before merge |
+| **PAY-010 / INT-008** | Stripe retries webhook deliveries by design; a non-idempotent handler double-applies a settlement | A signature-verified webhook endpoint, **idempotent on the Stripe event id**, that is the only writer of payment status. Reject unverified payloads without processing | `api/src/routes/stripe-webhook.js`, additive migration for processed event ids, `api/test/` | M | PAY-002 | **Yes** | Review before merge |
+| **PAY-013** | A webhook can change payment state with no human actor, so attribution matters more, not less | Append-only settlement events with actor, source (`manual` \| `stripe-webhook`), amount, currency and provider reference, plus an `audit_log` entry. Remove `payments` and `creditNotes` from the syncable set | additive migration + mirror, `api/src/routes/admin.js`, `api/src/shape.js` | M | SEC-002, PAY-010 | **Yes** | Confirm the accounting treatment |
+| **PAY-012** | Customers cannot settle an invoice online | A pay-this-invoice flow scoped to one invoice. Status is updated **only** from the verified webhook, never from the browser redirect. Net-terms customers keep the existing path — online payment is an option | `api/src/routes/orders.js`, storefront, `api/test/` | M | PAY-002, PAY-010 | **Yes** | Review before merge |
+| **PAY-005** | PDF invoices are now a required deliverable | Server-side PDF from the invoice record, downloadable and email-attachable, rendering the same figures the portal shows including currency and the stamped FX rate | `api/src/`, `api/src/emails.js`, `api/test/` | M | — | **Yes** | Approve the layout |
+| **PAY-003** | The Stripe schema columns exist but are unused and under-specified | Extend with the fields a real integration needs (session/charge id, status, amount received, currency, failure reason) and document them | additive migration + mirror, `docs/.../14_B2_SCHEMA_REFERENCE.md` | XS | PAY-002 | **Yes** | — |
+| **PAY-007** | Refunds now need a provider path as well as credit notes | Provider refund reconciled back to a credit note and confirmed by webhook | `api/src/routes/admin.js`, `api/src/payments/` | M | PAY-010 | **Yes** | Confirm the accounting treatment |
+| **SEC-012 (extend)** | A live Stripe key must never enter the repository | Extend the `secret-and-host-scan` gate to fail on a live-mode key prefix as well as the existing patterns | `scripts/verify-release.mjs`, `test/verify-release.test.js` | XS | — | **Yes** | — |
 
 ### WS5 — Aftersales
 *Rationale: the weakest domain, and the enquiry handling model is already a template for it.*
@@ -126,7 +155,7 @@ the single best candidate for an unattended run.*
 | ID | Reason | Proposed outcome | Effort | Depends on | Unattended | Human gate |
 |---|---|---|---|---|---|---|
 | **QA-007** | The release-verification command exists and nothing runs it. This is why R-06 cannot close | Wire `scripts/verify-release.mjs` into CI on every pull request; block a failing merge | S | CI platform choice | No | **Yes — the business chooses the CI platform** |
-| **DEP-009** | The branch shares **no common ancestor with `main`**. Landing it is not an ordinary pull request | Decide how the two histories are reconciled. There is no safe default | M | — | **No** | **Yes — architecture-critical** |
+| **DEP-009** | ~~No common ancestor with `main`~~ — **corrected.** `main` is a direct ancestor (0 behind, 35 ahead); the original finding was a shallow-clone artefact | Confirm the release line, then `git checkout main && git merge --ff-only mathew/public-website-rebuild`. **`--ff-only` is the guard**: if it is not a fast-forward, something changed since the diagnosis and the merge stops. **Never use `--allow-unrelated-histories`** | S | Storefront merge, release gate | **No** | **Yes — release authorisation, not a technical decision.** See [33](33_GIT_HISTORY_AND_RELEASE_LINE_DIAGNOSIS.md) §12 |
 | **DEP-001** | `docker compose config` has never been run | Parse and interpolation check with a real `.env` | XS | — | No | Supervised |
 | **DEP-002** | `caddy validate` has never been run | Syntax and adapter check on `Caddyfile.rc` | XS | — | No | Supervised |
 | **QA-005 / DEP-004** | No migration has ever run against a real engine; `0009` has never executed anywhere | Disposable PostgreSQL, every migration plus `ensureSchema()`, confirm `/health` passes | S | — | No | Supervised |
@@ -189,12 +218,23 @@ the single best candidate for an unattended run.*
 | **ACC-004** | 363 micro labels between 10px and 12px | Not a WCAG failure. Decide with ACC-003 — the same elements are affected |
 | **PUB-011** | The development placeholder is also the worst contrast case at 2.65:1 | **Remove it.** It should not ship regardless |
 
-### C.5 — Payment
+### C.5 — Payment — **SETTLED 2026-08-06**
 
-| ID | Decision | Recommendation |
-|---|---|---|
-| **PAY-002** | Card and wallet checkout | **Do not build.** Not standard for net-terms B2B wholesale; a commercially significant new requirement. See [32 §5](32_PRODUCTION_STANDARD_FUNCTIONAL_AUDIT.md#5-payment-conclusion) |
-| **PAY-005** | Server-side invoice PDF | Needed only if the business does not already issue invoices from its accounting system |
+No open payment decisions remain. Recorded here for traceability:
+
+| Decision | Outcome |
+|---|---|
+| Payment provider | **Stripe.** Single provider; no abstraction layer over alternatives |
+| Timing | Build now against **test keys**; live activation **after handover** |
+| Account | Client provides access to an existing Stripe account or creates one (**PAY-009**) |
+| Live credentials, webhook registration, payouts, final verification | **Client-owned supervised actions** (**PAY-009 / PAY-010 / PAY-011**). Engineering never holds a live key |
+| **Apple Pay / Google Pay** | **Not separate requirements.** Surfaced by Stripe's payment sheet where the device supports it. Nothing to build |
+| PDF invoices | **Required** (PAY-005) |
+| Auditable settlement updates | **Required** (PAY-013) |
+| Invoice payment through Stripe | **Required** (PAY-012) |
+| Existing B2B payment terms | **Unchanged and fully supported.** Stripe is added alongside net terms, never instead of them |
+
+Implementation is **WS10** in Group A. The client-owned half is in Groups D and E.
 
 ---
 
@@ -211,6 +251,7 @@ the single best candidate for an unattended run.*
 | **QA-008** | Load-test the catalogue and public listing paths at realistic volume | M | CAT-007 | **Yes** |
 | **QA-009** | Independent security review before public launch | M | Group A | **Yes** |
 | **INV-004** | Confirm every receiving, transfer and adjustment path writes a ledger row | S | — | **Yes** |
+| **PAY-009** | **Stripe account access.** The client provides access to an existing account or creates one. Blocks activation, **not** development — the integration is buildable and testable in Stripe test mode without it | XS | — | **Yes — client-owned** |
 
 ---
 
@@ -229,6 +270,8 @@ the single best candidate for an unattended run.*
 | **PAY-004** | Verify invoice numbering and currency stamping against a real order | — | **Yes** |
 | **SEO-003 / PUB-003 / PUB-004 / PUB-006** | Verify sitemap, brand, collection and location rendering against published records | CAT-003 | **Yes** |
 | **REP-005** | Confirm exports honour the same data-minimisation rules as the screens | — | **Yes** |
+| **PAY-010** *(registration half)* | **Register the webhook endpoint with Stripe and install the signing secret in production.** The endpoint itself is built in WS10; only registration is client-owned | PAY-009, WS10 | **Yes — client-owned** |
+| **PAY-011** | **Payout configuration, production key installation and final live verification** with a real transaction. The last step before taking real money | PAY-009, PAY-010 | **Yes — client-owned** |
 
 ---
 
@@ -261,27 +304,32 @@ Deliberately deferred. None blocks handoff or launch.
 
 | ID | Item | Why |
 |---|---|---|
-| **PAY-002** | Card / Apple Pay / Google Pay checkout | Not standard for net-terms B2B wholesale. Would be a commercially significant new requirement, not a gap |
-| **INT-008** | Webhook verification and idempotency | No inbound webhooks exist. Nothing to secure |
+| **Apple Pay / Google Pay** | Wallet checkout as a **separate** deliverable | **Not a separate requirement** by the approved decision. Stripe's payment sheet surfaces them where the device and browser support it, so there is nothing distinct to design, build, test or maintain. They are not a line item anywhere in this backlog |
+| **Multi-provider payment abstraction** | A layer over Stripe plus alternatives | Stripe is the single approved provider. An abstraction over one provider is cost with no benefit |
 | **INT-007** | Carrier API integration | Manual tracking entry is adequate at current volume |
 | **CUS-004** | Territories | `agent_id` ownership is sufficient at current scale |
-| **PAY-003** | Dropping the vestigial Stripe column | Destructive for no benefit. **Document it instead** |
+| **PAY-003** *(dropping the column)* | Deleting `payments.stripe_payment_intent` | Was recommended-against as destructive; now **actively wanted** — the approved decision gives the column a purpose. Extend it (WS10), do not drop it |
 | **REU-015** | Reusing the whole-database admin sync pattern | It is the root of SEC-002, SEC-015 and PAY-006. Works at this scale; do not carry it to a new project |
 
 ---
 
 ## Suggested sequencing
 
-1. **Day one:** start Group C.1 (legal) and C.2 (content). Longest lead time; nothing engineering
-   does shortens them.
+1. **Day one:** start Group C.1 (legal) and C.2 (content), **and ask the client for Stripe account
+   access (PAY-009)**. All three have external lead times that nothing engineering does shortens.
 2. **WS3** — security hardening. Four P0s, all unattended-suitable, no dependencies.
 3. **WS4** — the outbox. One mechanism closes six findings, including the most commercially damaging
-   one.
-4. **WS7 / Group E** — monitoring, alerting and a tested restore. Cheap, and the difference between
+   one. WS10's webhook work benefits from the same idempotency discipline.
+4. **WS10** — Stripe, in test mode. Independent of PAY-009, so it does not wait on the client.
+   Sequence within it: PAY-002 → PAY-010 → PAY-013 → PAY-012, with PAY-005 in parallel.
+5. **WS7 / Group E** — monitoring, alerting and a tested restore. Cheap, and the difference between
    an outage measured in minutes and one measured in a customer's phone call.
-5. **Group B** — the RC verification sequence, in the order listed. **DEP-009 first**: how the two
-   histories reconcile changes everything downstream.
-6. **Group D** — bootstrap, then backfill, then the live-row scan, in that order. Each gates the next.
-7. **WS5, WS6** — aftersales and commercial data integrity. Substantial, and neither blocks the
+6. **Group B** — the RC verification sequence. **DEP-009 is no longer the blocker it appeared to
+   be**: the lineage is proven, so this is now confirm-and-authorise rather than investigate. Run the
+   storefront merge, then the release gate, then the `--ff-only` merge.
+7. **Group D** — bootstrap, then backfill, then the live-row scan, in that order. Each gates the next.
+8. **WS5, WS6** — aftersales and commercial data integrity. Substantial, and neither blocks the
    public launch.
-8. **Group F** — as capacity allows.
+9. **Group E, Stripe half** — PAY-010 registration and PAY-011 payout configuration, **after
+   handover**, client-owned.
+10. **Group F** — as capacity allows.

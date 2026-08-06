@@ -11,8 +11,23 @@ payment feature was added, no production system was contacted, and nothing was c
 | Branch | `mathew/public-website-rebuild` |
 | Commit | `cdb0630` — *checkpoint: complete release candidate handoff* |
 | Working tree | clean; `git diff --check` clean |
-| Capabilities audited | **231**, across 25 domains |
-| Companion files | [32A gap matrix](32A_PRODUCTION_STANDARD_GAP_MATRIX.csv) · [32B backlog](32B_HANDOFF_IMPLEMENTATION_BACKLOG.md) |
+| Capabilities audited | **236**, across 25 domains |
+| Companion files | [32A gap matrix](32A_PRODUCTION_STANDARD_GAP_MATRIX.csv) · [32B backlog](32B_HANDOFF_IMPLEMENTATION_BACKLOG.md) · [33 git diagnosis](33_GIT_HISTORY_AND_RELEASE_LINE_DIAGNOSIS.md) |
+
+> ### Two revisions since first issue — 2026-08-06
+>
+> **1. The payment decision is settled. Stripe is approved.** §5 is rewritten. Card payment is no
+> longer Optional: it is a required deliverable, built against test keys, with live activation as a
+> client-owned action after handover. **Apple Pay and Google Pay are not separate requirements** —
+> Stripe's own payment sheet surfaces them where the device supports it. Existing B2B net-terms
+> settlement is unchanged and remains fully supported.
+>
+> **2. DEP-009 was a false finding, and it was mine.** I reported that this branch shared no Git
+> ancestor with `main` and escalated it to P0. It was an artefact of a **shallow clone**: `.git/shallow`
+> contained the commit I called an orphan root, so `git merge-base` could not see past it. `main` is a
+> direct ancestor; merging is a fast-forward. Full diagnosis, including the one-line check that would
+> have caught it, is in [33](33_GIT_HISTORY_AND_RELEASE_LINE_DIAGNOSIS.md). **DEP-009 is downgraded
+> from P0 to P2.**
 
 ---
 
@@ -48,8 +63,14 @@ The gaps cluster into five groups, and only the first two block a launch:
    edit, and a fulfilment role that can rewrite commercial data. None is exotic; all are the kind
    found in a first external review.
 
-5. **Structural handoff risk**: the release branch shares **no common ancestor with `main`**, and
-   there is no CI, so the release-verification command that exists is a command nobody runs.
+5. **Structural handoff risk**: there is no CI, so the release-verification command that exists is a
+   command nobody runs. *(This point originally also claimed the release branch shared no ancestor
+   with `main`. That was wrong — see the revision note above and
+   [33](33_GIT_HISTORY_AND_RELEASE_LINE_DIAGNOSIS.md).)*
+
+A sixth group now exists as a consequence of the approved payment decision: **Stripe integration,
+PDF invoices, invoice payment and auditable settlement** are required deliverables that did not exist
+when this audit was first issued (§5).
 
 The most commercially damaging single finding is **ENQ-006 / NOT-006**: three public enquiry forms
 are live-ready, validated, consented and durably stored — and **nothing tells anybody a submission
@@ -316,8 +337,13 @@ Compose topology, health-gated ordering, an environment contract that fails clos
 apply on deploy, a 16-gate release command, and an opt-in cutover with a non-destructive rollback.
 
 None of it has run anywhere. `docker compose config`, `caddy validate`, the migration rehearsal, the
-HTTPS form smoke test and the rollback test are all outstanding. And **the branch shares no common
-ancestor with `main`** (DEP-009) — landing it is not an ordinary pull request.
+HTTPS form smoke test and the rollback test are all outstanding.
+
+**Corrected 2026-08-06:** this section originally claimed the branch shared no common ancestor with
+`main` and that landing it was not an ordinary pull request. **Both statements were wrong.** `main` is
+a direct ancestor (0 behind, 35 ahead) and merging is a fast-forward. The false finding was caused by
+a shallow clone — see [33](33_GIT_HISTORY_AND_RELEASE_LINE_DIAGNOSIS.md). DEP-009 is downgraded to P2:
+confirm the release line and authorise a `--ff-only` merge.
 
 ### 4.24 Testing and quality assurance — 1,743 tests, no CI
 API 1,091 · admin frontend 186 · public site 466, all passing. Deterministic catalogue-chain tests,
@@ -333,50 +359,98 @@ has run against a real row (QA-006). No load testing (QA-008).
 
 ## 5. Payment conclusion
 
-**Classification: the current settlement model is adequately implemented. Online card and wallet
-payment would be a commercially significant new requirement, and this audit does not recommend it.**
+> **Revised 2026-08-06 following an approved business decision.** The original conclusion — that card
+> payment was Optional and not recommended — was correct *on the evidence available at the time*, and
+> is superseded by a decision, not by a correction. The original reasoning is retained in §5.5 because
+> it still explains why the existing settlement model is sound.
 
-### The model, read from implementation
+**Classification: the existing settlement model is adequately implemented AND an online payment flow
+is now a required new deliverable. Stripe is the approved provider.**
 
-Checkout places an order and tells the customer *"Payment on your usual terms (net N)"*
-(E1, `platform/server/storefront/js/pages_cart.js:201`). No payment is taken. An invoice is raised
-against the order; the customer reads their invoices in the portal; receipts are recorded by staff.
+### 5.1 The approved decision
 
-**This is the correct settlement model for B2B wholesale distribution** and it is implemented
-coherently. Net terms, per-customer, with multi-currency and rate stamping.
+| Decision | Consequence for engineering |
+|---|---|
+| **Stripe is the payment provider** | Build one integration. No provider comparison, no abstraction layer over multiple providers |
+| **Live activation happens after handover** | Build and test against **Stripe test keys only**. Engineering never holds live credentials |
+| **The client provides Stripe account access, or creates an account** | PAY-009. Blocks activation, not development — test mode needs no client account |
+| **Production keys, webhook registration, payout configuration and final verification are client-owned supervised actions** | PAY-009, PAY-010 (registration half), PAY-011. These are explicitly *not* engineering deliverables |
+| **Apple Pay and Google Pay are NOT separate requirements** | No additional integration work. Stripe's payment sheet surfaces them where the device and browser support it. Nothing in the backlog treats them as line items |
+| **PDF invoices are required** | PAY-005, reclassified from conditional to required |
+| **Auditable settlement updates are required** | PAY-013, and it is now doubly necessary — a webhook can change payment state with no human actor |
+| **Invoice payment through Stripe is required** | PAY-012 |
+| **Existing B2B payment terms remain supported** | PAY-001 is unchanged. Stripe is added **alongside** net terms, never instead of it |
 
-### What exists
+### 5.2 What this changes in the matrix
+
+| ID | Capability | Status |
+|---|---|---|
+| **PAY-002** | Stripe payment integration | MISSING — IMPLEMENT BEFORE HANDOFF (was *Optional*) |
+| **PAY-003** | Stripe schema columns | Now forward-looking, not vestigial. Keep and extend |
+| **PAY-005** | Invoice PDF | MISSING — IMPLEMENT BEFORE HANDOFF (was conditional) |
+| **PAY-007** | Refunds | Now needs a provider refund path as well as credit notes |
+| **PAY-009** | Stripe account provisioning | REQUIRES PRODUCTION CREDENTIALS — client-owned |
+| **PAY-010** | Webhook endpoint and signature verification | MISSING — repository half; registration is client-owned |
+| **PAY-011** | Payout configuration and live verification | REQUIRES PRODUCTION CREDENTIALS — client-owned |
+| **PAY-012** | Invoice payment through Stripe | MISSING — IMPLEMENT BEFORE HANDOFF |
+| **PAY-013** | Auditable settlement updates | MISSING — IMPLEMENT BEFORE HANDOFF |
+| **INT-008** | Webhook verification and idempotency | **Reclassified from NOT APPLICABLE to MISSING.** The decision creates the first inbound webhook this platform has ever had |
+
+### 5.3 Engineering constraints that follow from the decision
+
+These are not preferences; they follow from the decision as stated.
+
+1. **No card data may reach a Veyora server.** Use Stripe Elements or Checkout so the card is
+   captured by Stripe directly. This is what keeps PCI scope at SAQ-A.
+2. **The webhook is the source of truth for payment status, never the browser.** A client redirect
+   proves nothing. Mark an invoice paid only from a signature-verified webhook event.
+3. **The webhook must be idempotent on the Stripe event id.** Stripe retries deliveries by design; a
+   non-idempotent handler will double-apply a settlement.
+4. **Test keys only in the repository and in CI.** No live key in any file, environment example or
+   test fixture. The existing `secret-and-host-scan` gate should be extended to fail on a live-mode
+   key prefix.
+5. **Net terms and Stripe must coexist.** A net-terms customer must not be forced to pay online, and
+   an online payment must reconcile into the same settlement record as a bank transfer.
+
+### 5.4 What has not changed
+
+The existing model, read from implementation: checkout places an order and states *"Payment on your
+usual terms (net N)"* (E1, `platform/server/storefront/js/pages_cart.js:201`). Invoices are raised
+against orders; customers read their invoices; staff record receipts.
+
+**That remains the primary settlement path for existing B2B customers** and nothing in the approved
+decision removes it. Stripe adds an option.
+
+### 5.5 The original reasoning, retained
+
+At first issue there was no payment-provider integration of any kind — provider names appeared in
+exactly three places (`0001_schema.sql`, `shape.js`, `platform/docs/*`), with no SDK, key, route,
+webhook or client code (E1, repository-wide search). On that evidence, and absent a stated business
+intent, recommending card and wallet checkout would have meant importing a consumer-ecommerce
+assumption into a net-terms B2B model.
+
+That reasoning is why the existing model is sound, and it is why **Apple Pay and Google Pay are still
+not separate requirements** even now that Stripe is approved: they are a presentation feature of the
+chosen provider, not an independent capability to design, build and maintain.
+
+**No payment code was written during this audit or this diagnostic run.**
+
+### 5.6 The payment surface as it stands today
 
 | Capability | State |
 |---|---|
-| Net-terms settlement | Complete (PAY-001) |
+| Net-terms settlement | **Complete** (PAY-001) — unchanged by the decision |
 | Invoice generation from an order | Complete, RC verification required (PAY-004) |
-| Customer invoice access | Complete |
-| Payment recording, credit notes, collection ageing, statements | Present, but written through the generic row-sync (PAY-006) |
-| Invoice PDF / document delivery | Browser print view only (PAY-005) |
+| Customer invoice access | Complete (read-only) |
+| Payment recording, credit notes, collection ageing, statements | Present, but written through the generic row-sync (PAY-006, PAY-013) |
+| Invoice PDF / document delivery | Browser print view only — **now a required deliverable** (PAY-005) |
 | Statement "Send to Customer" | **Stub** — raises a toast (PAY-008) |
-| Refunds | Credit notes, no formal workflow (PAY-007) |
+| Refunds | Credit notes only; **now also needs a provider refund path** (PAY-007) |
+| **Stripe integration** | **Absent — to be built** (PAY-002, PAY-010, PAY-012, PAY-013) |
 
-### What does not exist, and should not be built on this evidence
-
-**There is no payment-provider integration of any kind.** Provider names appear in exactly three
-places: `0001_schema.sql`, `shape.js`, and `platform/docs/*`. **No SDK, no API key, no route, no
-webhook, no client code** (E1, repository-wide search).
-
-Apple Pay and Google Pay require an intentional immediate-payment model and a chosen provider.
-Veyora has neither, by design. **Recommending wallets here would be importing a consumer-ecommerce
-assumption that this business model does not support**, and it would be a commercially significant
-new requirement rather than a gap.
-
-### The one payment change this audit does recommend
-
-**PAY-003 — document the vestigial Stripe column.** `payments.stripe_payment_intent` and `'stripe'`
-in the `method` CHECK constraint exist and are never read or written. Do **not** drop them — that is
-a destructive migration for no benefit. Record in the schema reference that they are placeholders,
-so no future reader mistakes them for a built integration. The older gap analysis flagged exactly
-this misconception risk and it is still live.
-
-**No payment change of any kind was made during this audit.**
+At the time of writing, provider names appear in exactly three places — `0001_schema.sql`,
+`shape.js` and `platform/docs/*` — with **no SDK, API key, route, webhook or client code** (E1,
+repository-wide search). That is the starting point for WS10, not a finding against it.
 
 ---
 
@@ -480,8 +554,11 @@ Public website copy for 13 placeholder routes (PUB-001/002/005/007/009/011/012);
 treatment (PRC-006); customer PO reference (ORD-007); warranty as a distinct workflow (RET-005);
 CRM and accounting integration (CUS-007, INT-004/005); FX rate source (PRC-006/INT-006); enquiry
 retention period (LEG-004); the three accessibility design decisions (ACC-002/003/004); capability
-allocation archetypes (AUTH-009); and **how the two unrelated git histories are reconciled**
-(DEP-009).
+allocation archetypes (AUTH-009); and **confirming the release line and authorising a fast-forward
+merge into `main`** (DEP-009, downgraded from P0 — the lineage question is resolved, only the
+authorisation remains: see [33](33_GIT_HISTORY_AND_RELEASE_LINE_DIAGNOSIS.md) §12).
+
+**Settled 2026-08-06:** the payment decision (PAY-002) is no longer open. Stripe is approved; see §5.
 
 ### Legal or privacy approval (5 items)
 **Privacy policy** (LEG-001) · **Terms** (LEG-002) · **Consent wording** (LEG-003) · retention period
@@ -490,10 +567,14 @@ allocation archetypes (AUTH-009); and **how the two unrelated git histories are 
 These are the hardest blockers. Three public forms collect personal data today, and a public site
 cannot launch without an approved privacy policy.
 
-### Production credentials or access (6 items)
+### Production credentials or access (8 items)
 Capability bootstrap (AUTH-008) · catalogue backfill (CAT-003) · backup verification (OPS-005) · DNS
 for the portal host (DEP-007) · HTTPS certificate issuance (DEP-008) · live-row data-leak
-verification (QA-006).
+verification (QA-006) · **Stripe account access or creation (PAY-009)** · **payout configuration,
+production key installation and final live verification (PAY-011)**.
+
+The last two are **client-owned by decision**, not merely by circumstance. Engineering builds and
+tests the Stripe integration entirely in test mode and must never hold a live key.
 
 ---
 
@@ -501,9 +582,11 @@ verification (QA-006).
 
 Read in this order. Each step's outcome changes what matters in the next.
 
-1. **§5 Payment conclusion** — confirm the settlement model before anything else. If the business
-   intends to take payment online, a large part of this audit is re-scoped.
-2. **§3 Business-model interpretation** — confirm B2B-only. Same reason.
+1. **§5 Payment conclusion** — **now settled.** Read it for what the Stripe decision requires and,
+   just as importantly, what it does not (Apple Pay and Google Pay are not separate deliverables).
+   The Stripe work is a new workstream, sized in [32B](32B_HANDOFF_IMPLEMENTATION_BACKLOG.md) WS10.
+2. **§3 Business-model interpretation** — confirm B2B-only. Stripe is added alongside net terms, not
+   instead of them; if a direct-to-consumer channel is also intended, say so now.
 3. **§9 Legal and privacy dependencies** — the longest lead time in the whole programme. Start these
    moving on day one; nothing engineering does shortens them.
 4. **§6 Security and release conclusion** — the four P0 security findings are small, well understood,
