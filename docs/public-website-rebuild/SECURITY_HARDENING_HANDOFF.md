@@ -48,7 +48,7 @@ images or browser binaries.
 | 3 — Warehouse sync writes | complete | `fix: replace broad warehouse sync writes` |
 | 4 — Audit-log integrity | complete | `fix: enforce append-only audit history` |
 | 5 — Permission and release safety | complete | docs: complete security and release safety controls |
-| 6 — Regression and handoff | pending | |
+| 6 — Regression and handoff | complete | checkpoint: complete authentication and security hardening |
 
 ---
 
@@ -476,3 +476,59 @@ promotion is supervised and must use `--ff-only`; `--allow-unrelated-histories` 
 REP-007 — all now `COMPLETE`, with the reason and the evidence recorded per row.
 
 **Next:** Phase 6 — full regression and handoff.
+
+### Phase 6 — complete
+
+**Full regression:** `node scripts/verify-release.mjs` — **17/17 gates pass in 147 s**.
+
+| Suite | Result |
+|---|---|
+| API | **1,214** passing (from 1,091) |
+| Root admin frontend | **187** passing (from 186) |
+| Astro web | **466** passing (unchanged) |
+| Astro production build | succeeds |
+
+**1,867 tests passing, 0 failing.** `git diff --check` clean. 21 changed JavaScript files all parse.
+No TODO, FIXME, merge marker or truncated file. Free space 8.2 GB.
+
+**Security sweep of the changes — clean**
+
+| Check | Result |
+|---|---|
+| Authentication bypass | Every router keeps its gate; the new one is `requireAuth(...STOCK_ROLES)` |
+| Rate-limit bypass | All 7 sensitive endpoints limited; `/logout` deliberately not |
+| Unbounded limiter storage | Hard cap 20,000 keys, swept on write, oldest-first eviction |
+| Proxy-IP spoofing | `trust proxy` is an explicit hop count, never `true` |
+| Cookie weakening | `httpOnly`, `sameSite: lax`, `secure` from the contract, no `domain` |
+| Hard-coded origin | None — the one hit is a JSDoc example |
+| Warehouse privilege escalation | Sync admin-only; inventory routes touch `stock` only |
+| Audit mutation | No application path; triggers reject UPDATE/DELETE |
+| Automatic permission grants | No migration inserts a capability |
+| Role fallback where capabilities are required | None on any capability-gated router |
+| Raw row spreading | None in changed source |
+| SQL interpolation | None — the only `${}` is in an error message |
+| Wildcard CORS | None anywhere |
+| CSRF weakening | Untouched |
+| Destructive migration | `0010` drops nothing and writes nothing |
+| Committed secret | Gate passes; 9 declared exceptions, **0 open blockers** |
+
+**One pre-existing finding recorded, not introduced and not fixed here:**
+`routes/admin.js:274,277` logs a recipient email address when SMTP fails. It predates this workstream
+and is an operational aid for mail debugging; changing it unattended would remove a diagnostic
+someone may rely on. Recorded for the follow-up list rather than silently altered.
+
+**Findings closed:** AUTH-002 · AUTH-004 / SEC-011 · SEC-004 · SEC-002 · SEC-015 · REP-007.
+
+**Found during the work and fixed:** `trust proxy: true` (a prerequisite, not an extra) · unthrottled
+six-digit OTP verification · a bare production IP the host scan could not see.
+
+**Remaining blockers — unchanged by this workstream**
+
+Production verification: real `Set-Cookie` through Caddy over HTTPS · audit triggers proven to fire
+against a disposable PostgreSQL · rate limits exercised behind the deployed proxy.
+Still open from the audit: `SEC-007`, `SEC-010`, `SEC-013`, `SEC-016`, `SEC-017`/`MED-002`.
+And the two that gate everything: **no account holds any capability**, and **the stack has never run
+anywhere**.
+
+**New follow-up:** the admin panel needs a UI change for warehouse logins, which now receive a 403
+from `POST /admin/sync`.
