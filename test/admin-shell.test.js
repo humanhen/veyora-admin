@@ -161,6 +161,8 @@ test('every change is inside a working area of this repository, never a protecte
   const WORKING_AREAS = [
     'index.html', 'css/', 'js/', 'assets/',        // the deployed admin panel
     'test/',                                        // its suite (never deployed)
+    'scripts/',                                     // repository-local tooling
+
     'platform/server/api/',                         // the API and its tests
     'platform/server/web/',                         // the Astro public site
     'platform/server/db/',                          // schema migrations

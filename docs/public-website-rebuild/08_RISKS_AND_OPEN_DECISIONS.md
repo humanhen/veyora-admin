@@ -101,7 +101,11 @@ convert real traffic into redirect rows during the first 90 days.
 
 ---
 
-### R-06 · Public data leak through a future code change · L3 × I4 = **12**
+### R-06 · Public data leak through a future code change · L2 × I4 = **8**
+
+> **Score changed 2026-08-06** (was L3 × I4 = 12). See the Fast-Track WS2 Phase 3 entry at the end of
+> this item for what moved it and what did not. The entry remains **open**.
+
 
 Today's guest suppressions are conditionals inside `loadProducts()`. A contributor adding a field
 to the shaped product object gets no warning. On a public, indexed, crawled site a leaked price
@@ -201,6 +205,46 @@ coverage grows as the catalogue does rather than being complete today.
 **Closes when:** the scanner runs against real (or realistically seeded) rows, and the scan is wired
 as a gate that can actually block a merge. Revisit at B9 with the crawl/QA suite, as previously
 planned.
+
+**Implementation update — 2026-08-06 (Fast-Track WS2 Phase 3). Score reduced: L2 × I4 = 8.**
+
+All previous entries are retained as written. This is the first time this entry's score has moved,
+and it moves for one reason only: **half of the "merge gate" condition is now met.** The other half
+is not, and the entry stays open.
+
+*What changed.* `scripts/verify-release.mjs` is a single repository-local command that runs every
+control this release has — the three test suites, the production build, the environment contract,
+the forbidden-data scans over serializers and rendered HTML, the JSON-LD scan, the catalogue chain,
+the deployment configuration, the deploy payload, a secret and production-hostname scan, a
+conflict-marker scan and `git diff --check` — and **exits non-zero if any of them fails**. Before it,
+"run the checks" meant knowing which four `npm test` invocations to make in which four directories,
+and knowing that the forbidden-data scan was one of 1,691 assertions inside them. It now means one
+command whose summary names each control and its verdict. It contacts no production system, VPS,
+database or network host, and it is tested (`test/verify-release.test.js`, 20 tests) against exactly
+that claim.
+
+*Why the score moves from L3 to L2.* The original entry's likelihood was driven by a contributor
+adding a field and **getting no warning**. Two things now stand between that and a leak: the
+allowlist serializers (B2.2), which make a new field invisible by default, and a single command that
+runs every scan and reports the verdict per control rather than burying it. The impact is unchanged
+— a leaked price on an indexed site is still permanent — so I4 stands.
+
+*Why it does not close.* Both remaining conditions from the previous entries are unchanged:
+
+1. **There is still no CI, so nothing blocks a merge.** This repository has no `.github/workflows`,
+   no pipeline configuration of any kind. `verify-release.mjs` is the command a gate would run; it is
+   not itself a gate, because nothing compels anyone to run it. That is a deliberate distinction and
+   the entry stays open on it. Wiring it is a small change to whatever CI the team adopts, and it is
+   recorded as a release blocker (category C).
+2. **No real row has ever been checked.** Every scan still runs against fixtures and mock responses.
+   Unchanged, and unchangeable without production or a realistically seeded database.
+
+The third gap noted above — that the rendered scan covers only routes the mock can serve — is also
+unchanged.
+
+**Closes when:** `verify-release.mjs` (or its successor) runs in CI on every pull request and blocks
+a failing merge, **and** the scans have run against real or realistically seeded rows. Revisit at B9,
+unchanged.
 
 ---
 
@@ -416,6 +460,11 @@ Only one risk moves materially.
 R-01 (portal URL change), R-02 (Caddy reordering), R-05 (legacy URL inventory), R-06 (public data
 leak), R-07 (visual drift) and R-11 (accessibility gaps) are **unchanged**. R-01 and R-02 remain the
 two highest-scoring risks in the programme.
+
+> **Later change, 2026-08-06.** This section records that review as it stood and is not rewritten.
+> **R-06 has since moved to L2 × I4 = 8** (Fast-Track WS2 Phase 3 — a single release-verification
+> command). R-01 and R-02 are still the two highest-scoring risks; see each entry for its current
+> score.
 
 **One risk is added:**
 

@@ -62,6 +62,21 @@ function normalizeOrigin(raw: string, varName: string): string {
       `${varName} must be an origin with no path, query or fragment, got: "${raw}"`
     );
   }
+  /* A concrete host, never a pattern. `new URL()` accepts "https://*.example"
+     quite happily — `*` is a legal hostname character as far as the parser is
+     concerned — so nothing above catches it.
+     astro.config.mjs already refused a wildcard when deriving
+     security.allowedDomains, but this resolver did not, and that divergence is
+     precisely what this module's header says must not exist: the config guard
+     runs at BUILD time, so a container starting from an already-built image
+     with a wildcard origin passed validation, started, and emitted canonical
+     URLs and sitemap entries containing a literal "*". Found by the
+     env-validation gate in scripts/verify-release.mjs. */
+  if (url.hostname === '' || url.hostname.includes('*')) {
+    throw new Error(
+      `${varName} must name a single concrete host, not a pattern, got: "${raw}"`
+    );
+  }
   return url.origin;
 }
 

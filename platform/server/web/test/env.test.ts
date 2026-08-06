@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import {
   resolveEnv,
   DEV_DEFAULT_SITE_ORIGIN,
@@ -136,6 +137,39 @@ test('malformed origins are rejected: contains a fragment', () => {
   assert.throws(() =>
     resolveEnv({ NODE_ENV: 'development', PUBLIC_SITE_ORIGIN: 'https://example.com/#x', PORTAL_ORIGIN: 'https://portal.example.com' })
   );
+});
+
+/* A wildcard host used to pass. `new URL()` accepts "https://*.example.com"
+   because `*` is a legal hostname character to the parser, and every check
+   above is about protocol, path, query and fragment. astro.config.mjs refused
+   it when deriving security.allowedDomains — but that guard runs at BUILD
+   time, so a container starting from an already-built image with a wildcard
+   origin passed validation, started, and emitted canonical URLs and sitemap
+   entries containing a literal "*". Found by the env-validation gate in
+   scripts/verify-release.mjs. */
+test('malformed origins are rejected: a wildcard host is not a host', () => {
+  for (const value of ['https://*.example.com', 'https://*', 'http://*.veyora.example', 'https://ex*ample.com']) {
+    assert.throws(
+      () => resolveEnv({ NODE_ENV: 'development', PUBLIC_SITE_ORIGIN: value, PORTAL_ORIGIN: 'https://portal.example.com' }),
+      /single concrete host/,
+      `${value} must be rejected`
+    );
+  }
+});
+
+test('a wildcard PORTAL_ORIGIN is rejected too — one validator, both variables', () => {
+  assert.throws(
+    () => resolveEnv({ NODE_ENV: 'development', PUBLIC_SITE_ORIGIN: 'https://example.com', PORTAL_ORIGIN: 'https://*.example.com' }),
+    /single concrete host/
+  );
+});
+
+test('the resolver and the build-time config agree: both refuse a wildcard', () => {
+  /* The divergence between these two is what the defect was. Asserting they
+     agree is what stops it coming back — a future relaxation of either one
+     fails here rather than silently reopening the gap. */
+  const config = fs.readFileSync(new URL('../astro.config.mjs', import.meta.url), 'utf8');
+  assert.match(config, /hostname\.includes\('\*'\)/, 'astro.config.mjs must still refuse a wildcard host');
 });
 
 test('origin normalisation is stable: with and without a trailing slash resolve identically', () => {

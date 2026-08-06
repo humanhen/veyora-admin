@@ -44,7 +44,7 @@ No new frontend framework, browser binary, Docker image or ORM. Zero new depende
 | 0 — Verify starting state | complete | *(no commit — Phase 0 alone does not check point)* |
 | 1 — Release deployment architecture | complete | `checkpoint: prepare release deployment architecture` |
 | 2 — Governed enquiry operations | complete | `checkpoint: add governed enquiry operations` |
-| 3 — Release quality gates | pending | |
+| 3 — Release quality gates | complete | `checkpoint: add release quality gates` |
 | 4 — Accessibility and responsive QA | pending | |
 | 5 — Storefront fix integration prep | pending | |
 | 6 — Release-candidate handoff | pending | |
@@ -225,3 +225,58 @@ a checkpoint commit leaves behind.
 - **No export, no free-text search, no assignment model.** Each was deliberately not built.
 
 **Next:** Phase 3 — release quality gates.
+
+### Phase 3 — complete
+
+**Files changed**
+
+| Path | Change |
+|---|---|
+| `scripts/verify-release.mjs` | new — the release verification command, 15 gates |
+| `test/verify-release.test.js` | new — 20 tests over the command itself |
+| `test/admin-shell.test.js` | `scripts/` added to the working areas |
+| `platform/server/web/src/env.ts` | **defect fix** — a wildcard hostname was accepted |
+| `platform/server/web/test/env.test.ts` | 3 tests for the fix |
+| `docs/…/28_RELEASE_QUALITY_GATES.md` | new |
+| `docs/…/08_RISKS_AND_OPEN_DECISIONS.md` | R-06 rescored and updated |
+
+**Tests:** all 15 gates pass in ~112 s. API **1091**, root admin frontend **186** (166 + 20), Astro
+web **438** (435 + 3). 0 failing. `git diff --check` clean. Free space 8.5 GB.
+
+**Decisions**
+
+- **One command, `node scripts/verify-release.mjs`.** No root `package.json` was created — adding one
+  purely to hold a script would put an npm surface on the repository root that nothing else needs.
+- **Four gates re-run tests the suites already ran.** A release conversation asks "did the
+  forbidden-data scan pass"; a number inside a total of 1,091 cannot answer that. Ten seconds buys a
+  summary of controls rather than suites.
+- **Failures do not stop the run** unless `--fail-fast` is given. A check that halts at the first
+  problem makes you run it five times to find five problems.
+- **The host/secret exception list is a pin, not a mute.** Every entry carries a written reason and is
+  printed on every run; anything not on it fails; an entry that no longer matches *also* fails, so a
+  fixed exception cannot linger. Three are marked `R-01` and reported as open release blockers.
+- **`deploy-payload` parses the file list out of `deploy.sh`** rather than keeping a copy that drifts.
+- **R-06 rescored L3×I4=12 → L2×I4=8, and left open.** Likelihood drops because one command now runs
+  every scan with a per-control verdict. It does not close: "wired as a merge gate" was in the
+  original mitigation and there is still no CI in this repository, and no scan has run against a real
+  row.
+
+**Defect found and fixed**
+
+`src/env.ts` accepted a wildcard hostname. `new URL('https://*.example.com')` parses fine — `*` is a
+legal hostname character — and every existing check was about protocol, path, query and fragment.
+`astro.config.mjs` refused a wildcard when deriving `security.allowedDomains`, but that runs at
+**build** time, so a container starting from an already-built image with a wildcard origin passed
+validation, started, and would have emitted canonical URLs and sitemap entries containing a literal
+`*`. Found by the `env-validation` gate on its first run. Fixed in `normalizeOrigin`, with a test
+asserting the build-time config and the runtime resolver still agree.
+
+**Unresolved limitations**
+
+- **Nothing runs the command automatically.** No CI exists in this repository. Blocker C.
+- **No real data anywhere**; every scan is against fixtures, mocks and a synthetic catalogue fixture.
+- **`docker compose config` and `caddy validate` still cannot run here.**
+- The rendered scan covers only routes the mock can serve.
+- Running the command leaves a production build in `dist/` (untracked).
+
+**Next:** Phase 4 — accessibility and responsive QA.
