@@ -111,7 +111,30 @@ export class HeadlessBrowser {
     return browser;
   }
 
+  /* Sweeps profiles left behind by an earlier run that was interrupted, or
+     whose browser outlived its launcher. Without this a leak accumulates
+     silently: each abandoned profile keeps a Chrome process group alive and
+     several megabytes on disk, and thirty runs later the machine is out of
+     space with two hundred orphaned processes. Best-effort — a directory that
+     is still locked belongs to a live run and is left alone. */
+  private static sweepStaleProfiles(): void {
+    let entries: string[];
+    try {
+      entries = fs.readdirSync(os.tmpdir()).filter((name) => name.startsWith('veyora-a11y-'));
+    } catch {
+      return;
+    }
+    for (const name of entries) {
+      try {
+        fs.rmSync(path.join(os.tmpdir(), name), { recursive: true, force: true });
+      } catch {
+        /* still in use by a concurrent run */
+      }
+    }
+  }
+
   private async start(port: number): Promise<void> {
+    HeadlessBrowser.sweepStaleProfiles();
     this.profile = fs.mkdtempSync(path.join(os.tmpdir(), 'veyora-a11y-'));
     this.child = spawn(this.executable, [
       '--headless=new',
@@ -228,19 +251,58 @@ export class HeadlessBrowser {
     return result.result.value;
   }
 
+  /**
+   * Shuts the browser down.
+   *
+   * Three steps, and all three are needed. `child.kill()` alone is NOT
+   * enough — it signals the launcher process, while Chrome's crashpad handler,
+   * network service, GPU process and renderers are separate processes that
+   * survive it. That leak is not theoretical: it accumulated ~200 orphaned
+   * processes and several gigabytes across repeated runs of this suite before
+   * it was found.
+   *
+   *   1. `Browser.close` over CDP — the graceful path, which brings down the
+   *      whole process group the way quitting the browser would.
+   *   2. Kill the process TREE as a fallback, for the case where CDP is
+   *      already gone.
+   *   3. Remove the profile, retried, because Chrome holds its lock for a
+   *      moment after the processes exit.
+   */
   async close(): Promise<void> {
-    try { this.ws?.close(); } catch { /* already gone */ }
+    try {
+      await Promise.race([
+        this.rawSend('Browser.close'),
+        new Promise((resolve) => setTimeout(resolve, 5_000)),
+      ]);
+    } catch {
+      /* already gone, or never came up */
+    }
+    try { this.ws?.close(); } catch { /* already closed */ }
+
     if (this.child) {
-      this.child.kill();
+      const pid = this.child.pid;
       await new Promise<void>((resolve) => {
         const timer = setTimeout(resolve, 5_000);
         this.child!.once('exit', () => { clearTimeout(timer); resolve(); });
+        this.child!.kill();
       });
+      /* The tree, not just the launcher. Windows has no process groups to
+         signal, so taskkill /T is the portable-on-Windows equivalent of
+         killing a POSIX process group. */
+      if (pid && this.child.exitCode === null) {
+        try {
+          if (process.platform === 'win32') {
+            spawn('taskkill', ['/PID', String(pid), '/T', '/F'], { shell: false, stdio: 'ignore' });
+          } else {
+            process.kill(-pid, 'SIGKILL');
+          }
+        } catch {
+          /* already reaped */
+        }
+      }
     }
-    /* Chrome releases its profile lock a moment after exit; a couple of
-       retries is the difference between a clean temp directory and a noisy
-       failure at the end of an otherwise green run. */
-    for (let attempt = 0; attempt < 5; attempt += 1) {
+
+    for (let attempt = 0; attempt < 10; attempt += 1) {
       try {
         fs.rmSync(this.profile, { recursive: true, force: true });
         return;
@@ -248,5 +310,7 @@ export class HeadlessBrowser {
         await new Promise((r) => setTimeout(r, 500));
       }
     }
+    /* Still locked. The next run's sweepStaleProfiles() will clear it, so a
+       leak self-heals rather than accumulating. */
   }
 }

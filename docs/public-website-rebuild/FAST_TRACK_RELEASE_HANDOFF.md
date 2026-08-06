@@ -47,7 +47,7 @@ No new frontend framework, browser binary, Docker image or ORM. Zero new depende
 | 3 — Release quality gates | complete | `checkpoint: add release quality gates` |
 | 4 — Accessibility and responsive QA | complete | `checkpoint: complete accessibility and responsive audit` |
 | 5 — Storefront fix integration prep | complete | `checkpoint: prepare storefront integration review` |
-| 6 — Release-candidate handoff | pending | |
+| 6 — Release-candidate handoff | complete | `checkpoint: complete release candidate handoff` |
 
 ---
 
@@ -412,3 +412,67 @@ changelog states `Base: mathew/public-website-rebuild`.
 - **The brand-filter change was not validated against real catalogue data.**
 
 **Next:** Phase 6 — release-candidate handoff.
+
+### Phase 6 — complete
+
+**Files changed**
+
+| Path | Change |
+|---|---|
+| `docs/…/31_RELEASE_CANDIDATE_READINESS.md` | new — full regression, security sweep, blocker register |
+| `platform/server/web/test/helpers/headless-chrome.ts` | **defect fix** — the browser was leaking process groups |
+| `docs/…/29_ACCESSIBILITY_AND_RESPONSIVE_QA.md` | §8.1 records the leak and the fix |
+
+**Full regression:** `node scripts/verify-release.mjs` — **16/16 gates pass in 132 s**.
+API **1091**, root admin frontend **186**, Astro web **466** — **1,743 tests passing, 0 failing.**
+`git diff --check` clean. Free space **8.5 GB**.
+
+**Security sweep — findings**
+
+Clean: authorisation (every router's gate enumerated; the three capability-gated routers mount before
+the general `/admin` router; no role satisfies a capability anywhere), the public read boundary (no
+write method in `routes/public.js`), SQL injection (every template interpolation traced to a code
+constant; no user-controlled identifier reaches SQL), dynamic execution (no `eval`, no `new
+Function`, no `child_process` in shipped source), XSS (every `innerHTML` site is a constant or an
+`esc()`-guarded template), and CSRF (verified through a proxy reproducing Caddy's header contract).
+
+**One new finding.** `SECURE_COOKIES` is derived from `PUBLIC_URL`:
+`/^https:/i.test(process.env.PUBLIC_URL || '')`. `PUBLIC_URL` currently means the portal, and the
+R-01 cutover changes what it refers to — if it is repointed at the public site, unset, or set without
+a scheme, **the authentication cookies silently lose the `Secure` flag**. Same variable family as the
+three pinned R-01 link fallbacks, and it should be handled in the same change. Recorded as C-06.
+
+Ten runtime dependencies in total, **zero added by this workstream**. No vulnerability audit was run
+(it needs the network) — recorded as C-11.
+
+**Defect found and fixed: my own browser driver leaked**
+
+`child.kill()` signals the launcher; Chrome's crashpad handler, network service and renderers are
+separate processes that survive it. Repeated runs of the Phase 4 suite left **199 orphaned Chrome
+processes holding about 3.6 GB** — free space had fallen to 4.8 GB against this run's 4 GB floor.
+Diagnosed by matching process command lines against my own temp-profile path, so only my processes
+were terminated and the operator's own 14 Chrome processes were left untouched. Fixed with a graceful
+`Browser.close` over CDP, a process-tree kill as fallback, and a stale-profile sweep at launch so a
+leak self-heals. Verified: zero orphans, free space stable at 8.5 GB across runs.
+
+**Blocker register — 34 items in five categories**
+
+| Category | Count | The two that matter most |
+|---|---|---|
+| A — real data | 6 | |
+| B — account decisions | 3 | **B-01: no account holds any capability.** Until the `permissions.manage` bootstrap is performed, every governed admin screen is unreachable by every account, including every existing administrator. |
+| C — release infrastructure | 12 | **C-03: the stack has never run anywhere.** Until it does, everything else is a claim about tests. |
+| D — business/legal facts | 7 | |
+| E — supervised integration | 7 | |
+
+**Verdict:** ready for a supervised release candidate; **not** ready to be released.
+
+**Unresolved limitations**
+
+Nothing ran against a database, production, a VPS or real DNS. `docker` and `caddy` are not installed
+here, so all deployment verification is static. Every rendered surface came from mock fixtures. The
+browser QA is Chrome-only and headless. No real enquiry, catalogue row or account was touched.
+Nothing was pushed or merged.
+
+**Next:** none — this is the final phase. Six local checkpoint commits sit on
+`mathew/public-website-rebuild`, ahead of `origin`, unpushed.

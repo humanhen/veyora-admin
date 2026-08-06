@@ -48,6 +48,8 @@ declaration.
 - **On a machine with no Chrome or Edge, the whole suite skips** with a clear message rather than
   failing. A QA control that goes red because of the machine it runs on is a control people learn to
   ignore.
+- **The browser is fully shut down and its profile removed.** This took two attempts to get right —
+  see §8.1, because the failure mode is worth knowing about.
 
 ---
 
@@ -255,6 +257,34 @@ Recorded as blockers in [31_RELEASE_CANDIDATE_READINESS.md](31_RELEASE_CANDIDATE
 ---
 
 ## 8. Limitations of the tooling itself
+
+### 8.1 A resource leak, found and fixed
+
+The first version of the driver called `child.kill()` and retried removing the profile for 2.5
+seconds. Both were wrong, and the combination leaked badly.
+
+`child.kill()` signals the **launcher** process. Chrome's crashpad handler, network service, GPU
+process and renderers are **separate processes** that survive it. So every run of this suite left a
+live process group and a locked profile directory behind. Across repeated runs while the suite was
+being written, that reached **199 orphaned Chrome processes and about 3.6 GB** of unavailable disk —
+on a laptop the whole run was constrained to keep above 4 GB free.
+
+It is worth stating plainly because it is easy to repeat: a headless browser is not one process, and
+killing the handle you were given does not stop it.
+
+The fix has three parts, and all three are needed:
+
+1. **`Browser.close` over CDP** — the graceful path, which brings the whole process group down the
+   way quitting the browser would.
+2. **Kill the process tree** as a fallback (`taskkill /T /F` on Windows; a process-group signal
+   elsewhere), for when CDP is already gone.
+3. **Sweep stale `veyora-a11y-*` profiles at launch**, so a leak from an interrupted run *self-heals*
+   on the next one instead of accumulating. A directory still locked by a concurrent run is skipped.
+
+Verified after the fix: zero orphaned processes, zero leftover profile directories, free space stable
+across runs.
+
+### 8.2 Everything else
 
 - **This is not axe-core**, and does not claim to be. It implements the rules that matter for this
   site and are decidable without heuristics. It will not find what it does not check for.
