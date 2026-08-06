@@ -46,7 +46,7 @@ No new frontend framework, browser binary, Docker image or ORM. Zero new depende
 | 2 — Governed enquiry operations | complete | `checkpoint: add governed enquiry operations` |
 | 3 — Release quality gates | complete | `checkpoint: add release quality gates` |
 | 4 — Accessibility and responsive QA | complete | `checkpoint: complete accessibility and responsive audit` |
-| 5 — Storefront fix integration prep | pending | |
+| 5 — Storefront fix integration prep | complete | `checkpoint: prepare storefront integration review` |
 | 6 — Release-candidate handoff | pending | |
 
 ---
@@ -348,3 +348,67 @@ no text under 10px.
 - The admin panel and the storefront are out of scope.
 
 **Next:** Phase 5 — storefront fix integration preparation.
+
+### Phase 5 — complete
+
+**Files changed**
+
+| Path | Change |
+|---|---|
+| `docs/…/30_STOREFRONT_FIX_INTEGRATION.md` | new — the integration-preparation report |
+
+No code changed. **Nothing was merged, rebased, cherry-picked, checked out or pushed**, and the other
+developer was not contacted.
+
+**Tests:** none run (no code changed). `git diff --check` clean. Free space 8.2 GB.
+
+**How the branch was identified**
+
+Not by name. Nine remote branches were fetched read-only and ranked by recency, author and content.
+`feat/storefront-catalog-ux-and-homepage` (0x1p0, 2026-08-06) is the storefront work: it is the most
+recent non-mine commit, it branches from `2c749ec` — this branch's own root — and its own committed
+changelog states `Base: mathew/public-website-rebuild`.
+
+**Decisions**
+
+- **Report, not merge.** Three things in the change need a person: a commercial font licence, a
+  brand-filter behaviour change that needs real catalogue data, and three live social-media links.
+- **`fix/storefront-catalog-thumb-selection` is superseded — do not merge it.** Its fix is already
+  present in the newer branch (the distinctive `setMainPhoto` / `thumb-swapping` construction), and it
+  has no common ancestor with this branch, so merging it would mean an unrelated-histories merge to
+  obtain something already there. That resolves the "two candidates" ambiguity on evidence.
+- **`git fetch` was used** — read-only, no push, no remote ref altered. It is the only way to identify
+  a branch by content rather than by guessing a name.
+- **The merge was computed, not performed**: `git merge-tree --write-tree` produces a tree object
+  without touching the working tree or any ref.
+
+**Findings**
+
+- **The repository has two unrelated histories.** `git merge-base origin/main
+  origin/mathew/public-website-rebuild` returns nothing: this branch was started as an orphan root
+  (`2c749ec`) containing a snapshot of the whole repository. Landing it is therefore not an ordinary
+  pull request, and anything on the `main` lineage needs `--allow-unrelated-histories` or a
+  cherry-pick. **This is a release blocker in its own right and was not previously recorded anywhere.**
+- **The merge is clean** — no conflicts, verified.
+- **Only two files overlap**: `index.html` and `css/styles.css`. Neither conflicts.
+- **A latent defect the clean merge hides**: they bump `css/styles.css?v=7` → `?v=8` while every
+  script tag stays at `?v=7`, including the new `pages_enquiries.js`. A returning operator gets new
+  CSS and cached old JavaScript — the Enquiries screen would ship behind a cache.
+- **Nothing under `platform/server/web/` changes**, so the entire public site, the enquiry forms, the
+  SEO controls and Phase 4's accessibility work are untouched.
+- **The one API change is on the authenticated portal catalogue route**, not the public boundary, so
+  R-06 is unaffected. It has no direct test coverage.
+- **Zero tests accompany the change** — consistent with the repository, which has no storefront suite.
+- **A pre-existing admin-panel accessibility issue surfaced**: `index.html` carries
+  `maximum-scale=1.0`, disabling pinch-zoom (WCAG 1.4.4). It predates both branches and is outside
+  Phase 4's public-site scope.
+
+**Unresolved limitations**
+
+- **The merged tree was not tested.** Verifying it needs a checkout with `node_modules`, which is a
+  supervised step. `api-suite` and `admin-frontend-suite` must be re-run after the merge —
+  `admin-shell.test.js` asserts the exact script list in `index.html`.
+- **Font licensing is unassessed** and cannot be assessed from here.
+- **The brand-filter change was not validated against real catalogue data.**
+
+**Next:** Phase 6 — release-candidate handoff.
