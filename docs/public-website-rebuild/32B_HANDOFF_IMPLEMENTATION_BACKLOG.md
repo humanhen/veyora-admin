@@ -388,3 +388,23 @@ Two defects fixed on the way: the infinite 403 retry, and a double-submit guard 
 `disabled` — which stops a mouse click but not a second Enter racing the first.
 
 Detail: [34_SECURITY_HARDENING.md](34_SECURITY_HARDENING.md) §11.
+
+
+---
+
+## Update — Final Handover
+
+Findings from this backlog addressed by the seven implementation phases:
+
+| Finding area | Outcome |
+|---|---|
+| **ENQ-006 / NOT-006** — enquiries stored but never delivered | Closed, Phase 1. Durable outbox, bounded retries, visible delivery state, no adapter may report success without provider confirmation |
+| **Customer/store contact model absent** | Closed, Phase 2. `customer_contacts` with governed CRUD, archival rather than deletion, and a planner that proposes without applying |
+| **No payment capability** | Closed, Phase 3. Stripe test-mode architecture; settlement exclusively by verified webhook |
+| **Financial mutations through generic sync** | Closed, Phase 4. Blocked at the sync boundary; narrow capability-gated routes writing an append-only `finance_events` ledger |
+| **Invoice document non-functional** | Closed, Phase 5. Real PDFs; visual match pending the historical reference |
+| **Statement delivery fabricated** | Closed, Phase 6. Generation, PDF attachment and outbox delivery; no route can mark a statement sent |
+| **Duplicate submission exposure** | Closed, Phase 7. Eighteen paths classified; three real defects and two fragile paths fixed |
+
+Items remaining in this backlog that are **not** engineering work are consolidated in
+`40A_CLIENT_ACTIVATION_CHECKLIST.md`.

@@ -255,3 +255,45 @@ limits. It was previously `true` — trust every hop — which made that trivial
 Two related notes for §10's limitations list: the `PUBLIC_URL` compose default is a **bare IP**, now
 declared in the release gate's host-scan exception list; and the host scan itself now detects bare
 routable IPv4 addresses, which it previously could not see.
+
+
+---
+
+## Update — Final Handover
+
+### New environment variables
+
+The deployment topology is unchanged. What the deployment now *needs* has grown; every one of these
+is optional, and the API boots normally with all of them unset.
+
+| Group | Variables | Behaviour when unset |
+|---|---|---|
+| Enquiry alerts | `ENQUIRY_ALERT_EMAILS` | Falls back to `ORDER_ALERT_EMAILS`; if that is also empty, alerts are not queued and the Enquiries screen shows "not configured" |
+| Notification worker | `NOTIFICATION_POLL_SECONDS`, `NOTIFICATION_BATCH_SIZE` | Bounded defaults (30 s, 20). An out-of-range value falls back rather than failing boot |
+| Stripe | `STRIPE_ENABLED`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PUBLISHABLE_KEY`, `STRIPE_SUCCESS_URL`, `STRIPE_CANCEL_URL` | Online payment is switched off. B2B ordering on account terms is unaffected |
+| Document identity | Nineteen `VEYORA_*` fields | Each is **omitted** from generated documents rather than printed as a placeholder |
+
+`.env.example` carries all of them with the reasoning. As it notes, `deploy.sh` creates
+`/opt/veyora/.env` only on the very first run — adding a variable there does **not** put it on the
+server.
+
+### A new webhook endpoint
+
+`POST /api/webhooks/stripe` must be reachable from the internet and registered in the Stripe
+dashboard. It is mounted with `express.raw()` **before** the JSON body parser, because a Stripe
+signature covers the exact bytes sent and a re-serialised body would never verify. That ordering is
+load-bearing and a test asserts it.
+
+### Migrations
+
+Six new: **0011–0016**. All additive — no drop, no truncate, no delete, no column retype, no default
+change — and all mirrored idempotently in `ensureSchema()`, which is what an existing database
+actually runs.
+
+**Rehearse them against a copy of production data before deploying.** See
+`40A_CLIENT_ACTIVATION_CHECKLIST.md` §H1.
+
+### Deployment payload
+
+The payload grew from roughly 15 MB to roughly 31 MB, accounted for by the two added dependencies
+(`stripe`, `pdf-lib`). The `deploy-payload` gate verifies every artefact still assembles.

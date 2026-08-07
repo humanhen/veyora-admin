@@ -350,3 +350,33 @@ screen was not warranted.
 
 **The backend restriction is unchanged.** A test asserts `POST /admin/sync` still refuses every
 non-admin, and another asserts the client never fabricates an action.
+
+
+---
+
+## Update — Final Handover
+
+### A defect introduced by this batch, found and fixed in Phase 7
+
+The narrow inventory routes added here call `recordMovement()` with **snake_case** keys
+(`variation_id`, `warehouse_id`, `ref_type`, `ref_id`) while `inventory.js` reads
+**camelCase**. Every adjustment and transfer since therefore wrote `variation_id = NULL` and
+`warehouse_id = NULL`.
+
+The row existed; it could not be attributed to a variation or a warehouse — which is precisely what
+you would need in order to *detect* a duplicated adjustment after the fact. Fixed in Phase 7, with a
+test asserting the ledger records the variation, warehouse, SKU, reference type and balance.
+
+Recorded here rather than only in the Phase 7 document because this is where it came from.
+
+### Security work added since
+
+| Area | Where |
+|---|---|
+| Payment settlement authority — only a verified webhook may mark an invoice paid | `38_STRIPE_PAYMENT_ARCHITECTURE.md` §3 |
+| Financial mutation governance — the row-diff sync can no longer write money | `41_FINANCE_OPERATIONS.md` §2 |
+| Duplicate-submission guards across eighteen mutation paths | `42_DUPLICATE_SUBMISSION_SWEEP.md` |
+| Document access control — ownership as a SQL predicate, 404 rather than 403 | `39_INVOICE_AND_STATEMENT_SYSTEM.md` §4 |
+
+The trust-proxy, rate-limiting, origin and cookie work described above is unchanged and still holds;
+the Phase 9 security sweep re-verified each.

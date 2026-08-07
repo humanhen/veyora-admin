@@ -368,3 +368,35 @@ Suites: API **1,229** · admin frontend **213** · web **466**. All **17** gates
 **One new RC verification step:** exercise a real warehouse login end to end against the deployed
 stack — receive stock, transfer between warehouses, fulfil an order — and confirm no screen produces
 a failed save. The workflows are proven against controlled doubles, not against a running system.
+
+
+---
+
+## Update — Final Handover
+
+This document described the state at the end of Fast-Track Workstream 2. Seven further
+implementation phases have since completed. The readiness position has changed as follows.
+
+### Closed since this was written
+
+| Item | Now |
+|---|---|
+| Enquiries went nowhere | A durable outbox delivers them, with visible per-attempt state |
+| No customer-contact model | `customer_contacts`, governed, with a non-mutating migration planner |
+| No payment capability | Stripe test-mode architecture, settlement only by verified webhook |
+| Money moved through the row-diff sync | Blocked; narrow capability-gated finance routes with an append-only ledger |
+| "Download PDF" produced a toast | Real server-generated invoice PDFs, byte-identical on regeneration |
+| "Send to Customer" sent nothing | Statements generate, attach and deliver through the outbox |
+| Public enquiries could be duplicated | Server-side dedupe fingerprint |
+
+### Still standing between here and a release
+
+Everything in `40A_CLIENT_ACTIVATION_CHECKLIST.md`, none of which is engineering work:
+
+Stripe account and verification; email provider and DNS authentication; nineteen invoice identity
+fields; the historical invoice reference for visual sign-off; tax rules; the capability bootstrap
+(at least two `permissions.manage` holders); the store-contact migration review against real
+records; the catalogue backfill; legal content approval; a migration rehearsal on production-shaped
+data; and RC deployment and testing.
+
+**Engineering blockers: none.** See `40_FINAL_ENGINEERING_HANDOVER.md` §7.

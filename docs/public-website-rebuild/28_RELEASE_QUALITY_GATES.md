@@ -246,3 +246,40 @@ unattended.
 
 New API coverage: `origins.test.js` (31), `rate-limit.test.js` (28), `warehouse-boundary.test.js`
 (27), `audit-integrity.test.js` (16), `bootstrap-plan.test.js` (21).
+
+
+---
+
+## Update — Final Handover
+
+The gate still runs **17 gates in about 150 seconds** and still spawns only `node` and `git`.
+
+What changed is what the suites inside it now cover. The `api-suite`, `admin-frontend-suite` and
+`web-suite` gates run the complete suites, so every test added in this run is already gated:
+
+| Added | Tests |
+|---|---|
+| Notification outbox and enquiry delivery | 48 |
+| Store contacts + migration planner | 80 |
+| Store contacts screen | 30 |
+| Stripe payments | 80 |
+| Invoice payment screen | 27 |
+| Finance operations | 58 |
+| Finance screen | 18 |
+| Invoice PDF generation | 61 |
+| Account statements | 56 |
+| Duplicate-submission sweep | 37 |
+
+| Suite | Before this run | After |
+|---|---|---|
+| API | 1,229 | **1,659** |
+| Admin panel | 213 | **298** |
+| Public website | 466 | **466** |
+| **Total** | **1,908** | **2,423** |
+
+No new gate was needed: the three suite gates are total, so a new test file is covered the moment it
+exists. That was a deliberate property of the original design and it held.
+
+The `secret-and-host-scan`, `env-validation` and `deployment-payload` gates cover the new
+Stripe and document-identity variables without modification, because they scan by pattern rather than
+by an enumerated list.

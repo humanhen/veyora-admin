@@ -287,3 +287,47 @@ Full suites after this phase: **API 1091 passing, root admin frontend 166 passin
    personal data by content, which deserves its own decision.
 7. **No assignment or ownership.** `handled_by` records who last moved an enquiry, not who owns it.
    A queue model was not specified.
+
+
+---
+
+## Update — Final Handover, Phase 1
+
+**The gap this document described is closed.** When it was written, a submission was stored, the
+visitor was told it had been received, and **nothing was ever sent to anybody** (findings ENQ-006 /
+NOT-006).
+
+A durable notification outbox now commits the staff alert in the **same transaction** as the
+submission. A worker delivers it with bounded retries (`[1, 5, 15, 60, 120]` minutes, then
+terminal), claiming with `for update skip locked` under an expiring lease so a worker that dies
+leaves nothing stuck.
+
+Two rules hold the honesty of it:
+
+- **No adapter may report success without provider confirmation.** With no SMTP configured, the
+  adapter returns a retryable `NOT_CONFIGURED` and logs nothing — deliberately unlike `mail.js`,
+  which returns `{ logged: true }` and prints the whole message body.
+- A `delivered` row without a provider reference is refused by a database CHECK constraint.
+
+**The enquiry alert deliberately carries no enquirer detail** — not the name, address, phone number
+or message. It says an enquiry arrived, which form it came from, and where to read it. Copying the
+content into staff inboxes would put personal data outside the capability system that governs who may
+read an enquiry at all.
+
+The Enquiries screen shows delivery state per attempt, including the **not-configured** case where no
+alert was ever queued, which is rendered as exactly that and never as delivered. Re-sending is gated
+on `enquiries.manage`, not `enquiries.view`: asking the platform to send another email is an
+action, not a read.
+
+### Update — Final Handover, Phase 7
+
+A public enquiry had **no server-side duplicate guard**. A refresh of the POST result, a synthetic
+`requestSubmit()`, a second tab, or scripting simply being off each produced a second stored
+enquiry *and* a second alert to every recipient.
+
+Closed with a `dedupe_fingerprint` and a partial unique index. The fingerprint hashes the form
+type, the content and a coarse **two-minute bucket** — two genuine enquiries can be identical, and a
+lost enquiry is invisible where a duplicated one is merely untidy. The submitter still receives
+`{ ok: true }`: telling them it failed would make them send a third.
+
+See `42_DUPLICATE_SUBMISSION_SWEEP.md`.

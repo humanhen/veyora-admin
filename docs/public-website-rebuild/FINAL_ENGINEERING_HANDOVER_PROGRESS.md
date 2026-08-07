@@ -82,7 +82,7 @@ before and after.
 | 5 — Invoice PDF | **complete** (visual matching pending the historical reference) | `feat: generate production invoice PDFs` |
 | 6 — Account statements | **complete** | `feat: generate and deliver account statements` |
 | 7 — Duplicate-submission sweep | **complete** | `fix: enforce idempotent critical operations` |
-| 8 — Final handover package | pending | |
+| 8 — Final handover package | **complete** | `docs: final engineering handover package` |
 | 9 — Regression, security sweep, final checkpoint | pending | |
 
 ---
@@ -972,3 +972,28 @@ Without that fix every concurrency test in this phase would have passed for the 
 Release gate: **17/17 in 151 s**. Free space 7.4 GB.
 
 - **Next:** Phase 8 — the final handover package.
+
+### Phase 8 — complete
+
+Five documents created:
+
+| Document | Purpose |
+|---|---|
+| `38_STRIPE_PAYMENT_ARCHITECTURE.md` | The payment model, the settlement authority, and what is test-mode only |
+| `39_INVOICE_AND_STATEMENT_SYSTEM.md` | Both document generators, what they replaced, and the outstanding visual match |
+| `40_FINAL_ENGINEERING_HANDOVER.md` | Every defect closed — including my own three — capabilities, dependency security, and what did not happen |
+| `40A_CLIENT_ACTIVATION_CHECKLIST.md` | Everything outstanding, none of it engineering work. Nothing marked complete |
+| `40B_WEEKEND_REVIEWER_START_HERE.md` | Twenty sections: what Veyora is, how to run it safely, what to look at, what not to touch, and how not to rewrite history |
+
+Six existing documents updated in place: 26 (deployment), 27 (enquiries), 28 (quality gates), 31
+(readiness), 32B (backlog) and 34 (security hardening). Each is told what changed under it rather
+than leaving a reader to discover it elsewhere — including 34, which is where the NULL stock-ledger
+defect came from and so is where it is recorded.
+
+No new release gate was needed: the three suite gates are TOTAL, so every test added in this run was
+already covered the moment the file existed. That was a deliberate property of the original gate
+design and it held.
+
+Release gate: **17/17 in 144 s**.
+
+- **Next:** Phase 9 — nodemailer, full regression, security sweep, final checkpoint.
