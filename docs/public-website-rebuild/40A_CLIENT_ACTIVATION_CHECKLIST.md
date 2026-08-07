@@ -145,7 +145,7 @@ the capability system — and it means the first grant is a supervised bootstrap
 | **Portal analytics** | **DONE — removed 2026-08-07.** The Meta Pixel that tracked signed-in trade customers on every in-app navigation is gone, along with its hard-coded id, and nothing replaced it. Analytics is disabled by default. Re-activating it is a business and privacy decision needing a configured id (never committed), a consent mechanism, and a view on whether tracking signed-in commercial behaviour is acceptable. Google Fonts is still loaded from a CDN on the same page — a separate, smaller decision |
 | **Storefront payment control** | **DONE 2026-08-07.** The "Pay securely" button is applied and tested (12 tests). It appears only for an invoice that is genuinely outstanding, and every other state gets a sentence rather than a silent disabled control. Nothing about account terms changes. See `44_BRANCH_INTEGRATION_REPORT.md` |
 | **Public-form throttle key** | Keyed on the Astro container's IP rather than the visitor's, so the 8-per-window budget is shared across all visitors. An availability concern, not a duplication one — the duplicate guard is separate and works |
-| **Order state machine** | `pending → shipped → pending` is currently permitted. A missing *transition* guard, not a duplicate-submission hazard |
+| **Order state machine** | **CLOSED 2026-08-07.** A closed server-side transition contract: shipped and cancelled are terminal, completed cannot return to an earlier stage, and the working set stays freely correctable. Nothing to action |
 
 ---
 

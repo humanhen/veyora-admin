@@ -70,14 +70,15 @@ people's mistakes is not a handover.
 | Enquiry operations | `27_ENQUIRY_OPERATIONS.md` |
 | Security hardening | `34_SECURITY_HARDENING.md` |
 
-Six migrations, **0011–0016**, all additive: no drop, no truncate, no delete, no column retype, no
-default change. Every one mirrored idempotently in `ensureSchema()`.
+Migrations **0011–0019**, all additive: no drop, no truncate, no delete, no column retype, no
+default change. Every one mirrored idempotently in `ensureSchema()`, and a structural parity suite
+compares the two definitions object by object (`43_SCHEMA_PARITY.md`).
 
 ---
 
 ## 4. Capabilities
 
-Seventeen keys. **None is granted by any migration.**
+Nineteen keys. **None is granted by any migration.**
 
 | Family | Keys |
 |---|---|
@@ -88,6 +89,7 @@ Seventeen keys. **None is granted by any migration.**
 | Payments | `payments.view` / `.collect` / `.refund` / `.reconcile` |
 | Finance | `finance.invoice` / `.record` / `.credit` / `.reconcile` |
 | Statements | `statements.send` |
+| Credit | `finance.credit_limit` / `finance.credit_review` |
 
 Two separations worth understanding, because they look like over-engineering and are not:
 
@@ -224,8 +226,11 @@ Two further runs landed on `mathew/final-integration-2026-08-07`:
 | Client feedback items A–M | `45_CLIENT_FEEDBACK_IMPLEMENTATION.md` |
 | Commercial credit control and portal privacy | `46_COMMERCIAL_CREDIT_AND_PRIVACY.md` |
 | Credit operations — limit UI and review workflow | `47_CREDIT_OPERATIONS.md` |
+| Handover exhaustion — what is left, and for whom | `48_HANDOVER_EXHAUSTION.md` |
+| Production activation, step by step | `49_PRODUCTION_ACTIVATION_RUNBOOK.md` |
+| The short list of client inputs | `49A_CLIENT_INPUTS_REQUIRED.md` |
 
-Totals moved from **2,433** to **2,678 passing, 0 failing**; the release gate is still 18/18. One
+Totals moved from **2,433** to **2,720 passing, 0 failing**; the release gate is still 18/18. One
 migration, **0017**, adds a nullable `users.credit_limit` — mirrored in `ensureSchema()`, with the
 parity contract verified by tampering before the mirror was written.
 

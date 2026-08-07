@@ -95,7 +95,7 @@ Two things to know:
 node scripts/verify-release.mjs
 ```
 
-18 gates, about 150 seconds. It runs all three test suites, the Astro production build, a
+18 gates, about 140 seconds. It runs all three test suites, the Astro production build, a
 forbidden-data scan over *rendered* pages, accessibility and responsive checks, environment
 validation, a secret-and-host scan, and the deployment-payload assembly.
 
@@ -117,10 +117,10 @@ npm --prefix platform/server/web run build     # Astro production build
 
 | Suite | Tests |
 |---|---|
-| API | **1,887** |
+| API | **1,914** |
 | Admin panel | **325** |
-| Public website | **466** |
-| **Total** | **2,678 passing, 0 failing** |
+| Public website | **481** |
+| **Total** | **2,720 passing, 0 failing** |
 
 ---
 
@@ -234,8 +234,8 @@ visibly-unset default; nothing is invented.
 | 2 | ~~The storefront "Pay securely" control is a prepared patch, not applied.~~ **CLOSED 2026-08-07** — applied during the final integration run once the storefront was consolidated, with 12 tests of its own. See `44_BRANCH_INTEGRATION_REPORT.md` |
 | 3 | **No account holds any capability.** By design. Nothing works until a supervised bootstrap grants the first ones |
 | 4 | **The invoice route keeps an admin-role gate** as a documented bootstrap, because nobody holds `finance.invoice` yet. It delegates to the same implementation |
-| 5 | **The public-form throttle is keyed on the Astro container's IP**, not the visitor's, so its budget is shared. An availability concern; the duplicate guard is separate and works |
-| 6 | **No general order state machine.** `pending → shipped → pending` is permitted |
+| 5 | ~~The public-form throttle is keyed on the Astro container's IP.~~ **CLOSED 2026-08-07** — throttled per visitor at the Astro boundary, derived from the trusted hop chain so a forged `X-Forwarded-For` cannot mint identities. See `48_HANDOVER_EXHAUSTION.md` |
+| 6 | ~~No general order state machine.~~ **CLOSED 2026-08-07** — a closed transition contract enforced on the locked row. (The `pending → shipped → pending` example was already stale: un-shipping had been refused since `daa1342`.) |
 | 7 | **Tax comes through from the order record.** Per-jurisdiction rules are an unanswered business question |
 | 8 | See `40_FINAL_ENGINEERING_HANDOVER.md` for the dependency-security position |
 
