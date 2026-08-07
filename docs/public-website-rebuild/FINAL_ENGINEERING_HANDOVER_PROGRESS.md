@@ -79,7 +79,7 @@ before and after.
 | 2 — Customer/store contacts | **complete** | `feat: add governed store contact management` |
 | 3 — Stripe test-mode payment architecture | **complete** (one item prepared, not applied — see the log) | `feat: add Stripe invoice payment foundation` |
 | 4 — Auditable finance operations | **complete** | `fix: govern payment and settlement mutations` |
-| 5 — Invoice PDF | pending | |
+| 5 — Invoice PDF | **complete** (visual matching pending the historical reference) | `feat: generate production invoice PDFs` |
 | 6 — Account statements | pending | |
 | 7 — Duplicate-submission sweep | pending | |
 | 8 — Final handover package | pending | |
@@ -653,3 +653,125 @@ catch up with.
 Release gate: **17/17 in 143 s**. Free space 7.5 GB.
 
 - **Next:** Phase 5 — production invoice PDFs.
+
+### Phase 5 — complete
+
+**What it replaces.** The admin panel's "Download PDF" button produced a toast saying no document
+existed. There is now a real server-generated invoice.
+
+#### The reference is absent — stated, not worked around
+
+`source-assets/invoice-reference/approved-invoice-reference.pdf` does not exist and there is no
+`source-assets/` directory. Per the brief, this is a clean neutral Veyora template with **all
+functional behaviour complete**.
+
+> **Recorded handover item:** *Final visual matching of the generated invoice against the approved
+> invoice from the previous Veyora system remains pending receipt of that historical reference.*
+
+This is a visual acceptance dependency, not an unfinished generator.
+
+#### Nothing is invented
+
+Every legal and business fact comes from `brand-config.js`, where each is an environment variable
+whose default is `null` — a visibly-unset marker, never a plausible guess. A company number this
+codebase made up would look exactly as authoritative as a real one and would be wrong on every
+invoice Veyora ever sends.
+
+An unset field is **omitted** from the document rather than printed as `«NOT CONFIGURED»`: an
+invoice with no VAT line is a normal invoice, while one carrying a placeholder is a document nobody
+should send. `configurationGaps()` reports every unset required field, separately from optional
+ones, so the handover checklist is generated from the code rather than kept by hand.
+
+#### The dependency
+
+`pdf-lib@1.17.1`, pinned exactly. 19.5 MB unpacked, four small dependencies, pure JS with no native
+bindings. Free space 7.5 GB before, 7.4 GB after — above the 6 GB policy floor.
+
+Chosen over a hand-built writer, against this repository's own `xlsx-lite` precedent, for **font
+metrics**: `font.widthOfTextAtSize()` is exact because pdf-lib carries the AFM tables. A financial
+document that silently overflows a column because the width was estimated is a real defect, and
+glyph widths are exactly the part a hand-rolled writer gets wrong.
+
+#### Layout
+
+A thin primitive layer (`pdf-layout.js`) over pdf-lib: a text cursor, exact measurement, wrapping,
+ellipsis truncation, and a table that breaks across pages and **repeats its header**. Every cell is
+wrapped before a row is drawn, so the row's height is known first — drawing and then discovering it
+does not fit is how a table ends up with a header on one page and its first line on the next. A
+table wider than the page **throws** rather than silently overflowing.
+
+#### Determinism
+
+No clock is read anywhere in the generator. The PDF's creation and modification dates come from the
+invoice's own `issued_on`, and `overdue` is decided by an injected `asOf`. Regenerating an unchanged
+invoice is **byte-identical** — asserted — so "is this the same document I sent?" is answerable by
+comparing files.
+
+#### What the document says
+
+Issuer identity, address, company and tax numbers, bank block; customer business, address, tax
+number, and the **accounts-payable contact** where the store has one (the person who actually has to
+pay it); invoice number, issue date, **derived** due date, terms, order number and the customer's own
+PO reference; itemised SKU / description / colour / quantity / unit price / discount; subtotal,
+discount, shipping, tax, total, paid, refunded, balance due; the stamped FX rate **only** when the
+order currency differs from the invoice's; a live hosted payment link where one is open; and the
+configured footer.
+
+Two deliberate presentation decisions:
+
+- **An invoice on terms is stamped `DUE`, never `UNPAID`.** An invoice outstanding on agreed account
+  terms is not delinquent. `OVERDUE` is derived from the due date, so it cannot drift.
+- **Zero tax is printed, not omitted.** "Tax 0.00" and no tax line mean different things to a
+  bookkeeper, and the first is what is true when tax was calculated and came to nothing.
+
+#### Access
+
+`GET /admin/invoices/:id/pdf` gated on `payments.view`; `GET /user/invoices/:id/pdf` for the
+customer's **own** invoice. Ownership is a SQL predicate (`and customer_id = $2`), not a comparison
+afterwards — there is no branch in which a row is loaded and then rejected, which is where a
+"forgot the check" bug lives. Another customer's invoice is a **404, not a 403**: distinguishing
+them would confirm the invoice exists to anyone enumerating ids.
+
+Headers: `application/pdf`, stable filename, `private, no-store` (a shared cache holding an invoice
+is a disclosure; a browser cache holding a stale one would show `DUE` on an invoice since paid), and
+`nosniff`. Neither route reads a body or a query string.
+
+#### A real defect the tests caught
+
+`canvas.absolute()` measured **unsanitised** text. `widthOfTextAtSize()` throws on a character the
+standard font cannot encode, so a single emoji in a customer's business name would have been a
+**500 on their invoice download**. All five draw paths now route through `sanitize()` or `wrap()`.
+
+Note that `é` is deliberately *preserved* — it is representable in WinAnsi, and folding it would
+corrupt a name the font prints perfectly well. Only the genuinely unrepresentable is substituted.
+
+The test helper had its own version of the same lesson: the first extractor read compressed bytes
+and found no text, so every content assertion "passed" against an empty string. It now inflates the
+content streams and decodes hex strings — reading the PDF the way a viewer does.
+
+#### Tested
+
+61 tests: short and 80-line multi-page invoices, header repetition, page numbering, long company and
+address fields, USD / CAD / EUR, line and order discounts, shipping, zero and non-zero tax, unpaid /
+paid / overdue / confirming / cancelled / partly refunded / fully refunded, determinism, ownership,
+capability gating, cache headers, and no leakage of cost, supplier price, margin, wholesale, balance
+or any Stripe key.
+
+#### Files
+
+`src/documents/brand-config.js`, `src/documents/pdf-layout.js`, `src/documents/invoice-pdf.js`,
+`src/routes/invoice-documents.js` (all new), `src/index.js`, `js/pages_finance.js`,
+`platform/server/.env.example`, `test/invoice-pdf.test.js` (new, 61).
+
+#### Verification
+
+| Suite | Before | After |
+|---|---|---|
+| API | 1,505 | **1,566** |
+| Root admin frontend | 298 | **298** |
+| Astro web | 466 | **466** |
+| **Total** | 2,269 | **2,330 passing, 0 failing** |
+
+Release gate: **17/17 in 142 s**. Free space 7.4 GB.
+
+- **Next:** Phase 6 — account statements and delivery.

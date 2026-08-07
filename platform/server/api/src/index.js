@@ -16,6 +16,7 @@ import adminInventoryRoutes from './routes/admin-inventory.js';
 import adminCustomerContactRoutes from './routes/admin-customer-contacts.js';
 import adminPaymentRoutes from './routes/admin-payments.js';
 import adminFinanceRoutes from './routes/admin-finance.js';
+import { adminInvoiceDocumentRoutes, customerInvoiceDocumentRoutes } from './routes/invoice-documents.js';
 import { customerPaymentRoutes, stripeWebhookRoutes } from './routes/payments.js';
 import publicRoutes from './routes/public.js';
 import publicFormRoutes from './routes/public-forms.js';
@@ -83,6 +84,9 @@ app.use('/user', agentRoutes);
    hosted link. Neither route can report a payment - only the signed webhook
    above may settle an invoice. */
 app.use('/user', customerPaymentRoutes);
+/* The customer's OWN invoice as a PDF. Ownership is a SQL predicate, so
+   another customer's id is a 404 rather than a 403. */
+app.use('/user', customerInvoiceDocumentRoutes);
 
 app.get('/admin/country-list', requireAuth(), (req, res) => {
   res.json({ countries: [
@@ -140,6 +144,12 @@ app.use('/admin/payments', adminPaymentRoutes);
    append-only finance_events row carrying the prior balance, the new balance,
    the reason and the actor. */
 app.use('/admin/finance', adminFinanceRoutes);
+
+/* Generated invoice documents (Final Handover Phase 5). Gated on
+   payments.view: reading an invoice document is reading the payment state of
+   an invoice, and a second capability for one authority would be two grants
+   to keep in step. */
+app.use('/admin/invoices', adminInvoiceDocumentRoutes);
 
 app.use('/admin', adminRoutes);
 

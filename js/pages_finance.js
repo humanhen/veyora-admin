@@ -446,8 +446,20 @@ App.register('invoices',function(el){
     el.querySelector('#iv-provider').onchange=e=>{state.provider=e.target.value;render();};
     el.querySelector('#iv-refresh').onclick=()=>{render();toast('Refreshed');};
     bindPager(el,pg=>{state.page=pg;render();});
-    /* Truthful: invoices are records in this system; no file is produced. */
-    el.querySelectorAll('[data-dl]').forEach(b=>b.onclick=()=>toast('No invoice document is generated yet — open the order and use Print order.'));
+    /* A real generated document (Final Handover Phase 5). This used to be a
+       toast saying no file existed.
+
+       Opened in a new tab rather than fetched: the endpoint returns
+       `application/pdf` with a stable filename and `Cache-Control:
+       private, no-store`, so the browser's own viewer is the right consumer.
+       Fetching it into a blob would strip the filename and add nothing. */
+    el.querySelectorAll('[data-dl]').forEach(b=>b.onclick=()=>{
+      if(!App.can('payments.view')){
+        toast('Downloading an invoice needs the View payment state capability.',true);
+        return;
+      }
+      window.open('/api/admin/invoices/'+encodeURIComponent(b.dataset.dl)+'/pdf','_blank','noopener');
+    });
     el.querySelectorAll('[data-ext]').forEach(b=>b.onclick=()=>toast('Opening invoice at the provider…'));
     el.querySelectorAll('[data-pay]').forEach(b=>b.onclick=()=>paymentModal(b.dataset.pay));
     const rec=el.querySelector('#pay-reconcile');
