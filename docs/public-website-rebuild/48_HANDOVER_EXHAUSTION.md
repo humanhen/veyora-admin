@@ -4,6 +4,13 @@
 **This document was produced on the temporary branch `mathew/handover-exhaustion-2026-08-07`.
 Nothing was pushed. `main` was not touched. Nothing was deployed.**
 
+> **Later addition — read `50_POST_HANDOVER_CART_FEEDBACK.md` alongside this.**
+> After this audit closed, the client reviewed the product ordering interaction and asked for a
+> different one (direct per-colour *Add to cart*, one click per piece). That is new instruction
+> rather than a defect in this audit, so nothing below has been rewritten — but the figures in
+> §1 are this document's own point-in-time record, and `50` carries the current ones. Everything
+> in §4 (what still requires another party) is unchanged, and so is `49`.
+
 The question this answers is narrow and deliberately blunt:
 
 > **Is there anything material Mathew can still implement without somebody else supplying
@@ -184,6 +191,7 @@ source data is supplied — and not before.
 | You want to | Read |
 |---|---|
 | Get Veyora live | **`49_PRODUCTION_ACTIVATION_RUNBOOK.md`** |
+| Know what changed after this audit | **`50_POST_HANDOVER_CART_FEEDBACK.md`** |
 | Ask the client for what is needed | **`49A_CLIENT_INPUTS_REQUIRED.md`** |
 | Review the code | `40B_WEEKEND_REVIEWER_START_HERE.md` |
 | Understand a subsystem | `38`, `39`, `41`, `42`, `43`, `46`, `47` |

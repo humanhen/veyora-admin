@@ -12,8 +12,11 @@ illustrative. Where a step needs something only Veyora can supply, it says so an
 
 **Repository:** `Veyora`
 **Canonical branch:** `mathew/public-website-rebuild`
-**Final engineering commit:** `f7652f8` *(the handover-exhaustion work; `4facddc` is the commit
-before it if you need the earlier state)*
+**Commit:** deliberately not named here. **Verify the current HEAD of the canonical branch before
+activation** — `git log --oneline -1 mathew/public-website-rebuild` — and run the release gate
+against it. A commit id written into a document is right on the day and quietly wrong afterwards;
+one was already stale by the time post-handover client feedback landed
+(`50_POST_HANDOVER_CART_FEEDBACK.md`). The branch is the thing that is authoritative.
 
 **Runtime:**
 
