@@ -153,56 +153,243 @@ Routes['#/returns'] = {
   },
 };
 
+/* ---------- New return (client feedback items B and C) ----------
+
+   A return is now filed AGAINST AN ORDER. The customer picks one of their own
+   delivered orders and then ticks lines from it, instead of typing a SKU and
+   an order number into free-text boxes and hoping.
+
+   That change is cosmetic on its own — the guarantee is on the server, where
+   `buildReturn()` re-checks the order belongs to the caller, that every SKU is
+   on it, that the quantity is within what remains un-returned, and where THE
+   PRICE IS READ FROM THE ORDER LINE. This form cannot send a price at all.
+   Everything below is convenience over that boundary, never a substitute. */
+
+/** One debounced, keyboard-navigable exchange picker. */
+function exchangePicker(onPick) {
+  const box = h(`<div class="ex-pick">
+    <input class="ex-input" type="text" role="combobox" aria-expanded="false"
+      aria-autocomplete="list" aria-controls="" autocomplete="off"
+      placeholder="Search by SKU, model or colour"/>
+    <div class="ex-list" role="listbox" hidden></div>
+    <input class="ex-sku" type="hidden"/>
+  </div>`);
+  const input = box.querySelector('.ex-input');
+  const list = box.querySelector('.ex-list');
+  const hidden = box.querySelector('.ex-sku');
+  const listId = `exl-${Math.random().toString(36).slice(2, 9)}`;
+  list.id = listId;
+  input.setAttribute('aria-controls', listId);
+
+  let results = [];
+  let active = -1;
+
+  const close = () => {
+    list.hidden = true;
+    input.setAttribute('aria-expanded', 'false');
+    input.removeAttribute('aria-activedescendant');
+    active = -1;
+  };
+
+  const paint = () => {
+    if (!results.length) {
+      list.innerHTML = `<div class="ex-empty">No frame matches that</div>`;
+    } else {
+      list.innerHTML = results.map((r, i) => `
+        <div class="ex-opt${i === active ? ' on' : ''}" role="option" id="${listId}-${i}"
+          aria-selected="${i === active}" data-i="${i}">
+          <b>${esc(r.sku)}</b> <span class="sub">${esc(r.name)}${
+            r.color ? ' · ' + esc(r.color) : ''}</span>
+        </div>`).join('');
+    }
+    list.hidden = false;
+    input.setAttribute('aria-expanded', 'true');
+    if (active >= 0) input.setAttribute('aria-activedescendant', `${listId}-${active}`);
+    else input.removeAttribute('aria-activedescendant');
+  };
+
+  const choose = (i) => {
+    const r = results[i];
+    if (!r) return;
+    hidden.value = r.sku;
+    input.value = `${r.sku} — ${r.name}${r.color ? ' · ' + r.color : ''}`;
+    close();
+    onPick?.(r);
+  };
+
+  /* Debounced so typing a SKU is one request, not eight. The token guards
+     against an earlier, slower response overwriting a later one. */
+  let token = 0;
+  const search = debounce(async () => {
+    const term = input.value.trim();
+    if (term.length < 2) { results = []; close(); return; }
+    const mine = ++token;
+    try {
+      const res = await API.get(`/user/exchange-search?q=${encodeURIComponent(term)}`);
+      if (mine !== token) return;
+      results = res.results || [];
+      active = -1;
+      paint();
+    } catch { /* a failed suggestion is not worth interrupting the form for */ }
+  }, 220);
+
+  input.addEventListener('input', () => {
+    /* Typing after a pick invalidates it: the hidden SKU is what gets sent, so
+       it must never survive a change to the text the customer can see. */
+    hidden.value = '';
+    search();
+  });
+
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      if (list.hidden || !results.length) return;
+      e.preventDefault();
+      active = e.key === 'ArrowDown'
+        ? (active + 1) % results.length
+        : (active <= 0 ? results.length - 1 : active - 1);
+      paint();
+      return;
+    }
+    if (e.key === 'Enter' && !list.hidden && active >= 0) { e.preventDefault(); choose(active); return; }
+    if (e.key === 'Escape' && !list.hidden) { e.preventDefault(); close(); }
+  });
+
+  list.onclick = (e) => {
+    const opt = e.target.closest('.ex-opt');
+    if (opt) choose(Number(opt.dataset.i));
+  };
+  input.addEventListener('blur', () => setTimeout(close, 140));
+
+  return { el: box, sku: () => hidden.value };
+}
+
 async function renderCreateReturn(el) {
   el.innerHTML = `<h1 class="pagetitle">New return</h1>
-    <div class="card"><div class="pad">
-      <div class="field"><label>Order number (optional)</label><input id="rOrder" placeholder="SO…"/></div>
-      <div id="rItems"></div>
-      <button class="btn ghost sm" id="addRow">+ Add item</button>
-      <div class="field" style="margin-top:12px"><label>Notes</label><textarea id="rNotes" rows="2"></textarea></div>
-      <button class="btn" id="submitR">Submit return</button>
-    </div></div>`;
-  const itemsBox = el.querySelector('#rItems');
-  function addRow() {
-    const row = h(`<div class="ret-row" style="margin-bottom:8px">
-      <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <input class="r-sku" placeholder="SKU (e.g. 20894.1)" style="flex:2;min-width:120px;padding:9px 11px;border:1px solid var(--line);border-radius:8px"/>
-        <input class="r-qty" type="number" min="1" value="1" style="width:64px;padding:9px 11px;border:1px solid var(--line);border-radius:8px"/>
-        <select class="r-res" style="flex:1;min-width:132px;padding:9px 8px;border:1px solid var(--line);border-radius:8px">
-          <option value="credit">Credit</option><option value="exchange">Exchange</option>
-        </select>
-        <button class="btn ghost sm" type="button" aria-label="Remove">${icon('x', { size: 14 })}</button>
-      </div>
-      <div class="r-exwrap" style="display:none;margin-top:6px">
-        <input class="r-ex" placeholder="Exchange for — SKU of the frame you want instead"
-          style="width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:8px"/>
-      </div>
-    </div>`);
-    row.querySelector('button').onclick = () => row.remove();
-    // exchanges must say which frame they want instead
-    const res = row.querySelector('.r-res'), exwrap = row.querySelector('.r-exwrap');
-    res.onchange = () => { exwrap.style.display = res.value === 'exchange' ? '' : 'none'; };
-    itemsBox.appendChild(row);
+    <div class="card"><div class="pad" id="rWrap">Loading your orders…</div></div>`;
+  const wrap = el.querySelector('#rWrap');
+
+  let orders = [];
+  try {
+    orders = (await API.get('/user/returnable-orders')).orders || [];
+  } catch (ex) {
+    wrap.innerHTML = `<div class="empty">${esc(ex.message || 'Your orders could not be loaded.')}</div>`;
+    return;
   }
-  addRow();
-  el.querySelector('#addRow').onclick = addRow;
-  el.querySelector('#submitR').onclick = async () => {
-    const items = [...itemsBox.children].map(row => {
-      const resolution = row.querySelector('.r-res').value;
-      return { sku: row.querySelector('.r-sku').value.trim(),
-               qty: parseInt(row.querySelector('.r-qty').value, 10) || 1,
-               resolution,
-               exchangeSku: resolution === 'exchange'
-                 ? row.querySelector('.r-ex').value.trim() || null : null };
-    }).filter(i => i.sku);
-    if (items.some(i => i.resolution === 'exchange' && !i.exchangeSku)) {
-      toast('For an exchange, enter the SKU of the frame you want instead', true); return;
+
+  if (!orders.length) {
+    wrap.innerHTML = `<div class="empty"><div class="big">${emptyIcon('package')}</div>
+      There is nothing to return yet. A return is filed against an order that has
+      already shipped, and you do not have one.</div>`;
+    return;
+  }
+
+  wrap.innerHTML = `
+    <div class="field"><label for="rOrder">Which order?</label>
+      <select class="select" id="rOrder">
+        ${orders.map((o, i) => `<option value="${esc(o.number)}"${i === 0 ? ' selected' : ''}>${
+          esc(o.number)} — ${esc(o.orderDate || '')}</option>`).join('')}
+      </select></div>
+    <div id="rLines"></div>
+    <div class="field" style="margin-top:12px"><label for="rNotes">Notes (optional)</label>
+      <textarea id="rNotes" rows="2"></textarea></div>
+    <button class="btn" id="submitR">Submit return</button>`;
+
+  const linesBox = wrap.querySelector('#rLines');
+  const select = wrap.querySelector('#rOrder');
+  /* One picker per line, kept so the SKU can be read back on submit. */
+  let pickers = new Map();
+
+  function paintLines() {
+    const order = orders.find(o => o.number === select.value);
+    pickers = new Map();
+    if (!order || !order.lines.length) {
+      linesBox.innerHTML = `<p class="sub">That order has no items to return.</p>`;
+      return;
     }
-    if (!items.length) { toast('Add at least one item', true); return; }
+    linesBox.innerHTML = `<table class="list ret-lines"><tbody>${order.lines.map(l => `
+      <tr class="ret-line" data-sku="${esc(l.sku)}" data-max="${l.returnableQty}">
+        <td style="width:34px">${l.returnableQty > 0
+          ? `<input type="checkbox" class="r-on" aria-label="Return ${esc(l.sku)}"/>`
+          : ''}</td>
+        <td><b>${esc(l.sku)}</b><div class="sub">${esc(l.name)}${
+          l.color ? ' · ' + esc(l.color) : ''}</div></td>
+        <td class="sub" style="white-space:nowrap">${l.returnableQty > 0
+          ? `${l.returnableQty} of ${l.qty} returnable`
+          : `all ${l.qty} already returned`}</td>
+        <td class="r-qty-cell"></td>
+        <td class="r-res-cell"></td>
+      </tr>`).join('')}</tbody></table>
+      <div class="ret-ex-slots"></div>`;
+
+    for (const row of linesBox.querySelectorAll('.ret-line')) {
+      const max = Number(row.dataset.max) || 0;
+      if (max <= 0) continue;
+      const on = row.querySelector('.r-on');
+      const qtyCell = row.querySelector('.r-qty-cell');
+      const resCell = row.querySelector('.r-res-cell');
+
+      /* Bounded by what the SERVER said remains returnable. The server checks
+         it again regardless — this is so the customer is not invited to ask
+         for something that will be refused. */
+      qtyCell.innerHTML = qtyBox(1, 1, max);
+      resCell.innerHTML = `<select class="r-res" aria-label="How to resolve ${esc(row.dataset.sku)}">
+        <option value="credit">Credit</option><option value="exchange">Exchange</option></select>`;
+      const qty = qtyCell.querySelector('.qtybox');
+      bindQtyBox(qty, () => {});
+
+      const picker = exchangePicker();
+      const slot = h(`<div class="ret-ex" hidden><label class="sub">Exchange ${
+        esc(row.dataset.sku)} for</label></div>`);
+      slot.appendChild(picker.el);
+      linesBox.querySelector('.ret-ex-slots').appendChild(slot);
+      pickers.set(row.dataset.sku, picker);
+
+      const res = resCell.querySelector('.r-res');
+      const sync = () => {
+        const wants = on.checked && res.value === 'exchange';
+        slot.hidden = !wants;
+      };
+      res.onchange = sync;
+      on.onchange = () => {
+        qty.style.opacity = on.checked ? '' : '.45';
+        sync();
+      };
+      qty.style.opacity = '.45';
+    }
+  }
+
+  select.onchange = paintLines;
+  paintLines();
+
+  wrap.querySelector('#submitR').onclick = async () => {
+    const items = [];
+    for (const row of linesBox.querySelectorAll('.ret-line')) {
+      const on = row.querySelector('.r-on');
+      if (!on || !on.checked) continue;
+      const resolution = row.querySelector('.r-res').value;
+      const sku = row.dataset.sku;
+      const item = {
+        sku,
+        qty: parseInt(row.querySelector('.qtybox input').value, 10) || 1,
+        resolution,
+      };
+      if (resolution === 'exchange') {
+        const chosen = pickers.get(sku)?.sku();
+        if (!chosen) {
+          toast(`Choose the frame you would like instead of ${sku}`, true);
+          return;
+        }
+        item.exchangeSku = chosen;
+      }
+      items.push(item);
+    }
+    if (!items.length) { toast('Tick at least one item to return', true); return; }
     try {
+      /* No price is sent. The server reads it from the order line. */
       const res = await API.post('/user/returns', {
-        orderNumber: el.querySelector('#rOrder').value.trim() || null,
-        notes: el.querySelector('#rNotes').value, items,
+        orderNumber: select.value,
+        notes: wrap.querySelector('#rNotes').value,
+        items,
       });
       toast(`Return ${res.return.number} submitted`);
       location.hash = '#/returns';

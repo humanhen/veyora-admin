@@ -950,3 +950,30 @@ body.hm-dark .hm-wa{width:48px;height:48px;bottom:calc(22px + env(safe-area-inse
   .cv-name{font-size:22px}
   .cv-stage{max-width:100%}
 }
+
+/* ---------- return form: order lines + exchange picker (feedback B, C) ---------- */
+.ret-lines td{vertical-align:middle}
+.ret-lines .qtybox{margin:0}
+.ret-line select.r-res{padding:7px 8px;border:1px solid var(--line);border-radius:8px;
+  font-size:13px;background:#fff;color:var(--ink)}
+.ret-ex{margin-top:10px}
+.ret-ex > label{display:block;margin-bottom:5px}
+/* The picker is positioned so its list can overlay what follows rather than
+   pushing the Submit button down the page every time somebody types. */
+.ex-pick{position:relative}
+.ex-input{width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:8px;
+  font-size:13.5px;background:#fff;color:var(--ink)}
+.ex-input:focus{outline:2px solid var(--accent);outline-offset:-1px}
+.ex-list{position:absolute;z-index:30;left:0;right:0;top:calc(100% + 4px);
+  max-height:260px;overflow-y:auto;background:#fff;border:1px solid var(--line);
+  border-radius:10px;box-shadow:var(--shadow)}
+.ex-opt{padding:9px 11px;font-size:13px;cursor:pointer;border-bottom:1px solid var(--line-2,#f1f5f9)}
+.ex-opt:last-child{border-bottom:0}
+/* Hover and keyboard selection share one appearance: a customer arrowing down
+   and a customer with a mouse should not see two different "this one" states. */
+.ex-opt:hover,.ex-opt.on{background:var(--soft-blue,#eef4fb)}
+.ex-empty{padding:11px;font-size:13px;color:var(--muted)}
+@media (max-width:640px){
+  .ret-lines td{padding:8px 6px}
+  .ret-lines .r-qty-cell,.ret-lines .r-res-cell{display:block}
+}

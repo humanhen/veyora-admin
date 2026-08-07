@@ -14,6 +14,7 @@ import { resolveOrderingCustomer, orderingContextShape, sanitizeOrderNote,
          CUSTOMER_BACKORDER, lockCartForSubmission, compareCartSnapshots,
          orderLinesForLocking } from '../ordering.js';
 import { afterCommit, afterCommitDetached } from '../postcommit.js';
+import { listReturnableOrders, buildReturn, searchExchangeVariations } from '../returns.js';
 
 const r = Router();
 r.use(requireAuth());
@@ -654,29 +655,49 @@ r.get('/returns/:id', async (req, res) => {
   res.json({ return: { ...rows[0], items } });
 });
 
+/**
+ * The caller's own orders a return can be filed against, with the returnable
+ * quantity per line. This is what the storefront's return form is built from,
+ * so a customer picks from what they bought rather than typing a SKU.
+ */
+r.get('/returnable-orders', async (req, res, next) => {
+  try {
+    res.json({ orders: await listReturnableOrders({ query: q }, req.user.id) });
+  } catch (e) { next(e); }
+});
+
+/**
+ * Type-ahead for the frame a customer wants INSTEAD of the one they are
+ * returning. Bounded server-side: the module caps the row count and refuses a
+ * query too short to be a search, so this cannot be used to walk the catalogue.
+ * It returns no prices — identifying a frame does not require them, and a
+ * hide-prices account must not be handed them through a search box.
+ */
+r.get('/exchange-search', async (req, res, next) => {
+  try {
+    res.json({ results: await searchExchangeVariations({ query: q }, req.query?.q) });
+  } catch (e) { next(e); }
+});
+
 r.post('/returns', async (req, res, next) => {
   try {
-    const { orderNumber, items, notes } = req.body || {};
-    if (!Array.isArray(items) || !items.length) {
-      return res.status(400).json({ error: 'items required' });
-    }
     const created = await tx(async (c) => {
+      /* Validated INSIDE the transaction and against the caller's own order:
+         the returnable quantities read here are the ones spent below, and the
+         order row is locked, so two returns submitted at the same moment
+         cannot both consume the last unit. The price is read from the order
+         line — the request body's price, if any, is ignored. */
+      const plan = await buildReturn(c, req.user.id, req.body || {});
       const { rows: num } = await c.query(`select 'RT' || nextval('return_number_seq') as n`);
       const { rows: ret } = await c.query(`
         insert into returns (number, customer_id, order_number, status, notes)
         values ($1,$2,$3,'open',$4) returning *`,
-        [num[0].n, req.user.id, orderNumber || null, String(notes || '')]);
-      for (const it of items) {
-        const { rows: v } = await c.query(`
-          select v.sku, p.name, coalesce(v.sale_price, v.price, p.sale_price, p.price, 0) as price
-            from variations v join products p on p.id=v.product_id where v.sku=$1`, [it.sku]);
-        const resolution = ['credit', 'exchange'].includes(it.resolution) ? it.resolution : 'credit';
+        [num[0].n, req.user.id, plan.orderNumber, plan.notes]);
+      for (const it of plan.items) {
         await c.query(`
           insert into return_items (return_id, sku, name, qty, price, resolution, exchange_sku)
           values ($1,$2,$3,$4,$5,$6,$7)`,
-          [ret[0].id, it.sku, v[0]?.name || it.name || '', Math.max(1, parseInt(it.qty, 10) || 1),
-           it.price ?? v[0]?.price ?? 0, resolution,
-           resolution === 'exchange' ? String(it.exchangeSku || '').slice(0, 40) || null : null]);
+          [ret[0].id, it.sku, it.name, it.qty, it.price, it.resolution, it.exchangeSku]);
       }
       return ret[0];
     });
