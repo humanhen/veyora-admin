@@ -397,6 +397,28 @@ test('/user/add-to-cart still means SET THIS LINE TO THIS QUANTITY', () => {
     'setting a line to zero still removes it');
 });
 
+/* The route is a thin shell over incrementCartLine() by design: every
+   guarantee above — the lock, the re-read, the stock predicate, the sku
+   validation — lives in that one statement. A route that assembled its own
+   cart write would be a second, unguarded increment path that none of these
+   tests reach, so the delegation is pinned here rather than assumed. */
+test('the add-one route delegates to the atomic operation and writes nothing itself', () => {
+  const body = cartRouteSource.slice(
+    cartRouteSource.indexOf(`r.post('/add-one-to-cart'`),
+    cartRouteSource.indexOf(`r.get('/get-cart'`));
+  assert.ok(body.length > 100, 'the route must exist');
+  assert.match(body, /await incrementCartLine\(q, req\.user\.id, req\.body\?\.sku,/,
+    'the increment rule lives in one place, and the route must use it');
+  assert.match(body, /allowBackorders: allowCustomerBackorders\(\)/,
+    'the backorder policy is the SERVER\'s, not the request\'s');
+  assert.ok(!/insert into cart_items|update cart_items|delete from cart_items/i.test(body),
+    'a cart write inside the route would bypass the locked, capped statement');
+  assert.ok(!/req\.body\??\.qty/.test(body),
+    'a client-supplied quantity has no place in "add one"');
+  assert.match(body, /res\.json\(await cartSummary\(req\.user\)\)/,
+    'the reply must be the authoritative cart, so the browser derives nothing');
+});
+
 test('/user/add-one-to-cart is a SEPARATE route, not an overload', () => {
   const paths = cartRouter.stack.filter(l => l.route).map(l => l.route.path);
   assert.ok(paths.includes('/add-to-cart'));

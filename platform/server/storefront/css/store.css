@@ -330,9 +330,14 @@ table.list tr.click:hover td{background:var(--soft-blue)}
 .pdetail-colors-h{font-size:13.5px;margin:16px 0 4px;font-weight:700;letter-spacing:.02em}
 .pdetail .vrows{margin:0;width:100%}
 /* Color rows: thumb · name · status …… qty (qty pinned to the trailing edge) */
+/* The colour name is the only track allowed to yield, so it is minmax(0,…):
+   a bare `max-content` track cannot shrink below its content, which on a long
+   colourway ("Transparent Havana Tortoiseshell Gradient") pushed the whole row
+   past the modal at 768px. It ellipsises instead — the sku, the pill and the
+   controls all have to stay readable. */
 .pdetail .vrow{
   display:grid;
-  grid-template-columns:48px max-content max-content minmax(12px,1fr) auto;
+  grid-template-columns:48px minmax(0,max-content) max-content minmax(12px,1fr) auto;
   grid-template-areas:"thumb name pill . ctrl";
   align-items:center;
   column-gap:10px;
@@ -368,6 +373,11 @@ table.list tr.click:hover td{background:var(--soft-blue)}
   grid-area:ctrl;justify-self:end;align-self:center;
   display:flex;align-items:center;justify-content:flex-end;
   flex-wrap:wrap;gap:8px;row-gap:6px;margin:0;
+  /* Load-bearing. `justify-self:end` sizes a grid item to its CONTENT, so
+     without this cap the flex line never wraps — it overflows its own grid
+     area to the LEFT and lands on top of the colour name and the stock pill.
+     Capping it at the area is what makes flex-wrap above actually engage. */
+  max-width:100%;min-width:0;
 }
 .pdetail .vprice{min-width:0;font-size:13px;font-weight:700}
 .pdetail .vctrl .notify{
@@ -409,11 +419,16 @@ table.list tr.click:hover td{background:var(--soft-blue)}
   .pdetail{flex-direction:column;gap:14px;align-items:stretch}
   .pdetail-img{flex:none;width:100%;position:relative;align-self:stretch}
   .pdetail-info{padding-right:0;width:100%;max-width:100%;min-width:0}
+  /* On a phone the ordering controls take their own full-width line. Sharing a
+     column with the name and the pill leaves each of them a few dozen pixels at
+     360px, which is how the count, the button and "Notify me" ended up stacked
+     over the colour name. */
   .pdetail .vrow{
-    grid-template-columns:40px minmax(0,1fr) auto;
+    grid-template-columns:40px minmax(0,1fr);
     grid-template-areas:
-      "thumb name ctrl"
-      "thumb pill  ctrl";
+      "thumb name"
+      "thumb pill"
+      "ctrl  ctrl";
     column-gap:10px;
     row-gap:2px;
     padding:9px 0;
@@ -422,7 +437,7 @@ table.list tr.click:hover td{background:var(--soft-blue)}
   .pdetail .vrow > .noimg{width:40px;height:40px;border-radius:6px}
   .pdetail .vcol{font-size:13px;max-width:none;min-width:0}
   .pdetail .stockpill{font-size:10px;padding:2px 6px}
-  .pdetail .vctrl{margin-left:0;justify-self:end}
+  .pdetail .vctrl{margin-left:0;justify-self:end;padding-top:4px}
   /* a thumb-sized target for the control the customer taps repeatedly */
   .pdetail .vctrl .addone{min-height:40px;padding:9px 14px}
   .pdetail .vctrl .notify{min-height:34px}

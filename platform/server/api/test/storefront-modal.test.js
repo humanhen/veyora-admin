@@ -232,9 +232,11 @@ test('the actions travel together as one wrappable unit', () => {
     'markup and CSS agree: the helper fills the unit the CSS styles');
 });
 
-test('on a phone the actions keep a real target and still wrap', () => {
+test('on a phone the actions take their own full-width line, with a real target', () => {
   const mobile = CSS.slice(CSS.indexOf('@media(max-width:760px)'));
-  assert.match(mobile, /\.pdetail \.vctrl\{margin-left:0;justify-self:end\}/);
+  assert.match(mobile, /\.pdetail \.vctrl\{margin-left:0;justify-self:end/);
+  assert.match(mobile, /"ctrl {2}ctrl"/,
+    'the ordering controls get their own row rather than squeezing the name');
   assert.match(mobile, /\.pdetail \.vctrl \.addone\{min-height:40px/,
     'the control a customer taps repeatedly must be thumb-sized');
 });

@@ -812,6 +812,29 @@ test('the ordering controls wrap instead of overflowing a narrow row', () => {
   assert.match(rule[0], /flex-wrap:wrap/,
     'price + count + Add to cart + Notify me do not fit one line on a 360px phone');
   assert.match(rule[0], /justify-content:flex-end/);
+  /* Found in the browser at 360, 390 and 768: `justify-self:end` sizes a grid
+     item to its CONTENT, so flex-wrap alone never fired — the control block
+     overflowed its own grid area to the LEFT and rendered on top of the colour
+     name and the stock pill. */
+  assert.match(rule[0], /max-width:100%/,
+    'without the cap the unit overflows its grid area instead of wrapping');
+  assert.match(rule[0], /min-width:0/);
+});
+
+test('the colour-name column can yield, so a long colourway cannot push the row out', () => {
+  const rule = CSS.match(/\n\.pdetail \.vrow\{[^}]*\}/);
+  assert.match(rule[0], /grid-template-columns:48px minmax\(0,max-content\)/,
+    'a bare max-content track cannot shrink below its text, and a 40-character '
+    + 'colour name then pushed the whole row past the modal at 768px');
+});
+
+test('on a phone the ordering controls take their own full-width line', () => {
+  const mobile = CSS.slice(CSS.indexOf('@media(max-width:760px)'));
+  const rule = mobile.match(/\.pdetail \.vrow\{[^}]*\}/);
+  assert.match(rule[0], /grid-template-columns:40px minmax\(0,1fr\)/);
+  assert.match(rule[0], /"ctrl {2}ctrl"/,
+    'sharing a column with the name and the pill leaves each of them a few '
+    + 'dozen pixels at 360px');
 });
 
 test('a row with nothing in the cart is no wider than before the count existed', () => {
