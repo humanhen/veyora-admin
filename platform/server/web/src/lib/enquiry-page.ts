@@ -12,6 +12,7 @@
 
 import { FORM_FIELDS, retainedValues, submissionBody, type EnquiryForm, type SubmissionState } from './enquiry-forms.ts';
 import { submitEnquiry } from './enquiry-submit.ts';
+import { throttleVisitor } from './enquiry-throttle.ts';
 
 export interface EnquiryPageState {
   /** The status the page must set on Astro.response. */
@@ -47,6 +48,17 @@ export async function handleEnquiryPage(
   }
 
   const values = retainedValues(form, fields);
+
+  /* PER-VISITOR THROTTLE, before the submission is forwarded.
+     The API's own limiter is keyed on the address IT sees, which for this path
+     is the Astro container — so every visitor shared one budget of 8 per ten
+     minutes. This is the only point in the chain that can tell one visitor
+     from another. The API's limiter is unchanged and still guards the direct
+     `/api/forms/...` route. See visitor-identity.ts. */
+  if (throttleVisitor(request).throttled) {
+    return { status: 429, state: { kind: 'failed', message: THROTTLED_MESSAGE, values } };
+  }
+
   const result = await submitEnquiry(formType, submissionBody(form, fields), { sourcePath });
 
   if (result.ok) {
