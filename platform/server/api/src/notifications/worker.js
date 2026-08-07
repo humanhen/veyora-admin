@@ -36,6 +36,17 @@ export const DEFAULT_INTERVAL_MS = 30_000;
  */
 export async function runOnce(db, adapter, {
   batchSize = DEFAULT_BATCH_SIZE, now = () => new Date(), claimTtlMs = CLAIM_TTL_MS,
+  /* Resolves an attachment for a notification that needs one — a statement
+     PDF, today. Injected so the worker itself stays free of document code, and
+     so a test drives the whole lifecycle without generating a PDF.
+
+     Returning null or throwing means "no attachment": a statement that cannot
+     be regenerated is a failure worth retrying, not a message to send empty,
+     so a throw is treated as a retryable provider-shaped failure below. */
+  attachmentResolver = null,
+  /* Called after a delivery is CONFIRMED, so a source record can record the
+     confirmation. This is how a statement becomes `sent` — never from a route. */
+  onDelivered = null,
 } = {}) {
   const counts = { claimed: 0, delivered: 0, retried: 0, failed: 0, skipped: 0 };
 
@@ -53,13 +64,30 @@ export async function runOnce(db, adapter, {
         html: rendered.html,
         text: rendered.text,
       };
+      if (attachmentResolver) {
+        try {
+          const attachments = await attachmentResolver(row);
+          if (Array.isArray(attachments) && attachments.length) message.attachments = attachments;
+        } catch (err) {
+          /* Marked so the handler below can tell an attachment failure (worth
+             retrying) from a template failure (not). */
+          err.veyoraAttachmentFailure = true;
+          throw err;
+        }
+      }
     } catch (err) {
       /* An unknown or broken template is not retryable — the next attempt
-         renders the same nothing. Fail it terminally so somebody is told. */
+         renders the same nothing.
+
+         An ATTACHMENT failure is different and IS retryable: a statement PDF
+         that could not be regenerated this minute may well regenerate next
+         time, and sending a statement email with no statement attached would
+         be worse than waiting. The two are distinguished by which stage threw. */
+      const attachmentStage = err && err.veyoraAttachmentFailure === true;
       const settled = await markAttemptFailed(db, row.id, {
-        code: 'TEMPLATE_ERROR',
+        code: attachmentStage ? 'ATTACHMENT_ERROR' : 'TEMPLATE_ERROR',
         message: err && err.message ? err.message : 'render failed',
-        retryable: false,
+        retryable: attachmentStage,
         now: now(),
       });
       if (settled && settled.status === 'failed') counts.failed += 1; else counts.retried += 1;
@@ -81,6 +109,15 @@ export async function runOnce(db, adapter, {
       /* Only ever from the adapter's own reference. markDelivered refuses an
          empty one, and the database refuses a delivered row without it. */
       await markDelivered(db, row.id, result.providerReference, { now: now() });
+      /* And only NOW may a source record call itself sent. This is the single
+         path by which an account statement's status becomes 'sent'; no route
+         can set it, which is the entire reason the outbox carries statements.
+         A failure here must not un-deliver the notification, so it is
+         swallowed and left to reconciliation. */
+      if (onDelivered) {
+        await Promise.resolve(onDelivered(row, result.providerReference, now()))
+          .catch(() => {});
+      }
       counts.delivered += 1;
       continue;
     }
@@ -107,6 +144,7 @@ export async function runOnce(db, adapter, {
 export function startNotificationWorker(db, adapter, {
   intervalMs = DEFAULT_INTERVAL_MS, batchSize = DEFAULT_BATCH_SIZE,
   setIntervalFn = setInterval, clearIntervalFn = clearInterval, onTick = null,
+  attachmentResolver = null, onDelivered = null,
 } = {}) {
   let running = false;
 
@@ -114,7 +152,7 @@ export function startNotificationWorker(db, adapter, {
     if (running) return;
     running = true;
     try {
-      const counts = await runOnce(db, adapter, { batchSize });
+      const counts = await runOnce(db, adapter, { batchSize, attachmentResolver, onDelivered });
       /* Counts only — never a recipient, never template data. */
       if (counts.failed > 0) {
         console.warn(`[notifications] ${counts.failed} notification(s) failed terminally`);

@@ -450,6 +450,72 @@ const DB = (function(){
     };
   }
 
+  /* ---------- account statement shaping (Final Handover Phase 6) ----------
+
+     Amounts arrive as display strings alongside minor units, and both are
+     carried through unchanged. The browser must never recompute a balance and
+     must never format a figure differently from the PDF the customer gets. */
+  function shapeStatement(s){
+    const r = s || {};
+    const p = r.period || {};
+    const t = r.totals || {};
+    const a = r.ageing || {};
+    return {
+      currency: String(r.currency||'USD'),
+      customer: {
+        id: String((r.customer||{}).id||''),
+        business: String((r.customer||{}).business||''),
+        customerNumber: String((r.customer||{}).customerNumber||''),
+      },
+      period: { from: String(p.from||''), to: String(p.to||''), label: String(p.label||'') },
+      openingMinor: Number(r.openingMinor)||0, opening: String(r.opening||'0.00'),
+      closingMinor: Number(r.closingMinor)||0, closing: String(r.closing||'0.00'),
+      totals: { debit: String(t.debit||'0.00'), credit: String(t.credit||'0.00') },
+      ageing: {
+        current: String(a.current||'0.00'), days30: String(a.days30||'0.00'),
+        days60: String(a.days60||'0.00'), days90plus: String(a.days90plus||'0.00'),
+      },
+      lines: Array.isArray(r.lines) ? r.lines.map(l => ({
+        kind: String(l.kind||''), date: String(l.date||''),
+        reference: String(l.reference||''), description: String(l.description||''),
+        debit: String(l.debit||''), credit: String(l.credit||''), balance: String(l.balance||''),
+      })) : [],
+      generatedAt: String(r.generatedAt||''),
+    };
+  }
+
+  function shapeStatementRecord(s){
+    const r = s || {};
+    const d = r.delivery;
+    return {
+      id: String(r.id||''),
+      customerId: String(r.customerId||''),
+      periodFrom: String(r.periodFrom||''),
+      periodTo: String(r.periodTo||''),
+      currency: String(r.currency||''),
+      openingMinor: Number(r.openingMinor)||0,
+      closingMinor: Number(r.closingMinor)||0,
+      lineCount: Number(r.lineCount)||0,
+      /* Defaults to 'draft', never to anything that reads as delivered. */
+      status: String(r.status||'draft'),
+      recipientAddress: String(r.recipientAddress||''),
+      recipientReason: String(r.recipientReason||''),
+      recipientReasonLabel: String(r.recipientReasonLabel||''),
+      generatedAt: r.generatedAt==null?null:String(r.generatedAt),
+      sentAt: r.sentAt==null?null:String(r.sentAt),
+      lastError: String(r.lastError||''),
+      /* Delivery state comes from the outbox. Null means nothing carries it. */
+      delivery: d ? {
+        status: String(d.status||''),
+        attemptCount: Number(d.attemptCount)||0,
+        lastAttemptedAt: d.lastAttemptedAt==null?null:String(d.lastAttemptedAt),
+        deliveredAt: d.deliveredAt==null?null:String(d.deliveredAt),
+        lastError: String(d.lastError||''),
+        recipientMasked: String(d.recipientMasked||''),
+      } : null,
+    };
+  }
+
   /* ---------- finance operation shaping (Final Handover Phase 4) ----------
 
      The append-only ledger and the payment/credit-note records, allowlisted.
@@ -1116,6 +1182,75 @@ const DB = (function(){
       const res = await apiCall('GET', path);
       if (!res || !Array.isArray(res.events)) throw malformed();
       return res.events.map(shapeFinanceEvent);
+    },
+
+    /* ---- account statements (Final Handover Phase 6) ----
+
+       Replaces a screen that computed the whole statement in the browser and
+       a "Send" button that toasted success having sent nothing.
+
+       Every figure now comes from the SERVER. Deliberately absent: anything
+       that marks a statement sent — only the notification outbox's confirmed
+       delivery does that. */
+
+    async statementCapabilities(){
+      const res = await apiCall('GET', '/admin/statements/capabilities');
+      const c = (res && res.capabilities) || {};
+      return { view: c.view === true, send: c.send === true };
+    },
+
+    /** The currencies a customer has activity in, so one can be chosen. A
+        statement covers ONE currency; a running balance mixing two is
+        arithmetic nobody can defend. */
+    async statementCurrencies(customerId){
+      const res = await apiCall('GET',
+        '/admin/statements/' + encodeURIComponent(customerId) + '/currencies');
+      if (!res || !Array.isArray(res.currencies)) throw malformed();
+      return res.currencies.map(c => ({
+        currency: String(c.currency||''), movements: Number(c.movements)||0,
+      }));
+    },
+
+    /** Where a statement WOULD go, and why. Shown before the operator
+        commits, so the address is never a surprise. */
+    async statementRecipient(customerId, override){
+      const qs = override ? '?override=' + encodeURIComponent(override) : '';
+      const res = await apiCall('GET',
+        '/admin/statements/' + encodeURIComponent(customerId) + '/recipient' + qs);
+      const r = (res && res.recipient) || {};
+      if (r.ok !== true) return { ok: false, error: String(r.error||''), code: String(r.code||'') };
+      return {
+        ok: true, address: String(r.address||''), contactId: r.contactId==null?null:String(r.contactId),
+        reason: String(r.reason||''), reasonLabel: String(r.reasonLabel||''), name: String(r.name||''),
+      };
+    },
+
+    /** A preview. Creates NO record — checking a figure must not litter the
+        history. Amounts arrive as display strings AND minor units; the
+        browser never does the arithmetic. */
+    async statementPreview(customerId, from, to, currency){
+      const qs = 'from=' + encodeURIComponent(from||'') + '&to=' + encodeURIComponent(to||'')
+        + (currency ? '&currency=' + encodeURIComponent(currency) : '');
+      const res = await apiCall('GET',
+        '/admin/statements/' + encodeURIComponent(customerId) + '/preview?' + qs);
+      if (!res || !res.statement) throw malformed();
+      return shapeStatement(res.statement);
+    },
+
+    async statementHistory(customerId){
+      const res = await apiCall('GET',
+        '/admin/statements/' + encodeURIComponent(customerId) + '/history');
+      if (!res || !Array.isArray(res.statements)) throw malformed();
+      return res.statements.map(shapeStatementRecord);
+    },
+
+    /** Queues a statement for delivery. Returns it as `queued`, never `sent` —
+        the outbox decides that, and only against a provider confirmation. */
+    async sendStatement(customerId, fields){
+      const res = await apiCall('POST',
+        '/admin/statements/' + encodeURIComponent(customerId) + '/send', fields);
+      if (!res || !res.statement) throw malformed();
+      return shapeStatementRecord(res.statement);
     },
 
     /* ---- governed invoice payments (Final Handover Phase 3) ----

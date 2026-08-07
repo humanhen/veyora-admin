@@ -670,94 +670,291 @@ App.register('invoices',function(el){
   render();
 });
 
-/* ============================================================ STATEMENTS */
-App.register('statements',function(el){
-  const state=App._stmt||(App._stmt={cust:'',from:'2026-01-01',to:todayISO(),result:null});
+/* ---------- statement presentation (Final Handover Phase 6) ---------- */
+const STMT_KIND_LABELS={invoice:'Invoice',payment:'Payment',credit_note:'Credit note',refund:'Refund'};
+const STMT_DELIVERY_LABELS={pending:'Queued',processing:'Sending',retry_scheduled:'Retrying',delivered:'Delivered',failed:'Failed',cancelled:'Cancelled'};
+/* Minor units to a display string. The SERVER's figure is authoritative; this
+   only formats it. */
+function stmtMoney(minor){const n=Number(minor)||0;const s=n<0?'-':'';const a=Math.abs(n);return s+Math.floor(a/100)+'.'+String(a%100).padStart(2,'0');}
 
-  function generate(){
-    const d=DB.d;
-    const cid=state.cust;
-    const u=DB.user(cid);
-    const tx=[];
-    for(const iv of d.invoices)if(iv.customerId===cid&&iv.date>=state.from&&iv.date<=state.to)
-      tx.push({date:iv.date,desc:'Invoice #'+iv.number+' ('+iv.orderNumber+')',debit:iv.amount,credit:0});
-    for(const pm of d.payments)if(pm.customerId===cid&&pm.date>=state.from&&pm.date<=state.to)
-      tx.push({date:pm.date,desc:'Payment — '+pm.method+(pm.reference?' ('+pm.reference+')':''),debit:0,credit:pm.amount});
-    for(const cn of d.creditNotes)if(cn.customerId===cid&&cn.date>=state.from&&cn.date<=state.to)
-      tx.push({date:cn.date,desc:'Credit note — '+cn.reason,debit:0,credit:cn.amount});
-    tx.sort((a,b)=>a.date.localeCompare(b.date));
-    const activity=tx.reduce((s,t)=>s+t.debit-t.credit,0);
-    const closing=u?(u.balance||0):0;
-    const opening=Math.round((closing-activity)*100)/100;
-    let run=opening;
-    tx.forEach(t=>{run=Math.round((run+t.debit-t.credit)*100)/100;t.balance=run;});
-    state.result={opening,closing:run,tx};
+/* ============================================================ STATEMENTS
+
+   Rewritten for the Final Handover, Phase 6.
+
+   WHAT THIS REPLACES
+
+   The old screen computed the whole statement IN THE BROWSER from the local
+   dataset, and its "Send to Customer" button did this:
+
+       DB.audit('statement.send', u.business, 'Emailed to ' + u.email);
+       toast('Statement emailed to ' + u.email);
+
+   Nothing was generated, nothing was attached, nothing was sent — and the
+   audit log recorded a delivery that never happened. A false record is worse
+   than no button, because it is consulted later and believed.
+
+   It also had a subtler arithmetic fault: it took the customer's CURRENT
+   balance as the closing figure and subtracted the period's activity to derive
+   an opening one, so a statement for any past period silently reported today's
+   balance as that period's closing balance.
+
+   Every figure now comes from the server, and "sent" is a word only the
+   notification outbox may use.                                              */
+App.register('statements',function(el){
+  const state=App._stmt||(App._stmt={cust:'',from:'',to:todayISO(),currency:'',
+    preview:null,recipient:null,currencies:[],history:[],override:'',notice:null});
+  if(!state.from){
+    /* Default to the calendar month just gone — the period a statement is
+       almost always for. */
+    const d=new Date();d.setDate(1);d.setMonth(d.getMonth()-1);
+    state.from=d.toISOString().slice(0,10);
+  }
+
+  let busy=false;
+
+  const canView=()=>App.can('payments.view');
+  const canSend=()=>App.can('statements.send');
+
+  function describe(e){
+    const s=e&&e.status,d=e&&e.data;
+    if(s===403)return {kind:'err',text:'Your account does not hold the capability that needs. Nothing was sent.'};
+    if(s===409&&d&&d.code==='ALREADY_SENT_TODAY')
+      return {kind:'warn',text:'This statement has already been sent today. Change the period, or send again tomorrow.'};
+    if(s===422&&d&&d.code==='NO_RECIPIENT')
+      return {kind:'warn',text:d.error};
+    if(d&&d.error)return {kind:'err',text:d.error};
+    return {kind:'err',text:'That could not be completed. Nothing was sent.'};
+  }
+
+  /* ---------- data ---------- */
+
+  async function loadCustomer(){
+    state.preview=null;state.recipient=null;state.currencies=[];state.history=[];
+    state.notice=null;
+    if(!state.cust){render();return;}
+    render();
+    try{
+      const [currencies,recipient,history]=await Promise.all([
+        DB.statementCurrencies(state.cust),
+        DB.statementRecipient(state.cust,state.override),
+        DB.statementHistory(state.cust),
+      ]);
+      state.currencies=currencies;
+      state.recipient=recipient;
+      state.history=history;
+      if(!state.currency&&currencies.length)state.currency=currencies[0].currency;
+    }catch(e){ state.notice=describe(e); }
+    render();
+  }
+
+  async function preview(){
+    if(busy||!state.cust)return;
+    busy=true;state.notice=null;render();
+    try{
+      state.preview=await DB.statementPreview(state.cust,state.from,state.to,state.currency);
+      DB.audit('statement.preview',state.cust,state.from+' → '+state.to,'web');
+    }catch(e){ state.preview=null;state.notice=describe(e); }
+    finally{ busy=false;render(); }
+  }
+
+  async function refreshRecipient(){
+    if(!state.cust)return;
+    try{ state.recipient=await DB.statementRecipient(state.cust,state.override); }
+    catch(e){ state.recipient={ok:false,error:describe(e).text}; }
+    render();
+  }
+
+  /* ---------- render ---------- */
+
+  function recipientHTML(){
+    const r=state.recipient;
+    if(!r)return '';
+    if(!r.ok){
+      return `<div class="dashed-banner" style="margin-top:12px">
+        <b>No recipient.</b> ${esc(r.error||'')}</div>`;
+    }
+    return `<div class="dashed-banner" style="margin-top:12px">
+      This statement will go to <b>${esc(r.address)}</b>${r.name?' ('+esc(r.name)+')':''} —
+      the ${esc(r.reasonLabel||'')}.
+      ${r.reason!=='explicit_override'?'Enter an address below to send it somewhere else.':''}</div>`;
+  }
+
+  function previewHTML(){
+    const p=state.preview;
+    if(!p)return `<div class="task-empty" style="padding:60px 20px">
+      <b>Choose a period and press Preview</b>
+      <div class="small muted" style="margin-top:6px">Nothing is sent until you press Send.</div></div>`;
+    return `
+    <div class="divider"></div>
+    <div class="grid g3">
+      <div class="stat-card"><div class="stat-label">OPENING BALANCE</div>
+        <div class="stat-value">${esc(p.opening)} ${esc(p.currency)}</div></div>
+      <div class="stat-card"><div class="stat-label">MOVEMENTS</div>
+        <div class="stat-value">${esc(String(p.lines.length))}</div></div>
+      <div class="stat-card"><div class="stat-label">CLOSING BALANCE</div>
+        <div class="stat-value">${esc(p.closing)} ${esc(p.currency)}</div></div>
+    </div>
+    <div class="table-wrap" style="margin-top:14px"><table class="tbl">
+      <thead><tr><th>Date</th><th>Type</th><th>Reference</th><th>Detail</th>
+        <th class="num">Debit</th><th class="num">Credit</th><th class="num">Balance</th></tr></thead>
+      <tbody>
+        <tr><td>${esc(p.period.from)}</td><td class="muted" colspan="3">Opening balance</td>
+          <td class="num"></td><td class="num"></td><td class="num"><b>${esc(p.opening)}</b></td></tr>
+        ${p.lines.length?p.lines.map(l=>`<tr>
+          <td>${esc(l.date)}</td>
+          <td><span class="badge outline">${esc(STMT_KIND_LABELS[l.kind]||l.kind)}</span></td>
+          <td class="muted">${esc(l.reference||'—')}</td>
+          <td>${esc(l.description)}</td>
+          <td class="num">${esc(l.debit)}</td>
+          <td class="num" style="color:var(--green)">${esc(l.credit)}</td>
+          <td class="num">${esc(l.balance)}</td>
+        </tr>`).join(''):`<tr><td colspan="7" class="empty-cell">No activity in this period</td></tr>`}
+        <tr><td>${esc(p.period.to)}</td><td colspan="3"><b>Closing balance</b></td>
+          <td class="num">${esc(p.totals.debit)}</td><td class="num">${esc(p.totals.credit)}</td>
+          <td class="num"><b>${esc(p.closing)}</b></td></tr>
+      </tbody></table></div>
+    <div class="small muted" style="margin-top:8px">
+      Every figure here is calculated by the server from the invoice, payment, credit-note and
+      refund records. The closing balance is the opening balance plus these movements — it is not
+      read from the customer's current balance.
+    </div>`;
+  }
+
+  function historyHTML(){
+    if(!state.history.length)return '';
+    return `
+    <div class="card card-pad" style="margin-top:14px">
+      <div class="section-label">STATEMENTS SENT</div>
+      <div class="table-wrap"><table class="tbl">
+        <thead><tr><th>Period</th><th>Currency</th><th class="num">Closing</th>
+          <th>Sent to</th><th>Delivery</th></tr></thead>
+        <tbody>${state.history.map(s=>{
+          const d=s.delivery;
+          const label=d?(STMT_DELIVERY_LABELS[d.status]||d.status):'not queued';
+          return `<tr>
+            <td>${esc(s.periodFrom)} → ${esc(s.periodTo)}</td>
+            <td>${esc(s.currency)}</td>
+            <td class="num">${esc(stmtMoney(s.closingMinor))}</td>
+            <td><div class="cell-main">${esc(s.recipientAddress)}</div>
+                <div class="cell-sub">${esc(s.recipientReasonLabel||'')}</div></td>
+            <td><span class="badge outline">${esc(label)}</span>
+              ${d&&d.attemptCount?`<span class="small muted"> ${esc(String(d.attemptCount))} attempt${d.attemptCount===1?'':'s'}</span>`:''}
+              ${d&&d.lastError&&d.status!=='delivered'?`<div class="small">${esc(d.lastError)}</div>`:''}</td>
+          </tr>`;}).join('')}
+        </tbody></table></div>
+      <div class="small muted" style="margin-top:8px">
+        A statement is marked delivered only when the email provider confirms it. Nothing here
+        reports a send that did not happen.
+      </div>
+    </div>`;
   }
 
   function render(){
+    if(!canView()){
+      el.innerHTML=`<div class="card card-pad" style="border-left:4px solid var(--red,#c8402e)">
+        <div class="card-title" style="margin-bottom:6px">Access denied</div>
+        <div class="small">Account statements show a customer's full financial history, so this
+          screen needs the <b>View payment state</b> capability.</div></div>`;
+      return;
+    }
+
     const customers=DB.d.users.filter(u=>['customer','special customer'].includes(u.role));
-    const r=state.result;
     el.innerHTML=`
     <div class="page-head"><div class="page-title">Account Statements</div></div>
+    ${state.notice?`<div class="card card-pad perm-notice ${state.notice.kind}" style="margin-bottom:12px">
+      <div class="small">${esc(state.notice.text)}</div></div>`:''}
     <div class="card card-pad">
       <div class="flex">
-        <select class="select" id="st-cust" style="min-width:280px">
-          <option value="">Select Customer</option>
-          ${customers.map(c=>`<option value="${c.id}" ${state.cust===c.id?'selected':''}>${esc(c.business)}</option>`).join('')}
+        <select class="select" id="st-cust" style="min-width:260px">
+          <option value="">Select customer</option>
+          ${customers.map(c=>`<option value="${esc(c.id)}"${state.cust===c.id?' selected':''}>${esc(c.business||c.email||c.id)}</option>`).join('')}
         </select>
-        <div class="fieldset-outline"><label>From</label><input type="date" id="st-from" value="${state.from}"></div>
-        <div class="fieldset-outline"><label>To</label><input type="date" id="st-to" value="${state.to}"></div>
-        <button class="btn btn-dark" id="st-gen" ${!state.cust?'disabled':''}>Generate</button>
-        ${r?`<button class="btn" id="st-pdf" title="Opens the browser print view">${I.printer} Print statement</button>
-        <button class="btn" id="st-send">${I.send} Send to Customer</button>`:''}
+        <div class="fieldset-outline"><label>From</label><input type="date" id="st-from" value="${esc(state.from)}"></div>
+        <div class="fieldset-outline"><label>To</label><input type="date" id="st-to" value="${esc(state.to)}"></div>
+        ${state.currencies.length>1?`<select class="select" id="st-cur">
+          ${state.currencies.map(c=>`<option value="${esc(c.currency)}"${state.currency===c.currency?' selected':''}>${esc(c.currency)} (${esc(String(c.movements))})</option>`).join('')}
+        </select>`:''}
+        <button class="btn btn-dark" id="st-preview" ${!state.cust||busy?'disabled':''}>${busy?'Working…':'Preview'}</button>
+        ${state.preview?`<button class="btn" id="st-pdf">${I.download} Download PDF</button>`:''}
+        ${state.preview&&canSend()?`<button class="btn" id="st-send" ${busy?'disabled':''}>${I.send} Send to customer</button>`:''}
       </div>
-      ${!state.cust?`<div class="task-empty" style="padding:70px 20px"><b>Select a customer to generate their account statement</b></div>`:''}
-      ${r?`
-      <div class="divider"></div>
-      <div class="grid g3">
-        <div class="stat-card"><div class="stat-label">OPENING BALANCE</div><div class="stat-value">${money(r.opening)}</div></div>
-        <div class="stat-card"><div class="stat-label">TRANSACTIONS</div><div class="stat-value">${r.tx.length}</div></div>
-        <div class="stat-card"><div class="stat-label">CLOSING BALANCE</div><div class="stat-value">${money(r.closing)}</div></div>
-      </div>
-      <div class="table-wrap" style="margin-top:14px"><table class="tbl">
-        <thead><tr><th>Date</th><th>Description</th><th class="num">Debit</th><th class="num">Credit</th><th class="num">Running Balance</th></tr></thead>
-        <tbody>
-          <tr><td>${fmtDateShort(state.from)}</td><td class="muted">Opening balance</td><td class="num"></td><td class="num"></td><td class="num"><b>${money(r.opening)}</b></td></tr>
-          ${r.tx.map(t=>`<tr>
-            <td>${fmtDateShort(t.date)}</td><td>${esc(t.desc)}</td>
-            <td class="num">${t.debit?money(t.debit):''}</td>
-            <td class="num" style="color:var(--green)">${t.credit?money(t.credit):''}</td>
-            <td class="num">${money(t.balance)}</td>
-          </tr>`).join('')||'<tr><td colspan="5" class="empty-cell">No transactions in this range</td></tr>'}
-          <tr><td>${fmtDateShort(state.to)}</td><td><b>Closing balance</b></td><td></td><td></td><td class="num"><b>${money(r.closing)}</b></td></tr>
-        </tbody></table></div>`:''}
-    </div>`;
 
-    el.querySelector('#st-cust').onchange=e=>{state.cust=e.target.value;state.result=null;render();};
-    el.querySelector('#st-from').onchange=e=>{state.from=e.target.value;};
-    el.querySelector('#st-to').onchange=e=>{state.to=e.target.value;};
-    el.querySelector('#st-gen').onclick=()=>{generate();DB.audit('statement.generate',DB.userName(state.cust),state.from+' → '+state.to);render();};
+      ${state.currencies.length>1?`<div class="dashed-banner" style="margin-top:12px">
+        This customer has activity in ${esc(String(state.currencies.length))} currencies. A statement
+        covers <b>one</b> currency — a running balance that mixes them is arithmetic nobody can
+        defend — so send one per currency.</div>`:''}
+
+      ${state.cust?recipientHTML():''}
+      ${state.cust&&canSend()?`<div class="field" style="margin-top:10px;max-width:420px">
+        <label for="st-override">Send somewhere else (optional)</label>
+        <input class="input" id="st-override" value="${esc(state.override)}" placeholder="name@example.com">
+      </div>`:''}
+
+      ${state.cust?previewHTML():`<div class="task-empty" style="padding:70px 20px">
+        <b>Select a customer to generate their account statement</b></div>`}
+    </div>
+    ${state.cust?historyHTML():''}`;
+
+    el.querySelector('#st-cust').onchange=e=>{
+      state.cust=e.target.value;state.currency='';state.preview=null;loadCustomer();
+    };
+    el.querySelector('#st-from').onchange=e=>{state.from=e.target.value;state.preview=null;render();};
+    el.querySelector('#st-to').onchange=e=>{state.to=e.target.value;state.preview=null;render();};
+    const cur=el.querySelector('#st-cur');
+    if(cur)cur.onchange=e=>{state.currency=e.target.value;state.preview=null;render();};
+
+    const ov=el.querySelector('#st-override');
+    if(ov)ov.oninput=debounce(()=>{
+      state.override=ov.value;refreshRecipient();
+      const n=el.querySelector('#st-override');
+      if(n){n.focus();n.setSelectionRange(n.value.length,n.value.length);}
+    });
+
+    el.querySelector('#st-preview').onclick=preview;
+
     const pdf=el.querySelector('#st-pdf');
+    /* A real server-generated document, opened in the browser's own viewer —
+       the endpoint returns application/pdf with a stable filename. The old
+       button wrote an HTML page into a popup and called print(). */
     if(pdf)pdf.onclick=()=>{
-      const u=DB.user(state.cust);
-      const w=window.open('','_blank');
-      w.document.write(`<html><head><title>Statement — ${esc(u.business)}</title>
-      <style>body{font-family:sans-serif;padding:40px}table{border-collapse:collapse;width:100%}td,th{border:1px solid #ccc;padding:7px;text-align:left}h1{letter-spacing:4px}</style></head>
-      <body><h1>VEYORA</h1><h2>Account Statement — ${esc(u.business)}</h2>
-      <p>${state.from} → ${state.to}</p>
-      <table><tr><th>Date</th><th>Description</th><th>Debit</th><th>Credit</th><th>Balance</th></tr>
-      <tr><td>${state.from}</td><td>Opening balance</td><td></td><td></td><td>$${state.result.opening.toFixed(2)}</td></tr>
-      ${state.result.tx.map(t=>`<tr><td>${t.date}</td><td>${esc(t.desc)}</td><td>${t.debit?'$'+t.debit.toFixed(2):''}</td><td>${t.credit?'$'+t.credit.toFixed(2):''}</td><td>$${t.balance.toFixed(2)}</td></tr>`).join('')}
-      <tr><td>${state.to}</td><td><b>Closing balance</b></td><td></td><td></td><td><b>$${state.result.closing.toFixed(2)}</b></td></tr>
-      </table><script>print()<\/script></body></html>`);
-      w.document.close();
+      const qs='from='+encodeURIComponent(state.from)+'&to='+encodeURIComponent(state.to)
+        +(state.currency?'&currency='+encodeURIComponent(state.currency):'');
+      window.open('/api/admin/statements/'+encodeURIComponent(state.cust)+'/pdf?'+qs,'_blank','noopener');
     };
+
     const snd=el.querySelector('#st-send');
-    if(snd)snd.onclick=()=>{
-      const u=DB.user(state.cust);
-      DB.audit('statement.send',u.business,'Emailed to '+u.email);
-      toast('Statement emailed to '+u.email);
-    };
+    if(snd)snd.onclick=sendForm;
   }
-  render();
+
+  /** Sending is confirmed, because it is outward-facing and reaches a customer. */
+  function sendForm(){
+    const r=state.recipient;
+    if(!r||!r.ok){
+      state.notice={kind:'warn',text:(r&&r.error)||'There is no recipient for this statement.'};
+      render();return;
+    }
+    Modal.confirm('Send account statement',
+      `Email this statement to <b>${esc(r.address)}</b> (the ${esc(r.reasonLabel||'chosen address')})
+       as a PDF attachment?<br><br>
+       Period <b>${esc(state.from)} → ${esc(state.to)}</b>, closing balance
+       <b>${esc(state.preview.closing)} ${esc(state.preview.currency)}</b>.<br><br>
+       It is queued for delivery and shown as delivered only once the email provider confirms it.`,
+      async()=>{
+        if(busy)return;
+        busy=true;state.notice=null;render();
+        try{
+          const sent=await DB.sendStatement(state.cust,{
+            from:state.from,to:state.to,currency:state.currency,recipientOverride:state.override,
+          });
+          state.notice={kind:'ok',text:'Statement queued for delivery to '+sent.recipientAddress
+            +'. It will show as delivered once the provider confirms it.'};
+          DB.audit('statement.queued',state.cust,state.from+' → '+state.to,'web');
+          toast('Statement queued');
+          state.history=await DB.statementHistory(state.cust).catch(()=>state.history);
+        }catch(e){ state.notice=describe(e); }
+        finally{ busy=false;render(); }
+      },'Send statement');
+  }
+
+  if(state.cust)loadCustomer(); else render();
 });

@@ -113,6 +113,14 @@ export function createSmtpAdapter(transport, { from } = {}) {
         info = await transport.sendMail({
           from, to: message.to, subject: message.subject,
           html: message.html, text: message.text,
+          /* Attachments (Final Handover Phase 6). Only included when the
+             message actually has one, so a message without attachments is
+             byte-for-byte the request it was before. Each is
+             `{ filename, content, contentType }` — a Buffer built by the
+             caller, never a path this module reads. */
+          ...(Array.isArray(message.attachments) && message.attachments.length
+            ? { attachments: message.attachments }
+            : {}),
         });
       } catch (err) {
         /* The provider's message, never the payload. A stack trace carrying a

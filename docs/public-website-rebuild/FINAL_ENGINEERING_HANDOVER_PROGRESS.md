@@ -80,7 +80,7 @@ before and after.
 | 3 — Stripe test-mode payment architecture | **complete** (one item prepared, not applied — see the log) | `feat: add Stripe invoice payment foundation` |
 | 4 — Auditable finance operations | **complete** | `fix: govern payment and settlement mutations` |
 | 5 — Invoice PDF | **complete** (visual matching pending the historical reference) | `feat: generate production invoice PDFs` |
-| 6 — Account statements | pending | |
+| 6 — Account statements | **complete** | `feat: generate and deliver account statements` |
 | 7 — Duplicate-submission sweep | pending | |
 | 8 — Final handover package | pending | |
 | 9 — Regression, security sweep, final checkpoint | pending | |
@@ -775,3 +775,115 @@ or any Stripe key.
 Release gate: **17/17 in 142 s**. Free space 7.4 GB.
 
 - **Next:** Phase 6 — account statements and delivery.
+
+### Phase 6 — complete
+
+#### The defect
+
+The "Send to Customer" button did this and nothing else:
+
+```js
+DB.audit('statement.send', u.business, 'Emailed to ' + u.email);
+toast('Statement emailed to ' + u.email);
+```
+
+Nothing was generated, nothing was attached, nothing was sent — and the audit log recorded a
+delivery that never happened. **A false record is worse than no button, because it is consulted
+later and believed.**
+
+A subtler arithmetic fault sat underneath it. The old screen took the customer's **current** balance
+as the closing figure and subtracted the period's activity to derive an opening one. So a statement
+for *any past period* silently reported today's balance as that period's closing balance.
+
+#### The arithmetic, corrected
+
+The closing balance is now **computed**: opening plus movements. The opening balance is the sum of
+everything *before* the period, from the source ledgers. No balance column is read anywhere in the
+builder or the route — asserted.
+
+Every figure is in minor units, formatted once. The sign comes from the movement **kind**, so a
+negative amount cannot invert a credit.
+
+#### One currency per statement
+
+A running balance mixing USD and EUR is arithmetic nobody can defend. `GET /:customerId/currencies`
+reports what a customer actually has activity in; the screen presents the choice and says why. A
+movement in another currency never reaches the running balance.
+
+#### Delivery that cannot lie
+
+Statements go through the **notification outbox** built in Phase 1, so they inherit bounded retries
+and the rule that nothing is reported delivered without provider confirmation.
+
+- The statement row and its outbox notification are written in **one transaction** — there is never
+  a statement claiming to be queued with nothing carrying it.
+- A route can only set `queued`. **No route can set `sent`** — asserted — and the only code that
+  does is `markStatementSentOnDelivery`, called by the worker after a confirmed delivery.
+- Marking sent is idempotent: a duplicated confirmation leaves the original timestamp.
+- A `sent` row must carry evidence of where it went, enforced by a CHECK.
+
+The worker gained two injected hooks so it stays free of document code: an attachment resolver and a
+delivery callback.
+
+**The PDF is not stored.** The inputs are recorded and the document regenerated deterministically.
+That keeps a customer's full financial history out of a second place and means a corrected brand
+configuration improves every historical statement rather than none. An attachment that cannot be
+rebuilt is a **retryable** failure, not a silent empty email — a statement email with no statement
+attached would be worse than one that arrives a few minutes late.
+
+#### Recipients
+
+Accounts-payable contact → primary contact → account email, with an explicit override beating all
+three. An archived contact or one with no email is skipped. No recipient at all is reported as such,
+never sent to nowhere.
+
+The **reason** is stored on the statement row alongside the address, because "why did this go to the
+owner rather than accounts payable?" is asked months later, and reconstructing it from the contact
+table as it stands *then* would give the wrong answer.
+
+#### The document
+
+Customer identity, period, opening balance, every invoice / payment / credit note / refund, running
+balance, closing balance, currency, generated timestamp, Veyora identity, an ageing breakdown
+computed from the invoice lines only, and payment instructions. A credit balance is described as
+credit, not as a debt. An empty period says so plainly — "nothing happened" is what a customer
+chasing a discrepancy needs told.
+
+A **voided** payment is excluded: the money did not arrive, and showing both the payment and its
+void would be internally correct and externally baffling.
+
+#### Authority
+
+`payments.view` to generate, preview and download — that is reading payment state, which the
+capability already describes, and a second key would be two grants to keep in step.
+`statements.send` for sending, because that is outward-facing. Holding the first confers nothing of
+the second.
+
+A preview creates **no record**: checking a figure must not litter the history.
+
+#### No scheduling
+
+There is no cron column, no `next_run_at`, no recurrence rule, and nothing in the router schedules
+anything — asserted. Automatic monthly statements are out of scope, and a column anticipating them
+would be an invitation to wire one up.
+
+#### Files
+
+`0015_account_statements.sql`, `migrate.js`, `permission-registry.js`,
+`src/documents/statement.js`, `src/documents/statement-pdf.js`,
+`src/routes/admin-statements.js`, `src/notifications/statement-delivery.js` (all new),
+`src/notifications/worker.js` and `delivery.js` (attachment support), `src/index.js`,
+`js/data.js`, `js/pages_finance.js`, `test/account-statements.test.js` (new, 56).
+
+#### Verification
+
+| Suite | Before | After |
+|---|---|---|
+| API | 1,566 | **1,622** |
+| Root admin frontend | 298 | **298** |
+| Astro web | 466 | **466** |
+| **Total** | 2,330 | **2,386 passing, 0 failing** |
+
+Release gate: **17/17 in 144 s**. Free space 7.4 GB.
+
+- **Next:** Phase 7 — duplicate-submission and reliability sweep.

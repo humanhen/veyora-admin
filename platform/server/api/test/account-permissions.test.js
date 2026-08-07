@@ -35,10 +35,11 @@ const enquiryMigrationSql = fs.readFileSync(path.join(MIGRATIONS, '0009_enquiry_
 const contactMigrationSql = fs.readFileSync(path.join(MIGRATIONS, '0012_customer_contacts.sql'), 'utf8');
 const paymentMigrationSql = fs.readFileSync(path.join(MIGRATIONS, '0013_stripe_payments.sql'), 'utf8');
 const financeMigrationSql = fs.readFileSync(path.join(MIGRATIONS, '0014_finance_operations.sql'), 'utf8');
+const statementMigrationSql = fs.readFileSync(path.join(MIGRATIONS, '0015_account_statements.sql'), 'utf8');
 /* Every migration that has widened the capability CHECK. The widening one is
    always the LAST of these — see 6b, which reads `latestWidenedSql`. */
-const allMigrationSql = `${migrationSql}\n${enquiryMigrationSql}\n${contactMigrationSql}\n${paymentMigrationSql}\n${financeMigrationSql}`;
-const latestWidenedSql = financeMigrationSql;
+const allMigrationSql = `${migrationSql}\n${enquiryMigrationSql}\n${contactMigrationSql}\n${paymentMigrationSql}\n${financeMigrationSql}\n${statementMigrationSql}`;
+const latestWidenedSql = statementMigrationSql;
 const migrateJs = fs.readFileSync(path.join(SRC, 'migrate.js'), 'utf8');
 const managementCode = stripComments(fs.readFileSync(path.join(SRC, 'routes', 'account-permissions.js'), 'utf8'));
 const publicContentCode = stripComments(fs.readFileSync(path.join(SRC, 'routes', 'admin-public-content.js'), 'utf8'));
@@ -213,6 +214,7 @@ test('6b — the latest widened CHECK is a strict superset of every earlier one'
   assert.ok(!enquiryMigrationSql.includes('payments.'), '0009 must not be rewritten');
   assert.ok(!contactMigrationSql.includes("'payments."), '0012 must not be rewritten');
   assert.ok(!paymentMigrationSql.includes("'finance."), '0013 must not be rewritten');
+  assert.ok(!financeMigrationSql.includes("'statements."), '0014 must not be rewritten');
 });
 
 test('7 — no destructive SQL in either definition', () => {

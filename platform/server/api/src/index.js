@@ -17,6 +17,8 @@ import adminCustomerContactRoutes from './routes/admin-customer-contacts.js';
 import adminPaymentRoutes from './routes/admin-payments.js';
 import adminFinanceRoutes from './routes/admin-finance.js';
 import { adminInvoiceDocumentRoutes, customerInvoiceDocumentRoutes } from './routes/invoice-documents.js';
+import adminStatementRoutes, { buildStatementFor } from './routes/admin-statements.js';
+import { markStatementSentOnDelivery, statementAttachmentResolver } from './notifications/statement-delivery.js';
 import { customerPaymentRoutes, stripeWebhookRoutes } from './routes/payments.js';
 import publicRoutes from './routes/public.js';
 import publicFormRoutes from './routes/public-forms.js';
@@ -151,6 +153,11 @@ app.use('/admin/finance', adminFinanceRoutes);
    to keep in step. */
 app.use('/admin/invoices', adminInvoiceDocumentRoutes);
 
+/* Account statements (Final Handover Phase 6). Generation and preview are
+   payments.view; SENDING one to a customer is statements.send. Nothing here
+   can mark a statement sent - only the outbox's confirmed delivery does. */
+app.use('/admin/statements', adminStatementRoutes);
+
 app.use('/admin', adminRoutes);
 
 // Unauthenticated, read-only public API boundary for the future Astro
@@ -203,11 +210,17 @@ startServer({
       }
     }).catch(() => {});
 
-    startNotificationWorker(
-      { query: (sql, params) => pool.query(sql, params) },
-      adapter,
-      notificationWorkerSettings()
-    );
+    /* Statement delivery (Final Handover Phase 6). The worker gains two hooks:
+       one that regenerates a statement PDF at send time — nothing binary is
+       stored — and one that marks the statement `sent`. That second hook is
+       the ONLY path by which a statement's status becomes 'sent'; no route can
+       set it, which is the entire reason statements go through the outbox. */
+    const workerDb = { query: (sql, params) => pool.query(sql, params) };
+    startNotificationWorker(workerDb, adapter, {
+      ...notificationWorkerSettings(),
+      attachmentResolver: statementAttachmentResolver({ db: workerDb, buildStatementFor }),
+      onDelivered: markStatementSentOnDelivery({ db: workerDb }),
+    });
   },
   port,
 });

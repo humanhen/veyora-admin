@@ -166,6 +166,18 @@ const DEFINITIONS = [
       'Close a payment event that could not be applied, with a note saying what was concluded. '
       + 'Resolving an exception never settles an invoice by itself.',
   },
+  /* Account statements (Final Handover Phase 6). GENERATING and previewing a
+     statement is reading payment state, which `payments.view` already
+     describes — a second key for it would be two grants to keep in step.
+     SENDING one is outward-facing and gets its own. */
+  {
+    key: 'statements.send',
+    label: 'Send account statements',
+    description:
+      'Email a generated account statement to a customer as a PDF attachment. Delivery goes '
+      + 'through the notification outbox, so nothing is reported as sent without confirmation '
+      + 'from the email provider.',
+  },
 ];
 
 /* Frozen at every level: a caller cannot push a new definition, mutate a

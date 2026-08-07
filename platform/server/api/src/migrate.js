@@ -489,7 +489,8 @@ export async function ensureSchema() {
       'finance.invoice',
       'finance.record',
       'finance.credit',
-      'finance.reconcile'
+      'finance.reconcile',
+      'statements.send'
     ))`);
 
   /* `handling_status` is NOT `delivery_state`. delivery_state records whether
@@ -897,4 +898,60 @@ export async function ensureSchema() {
   await q(`alter table payment_events drop constraint if exists payment_events_resolution_explained`);
   await q(`alter table payment_events add constraint payment_events_resolution_explained
     check (status <> 'resolved' or (resolved_at is not null and resolution_note <> ''))`);
+
+  /* ---- account statements (mirrors db/migrations/0015) ----
+     Replaces a "Send to Customer" button that wrote an audit line claiming a
+     delivery that never happened — worse than no button, because a false
+     record is consulted later and believed.
+
+     ONE CURRENCY PER STATEMENT: a running balance mixing USD and EUR is
+     arithmetic nobody can defend, so a customer with activity in two
+     currencies gets two statements.
+
+     The PDF is NOT stored. The inputs are recorded and the document is
+     regenerated deterministically, which keeps a customer's full financial
+     history out of a second place and means a corrected brand configuration
+     improves every historical statement rather than none of them.
+
+     No schedule column: automatic monthly statements are out of scope, and a
+     column anticipating them would be an invitation to wire one up. */
+  await q(`create table if not exists account_statements (
+    id                   text primary key default veyora_id('stm'),
+    customer_id          text not null references users(id) on delete cascade,
+    period_from          date not null,
+    period_to            date not null,
+    currency             text not null,
+    opening_minor        bigint not null,
+    closing_minor        bigint not null,
+    line_count           int not null default 0,
+    generated_at         timestamptz not null default now(),
+    generated_by         text references users(id) on delete set null,
+    status               text not null default 'draft'
+                         check (status in ('draft', 'queued', 'sent', 'failed', 'cancelled')),
+    recipient_contact_id text references customer_contacts(id) on delete set null,
+    recipient_address    text not null default '',
+    recipient_reason     text not null default ''
+                         check (recipient_reason in (
+                           '', 'accounts_payable_contact', 'primary_contact',
+                           'account_email', 'explicit_override')),
+    notification_id      text references notification_outbox(id) on delete set null,
+    sent_at              timestamptz,
+    last_error           text not null default '',
+    idempotency_key      text not null unique,
+    created_at           timestamptz not null default now(),
+    updated_at           timestamptz not null default now(),
+    constraint account_statements_period_ordered check (period_from <= period_to),
+    constraint account_statements_sent_evidenced
+      check (status <> 'sent' or (sent_at is not null and recipient_address <> ''))
+  )`);
+  await q(`create index if not exists account_statements_customer_idx
+    on account_statements (customer_id, period_to desc)`);
+  await q(`create index if not exists account_statements_status_idx
+    on account_statements (status) where status in ('queued', 'failed')`);
+  await q(`do $$ begin
+    if not exists (select 1 from pg_trigger where tgname = 't_account_statements_touch') then
+      create trigger t_account_statements_touch before update on account_statements
+        for each row execute function touch_updated_at();
+    end if;
+  end $$`);
 }

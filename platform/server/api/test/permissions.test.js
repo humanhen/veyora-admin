@@ -109,6 +109,7 @@ test('the registry contains exactly the approved capabilities', () => {
     'finance.record',
     'finance.credit',
     'finance.reconcile',
+    'statements.send',
   ]);
 });
 
