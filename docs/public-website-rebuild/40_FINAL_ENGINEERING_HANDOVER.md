@@ -140,7 +140,15 @@ That narrowness is why the upgrade carried so little risk, and it remains true a
 
 ---
 
-## 6. Prepared work not applied
+## 6. Prepared work — SINCE APPLIED
+
+> **Closed on 2026-08-07.** The patch below was applied during the final integration run, once the
+> other developer's storefront work was formally consolidated and the protected-storefront boundary
+> was retired for its stated reason. It ships with 12 tests of its own, and the five guards that
+> matter — the state check, the double-click guard, the fail-closed missing-URL path, the id
+> encoding and the account-terms note — were each proved by injecting the regression. See
+> `44_BRANCH_INTEGRATION_REPORT.md`. The rest of this section is kept as the record of why it
+> waited.
 
 **`docs/public-website-rebuild/prepared-patches/storefront-invoice-payment.patch`** (97 lines).
 

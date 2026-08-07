@@ -230,7 +230,7 @@ visibly-unset default; nothing is invented.
 | # | Limitation |
 |---|---|
 | 1 | **Final invoice visual matching** is pending the historical Veyora reference, which does not exist in the repo. Functionally complete; visually neutral |
-| 2 | **The storefront "Pay securely" control is a prepared patch, not applied.** `platform/server/storefront/` is protected because another developer is working there. The customer payment APIs are complete and tested |
+| 2 | ~~The storefront "Pay securely" control is a prepared patch, not applied.~~ **CLOSED 2026-08-07** — applied during the final integration run once the storefront was consolidated, with 12 tests of its own. See `44_BRANCH_INTEGRATION_REPORT.md` |
 | 3 | **No account holds any capability.** By design. Nothing works until a supervised bootstrap grants the first ones |
 | 4 | **The invoice route keeps an admin-role gate** as a documented bootstrap, because nobody holds `finance.invoice` yet. It delegates to the same implementation |
 | 5 | **The public-form throttle is keyed on the Astro container's IP**, not the visitor's, so its budget is shared. An availability concern; the duplicate guard is separate and works |

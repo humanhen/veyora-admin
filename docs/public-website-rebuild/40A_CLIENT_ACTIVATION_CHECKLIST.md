@@ -140,7 +140,7 @@ the capability system — and it means the first grant is a supervised bootstrap
 | Item | Detail |
 |---|---|
 | **Nodemailer advisory** | See `40_FINAL_ENGINEERING_HANDOVER.md` for the current status and what was attempted |
-| **Storefront payment control** | The "Pay securely" button is a **prepared patch**, not applied — `platform/server/storefront/` is protected because another developer is working there. The customer payment APIs are complete and tested. Patch at `docs/public-website-rebuild/prepared-patches/storefront-invoice-payment.patch` |
+| **Storefront payment control** | **DONE 2026-08-07.** The "Pay securely" button is applied and tested (12 tests). It appears only for an invoice that is genuinely outstanding, and every other state gets a sentence rather than a silent disabled control. Nothing about account terms changes. See `44_BRANCH_INTEGRATION_REPORT.md` |
 | **Public-form throttle key** | Keyed on the Astro container's IP rather than the visitor's, so the 8-per-window budget is shared across all visitors. An availability concern, not a duplication one — the duplicate guard is separate and works |
 | **Order state machine** | `pending → shipped → pending` is currently permitted. A missing *transition* guard, not a duplicate-submission hazard |
 
