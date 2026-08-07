@@ -609,6 +609,12 @@ gate('critical-invariants', 'the money and authority guards are present and cove
     ['platform/server/api/test/account-statements.test.js', 40],
     ['platform/server/api/test/notification-outbox.test.js', 35],
     ['platform/server/api/test/customer-contacts.test.js', 55],
+    /* The migration ↔ ensureSchema parity suite. Protected here because the
+       defect it guards is exactly the kind that hides: three migrations went
+       unmirrored for the life of the project and nothing failed, because a
+       fresh volume gets them from the migrations and the deployed database
+       already had them. Delete the suite and the silence returns. */
+    ['platform/server/api/test/schema-parity.test.js', 8],
   ];
   for (const [file, minTests] of REQUIRED_SUITES) {
     const text = readTracked(file);
@@ -645,6 +651,22 @@ gate('critical-invariants', 'the money and authority guards are present and cove
     ['platform/server/api/src/routes/invoice-documents.js',
       /and customer_id = \$2/,
       'customer invoice access must remain a SQL ownership predicate'],
+    /* The three objects that were missing from the runtime bootstrap. Each is
+       read or written on a path that runs constantly — `po_number_seq` on
+       every /admin/snapshot — so a database without them does not degrade, it
+       throws. */
+    ['platform/server/api/src/migrate.js',
+      /create\s+sequence\s+if\s+not\s+exists\s+po_number_seq/,
+      'ensureSchema must create po_number_seq (read on every /admin/snapshot)'],
+    ['platform/server/api/src/migrate.js',
+      /create\s+table\s+if\s+not\s+exists\s+purchase_orders/,
+      'ensureSchema must create purchase_orders'],
+    ['platform/server/api/src/migrate.js',
+      /add\s+column\s+if\s+not\s+exists\s+exchange_sku/,
+      'ensureSchema must add return_items.exchange_sku'],
+    ['platform/server/api/src/migrate.js',
+      /add\s+column\s+if\s+not\s+exists\s+zoho_so_id/,
+      'ensureSchema must add orders.zoho_so_id'],
   ];
   for (const [file, pattern, why] of INVARIANTS) {
     const text = readTracked(file);

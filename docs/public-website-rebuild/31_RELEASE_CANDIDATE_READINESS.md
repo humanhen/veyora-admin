@@ -400,3 +400,25 @@ records; the catalogue backfill; legal content approval; a migration rehearsal o
 data; and RC deployment and testing.
 
 **Engineering blockers: none.** See `40_FINAL_ENGINEERING_HANDOVER.md` §7.
+
+---
+
+## Update — Final Release Correction
+
+**The `ensureSchema()` / migration mismatch is closed.**
+
+Migrations 0003, 0004 and 0005 were never mirrored into the runtime schema bootstrap, so a database
+that did not receive them from a fresh volume would never acquire them. Six objects, all used at
+runtime; `po_number_seq` is read on every `/admin/snapshot`, so its absence fails the request
+that loads the admin panel.
+
+Now mirrored, with a structural parity suite that compares both definitions object by object and
+covers migrations that do not exist yet.
+
+**Still required, and NOT complete:**
+
+- **migration rehearsal** against a copy of production data;
+- **deployment rehearsal** of the release candidate.
+
+Both need an actual disposable database and deployment environment. Neither has been performed, and
+neither can be performed from this repository. See `40A_CLIENT_ACTIVATION_CHECKLIST.md` §H.

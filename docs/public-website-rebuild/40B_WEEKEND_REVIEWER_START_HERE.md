@@ -94,7 +94,7 @@ Two things to know:
 node scripts/verify-release.mjs
 ```
 
-17 gates, about 150 seconds. It runs all three test suites, the Astro production build, a
+18 gates, about 150 seconds. It runs all three test suites, the Astro production build, a
 forbidden-data scan over *rendered* pages, accessibility and responsive checks, environment
 validation, a secret-and-host scan, and the deployment-payload assembly.
 
@@ -116,10 +116,10 @@ npm --prefix platform/server/web run build     # Astro production build
 
 | Suite | Tests |
 |---|---|
-| API | **1,659** |
+| API | **1,669** |
 | Admin panel | **298** |
 | Public website | **466** |
-| **Total** | **2,423 passing, 0 failing** |
+| **Total** | **2,433 passing, 0 failing** |
 
 ---
 
@@ -237,6 +237,11 @@ visibly-unset default; nothing is invented.
 | 6 | **No general order state machine.** `pending → shipped → pending` is permitted |
 | 7 | **Tax comes through from the order record.** Per-jurisdiction rules are an unanswered business question |
 | 8 | See `40_FINAL_ENGINEERING_HANDOVER.md` for the dependency-security position |
+
+**Closed since the handover was written:** the `ensureSchema()` / migration mismatch. Migrations
+0003–0005 are now mirrored and a structural parity suite keeps them aligned — see `43_SCHEMA_PARITY.md`.
+If you are looking for something to break, that suite is a good target: it parses both definitions,
+and a way past it is a real finding.
 
 ---
 

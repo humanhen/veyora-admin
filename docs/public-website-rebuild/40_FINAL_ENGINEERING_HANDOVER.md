@@ -23,10 +23,10 @@ Seven implementation phases plus a regression phase, each ending in a local chec
 
 | Suite | Start | End |
 |---|---|---|
-| API | 1,229 | **1,659** |
+| API | 1,229 | **1,669** |
 | Admin panel | 213 | **298** |
 | Public website | 466 | **466** |
-| **Total** | **1,908** | **2,423 passing, 0 failing** |
+| **Total** | **1,908** | **2,433 passing, 0 failing** |
 
 Release gate: **18/18** at the end — a `critical-invariants` gate was added in Phase 9, proved by
 injecting three real regressions and confirming each was caught.
@@ -66,6 +66,7 @@ people's mistakes is not a handover.
 | Invoices and statements | `39_INVOICE_AND_STATEMENT_SYSTEM.md` |
 | Finance operations | `41_FINANCE_OPERATIONS.md` |
 | Duplicate-submission sweep | `42_DUPLICATE_SUBMISSION_SWEEP.md` |
+| Migration / runtime schema parity | `43_SCHEMA_PARITY.md` |
 | Enquiry operations | `27_ENQUIRY_OPERATIONS.md` |
 | Security hardening | `34_SECURITY_HARDENING.md` |
 
@@ -170,18 +171,29 @@ the caller's **own** invoice, and `/user/invoices` carries `settlementState`.
 4. The `finance.invoice` bootstrap should be retired once capabilities are granted
    (`41_FINANCE_OPERATIONS.md` §6).
 
-### One pre-existing finding, recorded not fixed
+### The schema-parity finding — CLOSED
 
-**Migrations 0003, 0004 and 0005 are not mirrored in `ensureSchema()`** — `exchange_sku`,
-`purchase_orders` and `zoho_so_id` appear in no mirror statement. Those migrations run only on a
-completely fresh database volume, so an existing database predating them would never acquire them;
-a fresh restore into an older volume would be missing `purchase_orders` entirely.
+The Phase 9 sweep recorded that migrations 0003, 0004 and 0005 were not mirrored in
+`ensureSchema()`. **That is now fixed**, in the Final Release Correction.
 
-In practice the deployed database has them, so this is a latent risk rather than a live defect. It
-is pre-existing and outside this run's scope, and mirroring tables this workstream does not own is
-exactly the kind of change to make deliberately rather than inside a regression phase.
+The gap was six objects: `return_items.exchange_sku` (0003), the `purchase_orders` table and
+`po_number_seq` sequence (0004), and `orders.zoho_so_id` (0005). Every one is used at runtime —
+`po_number_seq` is read by `seqNext()` on **every `/admin/snapshot`** call, so a database
+lacking it fails the request that loads the entire admin panel.
 
-**All six migrations added by this run (0011–0016) are fully mirrored**, verified by the same check.
+All six are now created idempotently in `ensureSchema()`, and a structural parity suite
+(`test/schema-parity.test.js`, 10 tests) parses both definitions and compares them object by
+object — so the *next* migration is covered without anybody remembering to extend a list. Proved by
+injecting five regressions, including a brand-new unmirrored migration; all five were caught.
+
+Two migrations remain deliberately migration-only, each with a stated and tested reason:
+
+| Migration | Why it is not mirrored |
+|---|---|
+| `0001_schema.sql` | It **is** the database. Mirroring it would mean a second complete copy of the schema in JavaScript. A test asserts `ensureSchema` never creates a core table |
+| `0002_views.sql` | Reporting views only. A test asserts no API source reads them — if that ever changes, the exclusion fails |
+
+See `43_SCHEMA_PARITY.md`.
 
 ---
 

@@ -408,3 +408,14 @@ Findings from this backlog addressed by the seven implementation phases:
 
 Items remaining in this backlog that are **not** engineering work are consolidated in
 `40A_CLIENT_ACTIVATION_CHECKLIST.md`.
+
+---
+
+## Update — Final Release Correction
+
+| Finding | Outcome |
+|---|---|
+| **`ensureSchema()` not aligned with migrations 0003–0005** | **Closed.** Six objects mirrored; a structural parity suite now compares both definitions and covers future migrations automatically. Proved by injecting five regressions, all caught. See `43_SCHEMA_PARITY.md` |
+
+Remaining items in this backlog are unchanged, and the two rehearsals — **migration** and
+**deployment** — remain outstanding because they require a real disposable environment.

@@ -90,6 +90,44 @@ export async function ensureSchema() {
                    '{"base":"USD","rates":{"USD":1,"CAD":1.37,"EUR":0.92}}'::jsonb, true)
            where id = 1 and not (coalesce(data,'{}'::jsonb) ? 'fx')`);
 
+  /* ---- exchange target on a return line (mirrors db/migrations/0003) ----
+
+     An exchange must say which frame the customer wants instead.
+
+     This was MISSING from the mirror until the final release correction, and
+     it is not cosmetic: `return_items.exchange_sku` is INSERTed by two routes
+     (routes/admin.js and routes/orders.js) and read by both. A database that
+     never ran 0003 would throw on every return creation. */
+  await q(`alter table return_items add column if not exists exchange_sku text`);
+
+  /* ---- supplier purchasing (mirrors db/migrations/0004) ----
+
+     Also missing until the final release correction, and the sharpest of the
+     three: `po_number_seq` is read by `seqNext('po_number_seq')` on EVERY
+     `/admin/snapshot` call, so a database without it fails the request that
+     loads the entire admin panel.
+
+     Items ride along as jsonb — the admin panel syncs whole rows and nothing
+     needs SQL-level access to individual lines. */
+  await q(`create table if not exists purchase_orders (
+    id          text primary key,
+    number      text unique,
+    supplier    text not null default '',
+    status      text not null default 'ordered'
+                check (status in ('draft','ordered','partially received','received','cancelled')),
+    notes       text not null default '',
+    expected_on date,
+    items       jsonb not null default '[]',
+    created_at  timestamptz not null default now()
+  )`);
+  await q(`create sequence if not exists po_number_seq`);
+
+  /* ---- Zoho sales-order id on an order (mirrors db/migrations/0005) ----
+
+     Read and written by src/zoho.js when an order is pushed to Zoho
+     Inventory. Missing until the final release correction. */
+  await q(`alter table orders add column if not exists zoho_so_id text`);
+
   /* ---- backorder order-context (mirrors db/migrations/0006) ----
      A fully backordered checkout creates no orders row, so the backorder is the
      only durable record. Without these columns the agent, currency, rate,
