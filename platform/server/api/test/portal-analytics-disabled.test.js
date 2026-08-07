@@ -146,6 +146,51 @@ test('nothing was silently moved to the public marketing site instead', () => {
   assert.deepEqual(offenders, []);
 });
 
+/* ============ no external font CDN either ============ */
+
+test('the authenticated portal fetches no font from a third party', () => {
+  /* Google Fonts was loaded on every page of the signed-in portal: a
+     third-party request carrying the visitor's IP and Referer on every screen,
+     and a hard dependency on a host Veyora does not run. Same objection as the
+     pixel, minus the deliberate tracking. */
+  for (const [name, raw] of authenticatedSources()) {
+    const code = strip(raw);
+    for (const marker of [
+      /fonts\.googleapis\.com/, /fonts\.gstatic\.com/, /use\.typekit/,
+      /fonts\.bunny\.net/, /cdn\.jsdelivr\.net[^"']*font/i, /@import\s+url\(\s*["']?https?:/,
+    ]) {
+      assert.ok(!marker.test(code), `${name} still fetches a font from ${marker}`);
+    }
+  }
+});
+
+test('no stylesheet on an authenticated page is loaded from another host', () => {
+  /* The positive form: every stylesheet must be one of ours. */
+  for (const [name, file] of [
+    ['storefront/index.html', path.join(STOREFRONT, 'index.html')],
+    ['index.html', path.join(ADMIN, 'index.html')],
+  ]) {
+    const html = fs.readFileSync(file, 'utf8').replace(/<!--[\s\S]*?-->/g, ' ');
+    for (const m of html.matchAll(/<link\b[^>]*\bhref="([^"]+)"[^>]*>/g)) {
+      assert.ok(!/^https?:/i.test(m[1]),
+        `${name} loads ${m[1]} from another host`);
+    }
+    /* And no preconnect to one, which is the tell that a fetch is coming. */
+    assert.ok(!/rel="preconnect"/.test(html), `${name} still preconnects to a third party`);
+  }
+});
+
+test('no commercial font binary was added to replace the CDN', () => {
+  /* The Chromatic Pro faces were excluded during the branch integration for
+     lack of any licence, and removing a CDN is not a reason to reconsider. */
+  const fonts = path.join(STOREFRONT, 'assets', 'fonts');
+  assert.ok(!fs.existsSync(fonts) || fs.readdirSync(fonts).length === 0,
+    'no font binary was introduced');
+  const admin = path.join(ADMIN, 'assets', 'fonts');
+  assert.ok(!fs.existsSync(admin) || fs.readdirSync(admin).length === 0,
+    'and none came back to the admin panel either');
+});
+
 /* ============ the decision is recorded where the next person will look ============ */
 
 test('the shell records that analytics is disabled by default, and why', () => {

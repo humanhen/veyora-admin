@@ -15,9 +15,16 @@
   <meta property="og:url" content="https://veyora.design/" />
   <meta name="twitter:card" content="summary_large_image" />
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@200;300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <!-- NO EXTERNAL FONT CDN. Montserrat used to be fetched from Google Fonts
+       on every page of this AUTHENTICATED portal, which meant a third-party
+       request carrying the visitor's IP and Referer on every screen a
+       signed-in trade customer opened, plus a hard dependency on a host
+       Veyora does not run for the page to render as designed.
+
+       The font stack in store.css names Montserrat first, so a machine that
+       already has it still uses it, and falls back to system faces otherwise.
+       No font binary was added: the commercial faces excluded during the
+       branch integration remain excluded, for the same licensing reason. -->
   <link rel="stylesheet" href="css/store.css" />
   <!-- ANALYTICS: DISABLED BY DEFAULT.
 

@@ -34,7 +34,12 @@ button,.vrow,.fchip,.chip,.qtybox,.nav a,.pcard2,.thumbstrip img,.vthumbs img,
 /* never allow the page itself to pan sideways (inner scrollers unaffected) */
 html,body{overflow-x:clip}
 @supports not (overflow:clip){html,body{overflow-x:hidden}}
-body{font-family:'Montserrat',sans-serif;background:var(--bg);color:var(--ink);font-size:14px;line-height:1.45}
+/* Montserrat is named first and used if the machine already has it; nothing
+   fetches it. The fallbacks are a geometric-leaning system stack, so the
+   portal renders in a face of the right character everywhere without a
+   third-party request on an authenticated page. Same approach, and the same
+   reasoning, as the admin panel's --font. */
+body{font-family:'Montserrat','Avenir Next','Segoe UI',system-ui,-apple-system,Roboto,'Helvetica Neue',Arial,sans-serif;background:var(--bg);color:var(--ink);font-size:14px;line-height:1.45}
 a{color:var(--accent);text-decoration:none}
 button{font-family:inherit;cursor:pointer}
 input,select,textarea{font-family:inherit;font-size:16px}
