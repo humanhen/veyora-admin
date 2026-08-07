@@ -378,7 +378,8 @@ function loadAdmin(files, shell = ['content', 'toast-root', 'modal-root', 'side-
   const EXPORTS = ['Auth', 'NAV', 'App', 'DB', 'I', 'Modal', 'esc', 'toast', 'paginate',
     'pagerHTML', 'bindPager', 'statusBadge', 'debounce', 'PERM_GROUPS',
     'ENQ_STATUS_LABELS', 'ENQ_FORM_LABELS', 'ENQ_FIELD_ORDER',
-    'SC_RESPONSIBILITY_LABELS', 'SC_METHOD_LABELS'];
+    'SC_RESPONSIBILITY_LABELS', 'SC_METHOD_LABELS',
+    'guarded', 'keyedGuard', 'bindAction'];
   const epilogue = EXPORTS.map(n => `try{ if(typeof ${n} !== 'undefined') window.${n} = ${n}; }catch(e){}`).join('\n');
 
   vm.runInContext(sources.join('\n;\n') + '\n;\n' + epilogue, sandbox, { filename: 'admin-bundle.js' });

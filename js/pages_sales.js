@@ -162,7 +162,16 @@ App.register('order',function(el,args){
      orders no longer part of the row-diff sync that would change nothing at
      all. `run` performs the call, adopts the order the server returns, and
      only then reports success. */
+  /* An in-flight FLAG, not just `disabled` (Final Handover Phase 7).
+     `btn.disabled` alone was bypassed by a handler called directly and by a
+     re-render replacing the button between two clicks. Most order patches are
+     ABSOLUTE writes and so replay harmlessly — but `comment` appends
+     (`comments = coalesce(comments,'[]') || $n::jsonb`), so a duplicated
+     request added the same comment twice. */
+  let runBusy=false;
   async function run(btn,patch,okMsg,failMsg){
+    if(runBusy)return false;
+    runBusy=true;
     if(btn)btn.disabled=true;
     try{
       const res=await DB.patchOrder(o.id,patch);
@@ -174,6 +183,8 @@ App.register('order',function(el,args){
       if(btn)btn.disabled=false;
       writeFailed(err,failMsg);
       return false;
+    }finally{
+      runBusy=false;
     }
   }
   /* NO client-side audit on this screen. Every mutation below goes through

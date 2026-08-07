@@ -475,8 +475,12 @@ App.register('product',function(el,args){
 
       b.disabled=true;b.textContent='Saving…';
       try{
+        /* A key for THIS PRESS (Final Handover Phase 7). The flag above stops
+           a second click; this stops the same click reaching the server twice
+           through a retry or a resubmitted fetch, which the flag cannot see. */
+        const key='adj_'+v.sku+'_'+wid+'_'+delta+'_'+Date.now();
         const res=await DB.adjustStock(v.sku,wid,delta,'count',
-          'Counted on the product screen');
+          'Counted on the product screen',key);
         v.stock=v.stock||{};v.stock[wid]=v.stock[wid]||{qty:0,shelf:''};
         /* Adopted from the SERVER's answer, never assumed. */
         v.stock[wid].qty=res.qty;
@@ -860,7 +864,17 @@ App.register('inventory-csv',function(el){
     rows=r;el.querySelector('#ic-apply').disabled=false;
     el.querySelector('#ic-preview').innerHTML=`<div class="small"><b>${esc(name)}</b> — ${r.length-1} data row(s) ready.</div>`;
   });
+  /* An in-flight FLAG (Final Handover Phase 7). This handler had NO guard at
+     all — not even `disabled` — and a second click on an `adjust`-mode file
+     applied every delta a SECOND time to the local dataset. `DB.save()` is
+     debounced by 700 ms, so both clicks coalesced into one sync request
+     carrying doubled quantities: the server saw one absolute write and had no
+     way to know it was wrong.
+
+     `set` mode was always safe; `adjust` was not. */
+  let applying=false;
   el.querySelector('#ic-apply').onclick=()=>{
+    if(applying)return;
     if(!rows)return;
     const head=rows[0].map(h=>h.toLowerCase());
     const g=(r,k)=>{const i=head.indexOf(k);return i>=0?r[i]:'';};
@@ -878,13 +892,23 @@ App.register('inventory-csv',function(el){
       }
       ops.push({hit,wh,mode,qty});
     }
+    /* Set only AFTER validation, so a rejected file can be corrected and
+       re-applied without a reload. */
+    applying=true;
+    const apply=el.querySelector('#ic-apply');
+    apply.disabled=true;
+
     for(const op of ops){
       op.hit.v.stock[op.wh.id]=op.hit.v.stock[op.wh.id]||{qty:0,shelf:''};
       if(op.mode==='set')op.hit.v.stock[op.wh.id].qty=op.qty;
       else op.hit.v.stock[op.wh.id].qty=Math.max(0,op.hit.v.stock[op.wh.id].qty+op.qty);
     }
     DB.save();DB.audit('inventory.import',ops.length+' rows','Inventory CSV (set/adjust)','csv');
-    el.querySelector('#ic-preview').innerHTML=`<div class="small money-green">${ops.length} rows applied.</div>`;
+    el.querySelector('#ic-preview').innerHTML=`<div class="small money-green">${ops.length} rows applied.
+      Choose the file again to apply it a second time.</div>`;
+    /* `rows` is cleared so the same file cannot be re-applied by any means —
+       the operator must deliberately choose it again. */
+    rows=null;
     toast('Inventory updated');
   };
 });

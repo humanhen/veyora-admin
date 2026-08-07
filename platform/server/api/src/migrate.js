@@ -954,4 +954,33 @@ export async function ensureSchema() {
         for each row execute function touch_updated_at();
     end if;
   end $$`);
+
+  /* ---- duplicate-submission guards (mirrors db/migrations/0016) ----
+
+     A public enquiry had NO server-side duplicate guard: a refresh of the POST
+     result, a synthetic requestSubmit(), a second tab, or scripting simply
+     being off all produced a second row and a second staff alert.
+
+     The fingerprint includes a coarse TIME BUCKET rather than being a plain
+     content hash. Two genuine enquiries can be identical — somebody asks the
+     same question a week later — and refusing the second would be worse than
+     accepting a duplicate: a lost enquiry is invisible, a duplicated one is
+     merely untidy.
+
+     Both indexes are PARTIAL over a nullable column, so every existing row is
+     outside them and no historical duplicate blocks the migration. */
+  await q(`alter table form_submissions
+    add column if not exists dedupe_fingerprint text`);
+  await q(`create unique index if not exists form_submissions_dedupe_idx
+    on form_submissions (dedupe_fingerprint) where dedupe_fingerprint is not null`);
+
+  /* An adjustment applies a SIGNED DELTA, so it is inherently non-idempotent:
+     two identical requests legitimately mean +20. `inventory_movements` is
+     append-only, so a duplicate can never be corrected — only offset. Refusing
+     the second is the only workable guard. Nullable, because movements from
+     the ordering and sync paths carry none and must not collide. */
+  await q(`alter table inventory_movements
+    add column if not exists idempotency_key text`);
+  await q(`create unique index if not exists inventory_movements_idempotency_idx
+    on inventory_movements (idempotency_key) where idempotency_key is not null`);
 }

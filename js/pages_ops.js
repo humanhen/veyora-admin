@@ -225,7 +225,15 @@ App.register('purchasing',function(el){
         foot:`<button class="btn" data-x>Cancel</button><button class="btn btn-dark" data-ok>Receive</button>`,
         setup(ov,close){
           ov.querySelector('[data-x]').onclick=close;
+          /* An in-flight FLAG (Final Handover Phase 7). This handler had none.
+             It escaped doubling stock only INCIDENTALLY, because the whole
+             body is synchronous and `close()` detaches the modal before a
+             second click can land — so inserting a single `await` anywhere
+             above would have made it receive twice. `received` and the stock
+             quantity are both INCREMENTS, so a replay is not idempotent. */
+          let receiving=false;
           ov.querySelector('[data-ok]').onclick=()=>{
+            if(receiving)return;
             const wh=ov.querySelector('#rc-wh').value;let total=0;
             po.items.forEach((it,ix)=>{
               const n=Math.max(0,parseInt(ov.querySelector(`[data-rc="${ix}"]`).value,10)||0);
@@ -236,6 +244,10 @@ App.register('purchasing',function(el){
               hit.v.stock[wh].qty+=n;it.received=(it.received||0)+n;total+=n;
             });
             if(!total)return toast('Nothing to receive',true);
+            /* Set only after the quantity check, so a mis-typed zero can be
+               corrected without reopening the dialog. */
+            receiving=true;
+            ov.querySelector('[data-ok]').disabled=true;
             po.status=po.items.every(it=>(it.received||0)>=it.qty)?'received':'partially received';
             DB.save();DB.audit('po.receive',po.number,total+' pcs into '+ (DB.d.warehouses.find(w=>w.id===wh)?.name||wh));
             close();render();toast(total+' pcs received into stock');

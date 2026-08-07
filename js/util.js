@@ -296,3 +296,91 @@ function beep(){
     setTimeout(()=>{o.stop();},120);
   }catch(e){}
 }
+
+/* ---------- in-flight guards (Final Handover, Phase 7) ----------
+
+   THE PROBLEM
+
+   `button.disabled = true` is not a control. Three things bypass it:
+
+     - a handler called directly (`b.onclick()`), which every test in this
+       repository does and which any script can do;
+     - the Enter key on a focused control, which fires the handler before a
+       re-render has replaced the node;
+     - a re-render between the two clicks, which produces a NEW button whose
+       `disabled` was never set.
+
+   The last one is the dangerous one here, because these screens re-render
+   after almost every action.
+
+   THE RULE
+
+   A control that causes a financial or operational mutation holds explicit
+   in-flight state that is checked INSIDE the handler, before anything is sent.
+   `disabled` stays — it is the right affordance — but it is the courtesy, not
+   the guard.
+
+   Server-side idempotency is the real protection and is implemented per
+   operation (unique keys, unique indexes, status preconditions). These helpers
+   stop the second request being MADE; the server stops it MATTERING.          */
+
+/**
+ * Wraps an async action so it can only be in flight once.
+ *
+ * Returns a function that is safe to call repeatedly: while the previous call
+ * is outstanding, further calls return undefined without invoking the action.
+ *
+ *   const submit = guarded(async () => { await DB.recordPayment(...); });
+ *   button.onclick = submit;   // three rapid clicks send one request
+ */
+function guarded(action){
+  let inFlight=false;
+  return async function(...args){
+    if(inFlight)return undefined;
+    inFlight=true;
+    try{ return await action.apply(this,args); }
+    finally{ inFlight=false; }
+  };
+}
+
+/**
+ * The same, keyed — for a LIST of controls where each row may act
+ * independently but no single row twice.
+ *
+ *   const act = keyedGuard();
+ *   b.onclick = () => act(row.id, () => DB.archive(row.id));
+ */
+function keyedGuard(){
+  const active=new Set();
+  return async function(key, action){
+    const k=String(key);
+    if(active.has(k))return undefined;
+    active.add(k);
+    try{ return await action(); }
+    finally{ active.delete(k); }
+  };
+}
+
+/**
+ * Binds a button to a guarded action, managing the label and `disabled` as
+ * well — so a caller gets the affordance and the guard together and cannot
+ * accidentally take only the first.
+ */
+function bindAction(button, action, { busyLabel='Working…' } = {}){
+  if(!button)return;
+  let inFlight=false;
+  const original=button.textContent;
+  button.onclick=async()=>{
+    if(inFlight)return;
+    inFlight=true;
+    button.disabled=true;
+    button.textContent=busyLabel;
+    try{ await action(); }
+    finally{
+      inFlight=false;
+      /* The node may have been replaced by a re-render; guarding the restore
+         keeps this from throwing into a caller's finally block. */
+      try{ button.disabled=false; button.textContent=original; }catch(e){}
+    }
+  };
+}

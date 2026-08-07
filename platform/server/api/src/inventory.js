@@ -173,12 +173,25 @@ export async function recordMovement(c, m) {
   if (!delta) return; // no-op stock writes don't belong in the ledger
   const a = m.actor || {};
   const balanceAfter = m.balanceAfter == null ? null : Math.trunc(Number(m.balanceAfter));
-  await c.query(
+  /* An idempotency key, when the caller supplies one (Final Handover Phase 7).
+     `on conflict do nothing` means a duplicated adjustment writes no second
+     ledger row — which matters more here than almost anywhere, because this
+     table is append-only and a duplicate could never be corrected, only
+     offset. Nullable and partial-indexed: the ordering and sync paths pass
+     none and must not start colliding with one another.
+
+     Returns whether a row was actually written, so a caller can tell a fresh
+     movement from a refused replay. */
+  const { rows } = await c.query(
     `insert into inventory_movements
        (variation_id, sku, warehouse_id, qty_delta, balance_after, reason,
-        ref_type, ref_id, actor_id, actor_name, actor_role, note)
-     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+        ref_type, ref_id, actor_id, actor_name, actor_role, note, idempotency_key)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+     on conflict (idempotency_key) where idempotency_key is not null do nothing
+     returning id`,
     [m.variationId || null, m.sku || '', m.warehouseId || null, delta, balanceAfter,
      m.reason || 'adjustment', m.refType || '', m.refId || '',
-     a.id || null, a.name || 'System', a.role || 'system', m.note || '']);
+     a.id || null, a.name || 'System', a.role || 'system', m.note || '',
+     m.idempotencyKey || null]);
+  return { recorded: rows.length > 0 };
 }

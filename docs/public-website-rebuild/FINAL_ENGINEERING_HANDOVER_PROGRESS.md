@@ -81,7 +81,7 @@ before and after.
 | 4 — Auditable finance operations | **complete** | `fix: govern payment and settlement mutations` |
 | 5 — Invoice PDF | **complete** (visual matching pending the historical reference) | `feat: generate production invoice PDFs` |
 | 6 — Account statements | **complete** | `feat: generate and deliver account statements` |
-| 7 — Duplicate-submission sweep | pending | |
+| 7 — Duplicate-submission sweep | **complete** | `fix: enforce idempotent critical operations` |
 | 8 — Final handover package | pending | |
 | 9 — Regression, security sweep, final checkpoint | pending | |
 
@@ -887,3 +887,88 @@ would be an invitation to wire one up.
 Release gate: **17/17 in 144 s**. Free space 7.4 GB.
 
 - **Next:** Phase 7 — duplicate-submission and reliability sweep.
+
+### Phase 7 — complete
+
+Eighteen high-risk mutation paths audited. **Thirteen were already server-idempotent**; three had a
+real defect; two were fragile. Full classification in `42_DUPLICATE_SUBMISSION_SWEEP.md`.
+
+#### The three that were genuinely broken
+
+**Public enquiries had no server guard at all.** A refresh of the POST result, a synthetic
+`requestSubmit()`, a second tab, or scripting simply being off each produced a second stored enquiry
+**and a second alert to every recipient**. The only mitigation was an in-process IP throttle whose
+own comment disclaims it as not a security control.
+
+Fixed with a `dedupe_fingerprint` and a partial unique index. The fingerprint hashes the form type,
+the content **and a coarse two-minute bucket** — because two genuine enquiries can be identical, and
+*a lost enquiry is invisible where a duplicated one is merely untidy*. The submitter still gets
+`{ ok: true }`: telling them it failed would make them send a third.
+
+**The inventory CSV import doubled every `adjust` delta.** `#ic-apply` had no guard at all, not even
+`disabled`. `DB.save()` is debounced by 700 ms, so two clicks coalesced into one sync request
+carrying doubled quantities, which the server wrote as a single absolute value with no way to know
+it was wrong. Fixed with an in-flight flag and by clearing the parsed rows.
+
+**The stock ledger could not attribute a movement.** `admin-inventory.js` passed snake_case keys
+while `recordMovement()` reads camelCase, so **every adjustment and transfer since the
+security-hardening batch wrote `variation_id = NULL`**. My own defect from that batch, and worse
+than cosmetic: an unattributable movement is exactly what you would need to *detect* a duplicated
+adjustment after the fact.
+
+#### The two that were fragile
+
+**Purchase-order receipt** — `received` and stock are both increments, so a replay is not
+idempotent. It escaped doubling only because the handler is synchronous and `close()` detaches the
+modal first; one `await` anywhere above would have broken it.
+
+**Order patch** — most fields are absolute writes and replay harmlessly, but `comment` **appends**,
+so a duplicated request added the same comment twice.
+
+#### Inventory adjustments now have server-side idempotency
+
+An adjustment applies a **signed delta**, so it is inherently non-idempotent: two identical requests
+legitimately mean +20. The key therefore identifies **the press, not the content** — deriving one
+from the request would make correcting a count twice in a row impossible. Omitting it preserves the
+old behaviour for every existing caller.
+
+When the ledger refuses the movement the handler **throws**, rolling the stock write back too:
+without that the quantity would move a second time against a ledger entry that already exists, and
+the two would disagree forever.
+
+#### Shared helpers
+
+`js/util.js` gained `guarded()`, `keyedGuard()` and `bindAction()` — one in-flight primitive, so a
+future control gets the guard *and* the affordance rather than only the second. `disabled` alone is
+bypassed by a direct handler call, by Enter on a focused control, and by a re-render producing a
+fresh button — which these screens do after almost every action.
+
+#### One test-harness lesson worth recording
+
+The sweep's database double **serialises transactions**. A naive snapshot-and-restore rollback
+interleaves under `Promise.allSettled`, so the second transaction's rollback wipes the first's
+committed writes — reporting a balance that moved zero times when the code moved it once. Every
+contended path takes `for update`, so PostgreSQL serialises them in practice; the mutex models that,
+and it is what lets the second transaction *see* the first's writes and collide as it should.
+
+Without that fix every concurrency test in this phase would have passed for the wrong reason.
+
+#### Files
+
+`0016_duplicate_submission_guards.sql`, `migrate.js`, `src/inventory.js`,
+`src/routes/admin-inventory.js`, `src/routes/public-forms.js`, `js/util.js`, `js/data.js`,
+`js/pages_catalog.js`, `js/pages_ops.js`, `js/pages_sales.js`, `test/helpers/dom.js`,
+`test/idempotency-sweep.test.js` (new, 37), `docs/…/42_DUPLICATE_SUBMISSION_SWEEP.md` (new).
+
+#### Verification
+
+| Suite | Before | After |
+|---|---|---|
+| API | 1,622 | **1,659** |
+| Root admin frontend | 298 | **298** |
+| Astro web | 466 | **466** |
+| **Total** | 2,386 | **2,423 passing, 0 failing** |
+
+Release gate: **17/17 in 151 s**. Free space 7.4 GB.
+
+- **Next:** Phase 8 — the final handover package.

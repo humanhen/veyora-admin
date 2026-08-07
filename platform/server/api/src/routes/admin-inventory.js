@@ -86,7 +86,11 @@ function assertNoUnknownFields(body, allowed, label) {
 }
 
 export function parseAdjustment(body) {
-  const ALLOWED = ['sku', 'warehouseId', 'delta', 'reason', 'note'];
+  /* `idempotencyKey` is optional and identifies THE PRESS, not the content
+     (Final Handover Phase 7). It joins the explicit schema rather than being
+     tolerated: a field this route silently ignored would be a caller
+     believing it was protected when it was not. */
+  const ALLOWED = ['sku', 'warehouseId', 'delta', 'reason', 'note', 'idempotencyKey'];
   assertNoUnknownFields(body, ALLOWED, 'adjustment');
 
   const sku = String(body?.sku ?? '').trim();
@@ -122,8 +126,18 @@ export function parseAdjustment(body) {
   return { sku, warehouseId, delta, reason, note };
 }
 
+/** An optional caller-supplied idempotency key. Bounded and character-limited
+ *  so it cannot become a channel for arbitrary text into an append-only
+ *  ledger; absent is the normal case for every existing caller. */
+export function cleanIdempotencyKey(value) {
+  if (value == null || value === '') return null;
+  const raw = String(value).trim();
+  if (!/^[A-Za-z0-9._:-]{8,120}$/.test(raw)) return null;
+  return raw;
+}
+
 export function parseTransfer(body) {
-  const ALLOWED = ['sku', 'fromWarehouseId', 'toWarehouseId', 'qty', 'note'];
+  const ALLOWED = ['sku', 'fromWarehouseId', 'toWarehouseId', 'qty', 'note', 'idempotencyKey'];
   assertNoUnknownFields(body, ALLOWED, 'transfer');
 
   const sku = String(body?.sku ?? '').trim();
@@ -187,6 +201,20 @@ async function assertWarehouse(c, id) {
 export async function adjustStock(db, input, actor) {
   const { sku, warehouseId, delta, reason, note } = parseAdjustment(input);
 
+  /* An adjustment applies a SIGNED DELTA, so it is inherently non-idempotent:
+     two identical requests legitimately mean +20, and there is no absolute
+     value the server could compare against to tell a genuine second
+     adjustment from a duplicated one. The UI has held an in-flight flag since
+     the security hardening batch, but a retrying proxy, a resubmitted fetch or
+     a script had nothing stopping it server-side.
+
+     So a caller MAY supply an idempotency key. The server does not invent one
+     from the request's content: identical content is exactly what a genuine
+     second adjustment looks like, and refusing it would make correcting a
+     count twice in a row impossible. The admin panel derives one per press
+     (see js/pages_catalog.js) — the press is the thing that must not repeat. */
+  const idempotencyKey = cleanIdempotencyKey(input?.idempotencyKey);
+
   const result = await db.tx(async (c) => {
     const variation = await loadVariation(c, sku);
     await assertWarehouse(c, warehouseId);
@@ -215,18 +243,30 @@ export async function adjustStock(db, input, actor) {
        on conflict (variation_id, warehouse_id) do update set qty = excluded.qty`,
       [variation.id, warehouseId, after]);
 
-    await recordMovement(c, {
-      variation_id: variation.id,
+    const movement = await recordMovement(c, {
+      variationId: variation.id,
       sku,
-      warehouse_id: warehouseId,
+      warehouseId,
       delta,
       balanceAfter: after,
       reason,
-      ref_type: 'adjustment',
-      ref_id: '',
+      refType: 'adjustment',
+      refId: '',
       actor: { id: actor?.id, name: actor?.email || actor?.business, role: actor?.role },
       note,
+      idempotencyKey,
     });
+
+    /* The ledger refused the movement, which means this exact press has
+       already been applied. Throwing rolls the STOCK WRITE back too — which is
+       the point: without it the quantity would move a second time against a
+       ledger entry that already exists, and the two would disagree forever. */
+    if (idempotencyKey && movement && movement.recorded === false) {
+      throw new InventoryApiError(409, {
+        error: 'That adjustment has already been applied.',
+        code: 'ALREADY_APPLIED',
+      });
+    }
 
     return { sku, warehouse_id: warehouseId, qty: after, before, delta };
   });
@@ -281,14 +321,14 @@ export async function transferStock(db, input, actor) {
          on conflict (variation_id, warehouse_id) do update set qty = excluded.qty`,
         [variation.id, warehouseId, after]);
       await recordMovement(c, {
-        variation_id: variation.id,
+        variationId: variation.id,
         sku,
-        warehouse_id: warehouseId,
+        warehouseId,
         delta,
         balanceAfter: after,
         reason: 'transfer',
-        ref_type: 'transfer',
-        ref_id: '',
+        refType: 'transfer',
+        refId: '',
         actor: { id: actor?.id, name: actor?.email || actor?.business, role: actor?.role },
         note,
       });

@@ -233,9 +233,15 @@ test('11 — a stock correction uses the narrow inventory route, not sync', asyn
   sent = calls.find((c) => c.path === '/admin/inventory/adjust');
   assert.ok(sent, 'the correction must reach the narrow route');
   assert.equal(sent.method, 'POST');
-  assert.deepEqual(Object.keys(sent.body).sort(), ['delta', 'note', 'reason', 'sku', 'warehouseId']);
+  /* The body gained `idempotencyKey` (Final Handover Phase 7) — a key for THIS
+     PRESS, so one click reaching the server twice through a retry applies
+     once. The exhaustive list stays exhaustive: nothing else may creep in, and
+     no price or commercial field may ever appear here. */
+  assert.deepEqual(Object.keys(sent.body).sort(),
+    ['delta', 'idempotencyKey', 'note', 'reason', 'sku', 'warehouseId']);
   assert.equal(sent.body.delta, 4, '9 wanted minus 5 recorded is a delta of 4');
   assert.equal(sent.body.reason, 'count');
+  assert.match(sent.body.idempotencyKey, /^adj_/, 'and it identifies the press');
   assert.equal(calls.filter((c) => c.path === '/admin/sync').length, 0);
 });
 

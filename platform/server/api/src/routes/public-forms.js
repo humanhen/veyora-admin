@@ -22,6 +22,7 @@
    nobody else; a stack trace with the payload in it defeats that. Failures
    log the form type and the error, never the content. */
 
+import { createHash } from 'node:crypto';
 import { Router } from 'express';
 import express from 'express';
 import { pool, tx as realTx } from '../db.js';
@@ -101,10 +102,28 @@ export async function storeSubmission(db, { formType, payload, sourceUrl, region
   { recipients = [], adminUrl = '', now = () => new Date() } = {}) {
   return db.tx(async (c) => {
     const submittedAt = now();
+
+    /* A short-window duplicate guard (Final Handover Phase 7).
+
+       Before this, a public enquiry had NO server-side protection at all. A
+       refresh of the POST result, a synthetic `requestSubmit()`, a second tab,
+       or scripting simply being off each produced a second stored enquiry AND
+       a second alert to every configured recipient.
+
+       The fingerprint carries a coarse TIME BUCKET rather than being a plain
+       content hash. Two genuine enquiries can be identical — somebody asks the
+       same question a week later, or two people at one shop send the same
+       request — and refusing the second permanently would be worse than
+       accepting a duplicate: a lost enquiry is invisible, a duplicated one is
+       merely untidy. */
+    const fingerprint = submissionFingerprint({ formType, payload, at: submittedAt });
+
     const { rows } = await c.query(
       `insert into form_submissions
-         (form_type, payload, source_url, region, business_type, consent_version, consent_at, delivery_state)
-       values ($1, $2::jsonb, $3, $4, $5, $6, $7, 'pending')
+         (form_type, payload, source_url, region, business_type, consent_version, consent_at,
+          delivery_state, dedupe_fingerprint)
+       values ($1, $2::jsonb, $3, $4, $5, $6, $7, 'pending', $8)
+       on conflict (dedupe_fingerprint) where dedupe_fingerprint is not null do nothing
        returning id`,
       [
         formType,
@@ -117,8 +136,16 @@ export async function storeSubmission(db, { formType, payload, sourceUrl, region
            given. */
         consentGiven ? CONSENT_VERSION : '',
         consentGiven ? submittedAt : null,
+        fingerprint,
       ]
     );
+
+    /* No row means this exact enquiry already arrived inside the window. The
+       CALLER still gets `{ ok: true }` — the submitter did what they meant to
+       and telling them it failed would make them send a third. Nothing is
+       queued, so the staff alert is not duplicated either. */
+    if (!rows[0]) return null;
+
     const submissionId = rows[0].id;
 
     /* No configured recipient is a real, visible state — the enquiry screen
@@ -147,6 +174,35 @@ export async function storeSubmission(db, { formType, payload, sourceUrl, region
 }
 
 export const CONSENT_VERSION = '2026-08-enquiry-v1';
+
+/** How wide the duplicate window is. Two minutes catches a double click, a
+ *  refresh, a second tab and an impatient resubmit; it does not catch somebody
+ *  legitimately asking the same thing again later in the day. */
+export const DEDUPE_WINDOW_MS = 2 * 60 * 1000;
+
+/**
+ * The fingerprint of one submission.
+ *
+ * Built from the form type, the SUBMITTED CONTENT and a coarse time bucket.
+ * Hashed rather than concatenated: the value goes in an indexed column that a
+ * database administrator reads, and a submitter's message should not be
+ * legible there.
+ *
+ * The bucket is floored, not rolling, which means two submissions can land
+ * either side of a boundary and both be accepted. That is the right way round
+ * to be wrong — an occasional duplicate is untidy, a refused enquiry is lost.
+ */
+export function submissionFingerprint({ formType, payload, at }) {
+  const bucket = Math.floor(new Date(at).getTime() / DEDUPE_WINDOW_MS);
+  /* Keys sorted, so two submissions of the same content hash the same
+     regardless of the order the validator happened to build the object in. */
+  const canonical = Object.keys(payload || {}).sort()
+    .map((k) => `${k}=${String(payload[k] ?? '')}`).join('');
+  return createHash('sha256')
+    .update(`${formType}${bucket}${canonical}`)
+    .digest('hex')
+    .slice(0, 48);
+}
 
 /** A source URL is recorded for context, but only as a PATH: a full URL from
     a client could carry a query string with anything in it. */

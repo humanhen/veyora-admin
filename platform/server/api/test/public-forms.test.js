@@ -120,8 +120,11 @@ test('a server-controlled field cannot be supplied, and is refused distinctly', 
 test('delivery state cannot be forged even when spelled as the router expects', async () => {
   const { db } = await submit('contact', VALID.contact);
   const insert = db.inserts()[0];
-  assert.match(insert.sql, /delivery_state\)/);
-  assert.match(insert.sql, /'pending'\)/, 'the state is a literal, not a parameter');
+  /* The column list gained `dedupe_fingerprint` (Final Handover Phase 7).
+     The property under test is unchanged: delivery_state is a LITERAL, so a
+     caller cannot spell it into a parameter. */
+  assert.match(insert.sql, /delivery_state, dedupe_fingerprint\)/);
+  assert.match(insert.sql, /'pending', \$8\)/, 'the state is a literal, not a parameter');
   assert.ok(!insert.params.includes('sent'));
 });
 
@@ -253,7 +256,7 @@ test('a submission is stored pending, with explicit columns', async () => {
   const { db, body } = await submit('request-b2b-account', VALID['request-b2b-account']);
   const insert = db.inserts()[0];
 
-  assert.match(insert.sql, /insert into form_submissions\s*\n?\s*\(form_type, payload, source_url, region, business_type, consent_version, consent_at, delivery_state\)/);
+  assert.match(insert.sql, /insert into form_submissions\s*\n?\s*\(form_type, payload, source_url, region, business_type, consent_version, consent_at,\s*\n?\s*delivery_state, dedupe_fingerprint\)/);
   assert.doesNotMatch(insert.sql, /select\s+\*/i);
   assert.equal(insert.params[0], 'request-b2b-account');
   assert.equal(insert.params[5], CONSENT_VERSION);
@@ -332,7 +335,7 @@ test('no email, CRM or network delivery is attempted', () => {
     assert.doesNotMatch(code, /nodemailer|sendMail|fetch\(|axios|https?:\/\//);
     assert.doesNotMatch(code, /crm|hubspot|salesforce|mailchimp/i);
   }
-  assert.match(routerCode, /delivery_state\)/);
+  assert.match(routerCode, /delivery_state, dedupe_fingerprint\)/);
 });
 
 test('the success response is generic and identical for every form', async () => {

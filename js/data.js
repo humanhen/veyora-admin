@@ -826,11 +826,20 @@ const DB = (function(){
 
     /** One quantity change. `delta` is a signed integer; `reason` is one of
         the server's closed set (receipt, count, damage, return, correction). */
-    async adjustStock(sku, warehouseId, delta, reason, note){
+    /** Moves stock by a signed delta.
+     *
+     *  `idempotencyKey` identifies THE PRESS, not the content (Final Handover
+     *  Phase 7). An adjustment is inherently non-idempotent — two genuine
+     *  +10s legitimately mean +20 — so the server cannot derive a key from
+     *  the request and refuse a repeat. What must not repeat is one press
+     *  reaching the server twice through a retry or a resubmitted fetch, and
+     *  a per-press key is exactly that. Omitting it keeps the old behaviour. */
+    async adjustStock(sku, warehouseId, delta, reason, note, idempotencyKey){
       const res = await apiCall('POST', '/admin/inventory/adjust',
         { sku: String(sku), warehouseId: String(warehouseId),
           delta: Number(delta), reason: String(reason),
-          note: note == null ? '' : String(note) });
+          note: note == null ? '' : String(note),
+          ...(idempotencyKey ? { idempotencyKey: String(idempotencyKey) } : {}) });
       if (!res || !res.stock) throw malformed();
       return { sku: String(res.stock.sku), warehouseId: String(res.stock.warehouseId),
                qty: Number(res.stock.qty) || 0 };
