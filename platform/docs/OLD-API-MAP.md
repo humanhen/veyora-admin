@@ -11,7 +11,12 @@ The new backend reimplements this surface so the rebuilt storefront behaves iden
   `veyora-products` bucket)
 - Auth tokens in cookies prefixed `texashub_web_` (accessToken, refreshToken,
   role, email, country, hide_prices)
-- Meta Pixel id 1800415057342259
+- Meta Pixel present on the old site. The id is deliberately not recorded here:
+  the rebuilt portal loads no analytics at all (see
+  `docs/public-website-rebuild/46_COMMERCIAL_CREDIT_AND_PRIVACY.md`), and a
+  production pixel id sitting in the repository is one copy-paste away from
+  running again. It is available from Veyora's Meta Business account if a
+  future integration is approved.
 
 ## SPA routes
 `/` (login), `/dashboard` + children: `products`, `cart`, `checkout`,

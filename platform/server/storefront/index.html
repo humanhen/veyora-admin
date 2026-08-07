@@ -19,20 +19,29 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@200;300;400;500;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="css/store.css" />
-  <!-- Meta Pixel (same pixel the old veyora.com uses) -->
-  <script>
-    !function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?
-    n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;
-    n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;
-    t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,
-    document,'script','https://connect.facebook.net/en_US/fbevents.js');
-    fbq('init', '1800415057342259');
-    fbq('track', 'PageView');
-    // SPA: count each in-app navigation as a page view
-    window.addEventListener('hashchange', function(){ fbq('track', 'PageView'); });
-  </script>
-  <noscript><img height="1" width="1" style="display:none"
-    src="https://www.facebook.com/tr?id=1800415057342259&ev=PageView&noscript=1"/></noscript>
+  <!-- ANALYTICS: DISABLED BY DEFAULT.
+
+       A Meta Pixel used to load here, carried over from the old marketing
+       site. It was removed, not merely switched off.
+
+       This is the AUTHENTICATED B2B portal, not a marketing page. The pixel
+       initialised on every load and fired a PageView on every in-app route
+       change, so a signed-in trade customer's entire session — which frames
+       they looked at, what they ordered, how often they came back — was sent
+       to a third party. There was no consent gate, and it ran with a
+       hard-coded production pixel id. A third-party script in an authenticated
+       page also has full access to the DOM and the session it renders in.
+
+       Nothing replaces it. There is deliberately no dormant hook and no
+       configuration flag holding the id, because a hidden id that only
+       something else prevents from executing is one line away from executing
+       again.
+
+       Activating any analytics here in future is a business and privacy
+       decision, not a code change made in passing. It needs an explicit
+       configured id (never committed), a consent mechanism appropriate to the
+       jurisdictions Veyora's customers trade in, and a decision about whether
+       tracking signed-in commercial behaviour is acceptable at all. -->
 </head>
 <body class="notranslate">
   <div id="app"></div>
