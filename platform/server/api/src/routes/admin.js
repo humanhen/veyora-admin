@@ -7,6 +7,7 @@ import bcrypt from 'bcryptjs';
 import { q, tx, audit } from '../db.js';
 import { requireAuth } from '../authmw.js';
 import { SIMPLE_COLLECTIONS, rowToJs, jsToRow } from '../shape.js';
+import { creditReviewAllowsProgress } from '../credit.js';
 import { sendMail } from '../mail.js';
 import { setPasswordLink } from '../authmw.js';
 import { welcomeActivation, orderConfirmation, staffOrderAlert } from '../emails.js';
@@ -35,6 +36,12 @@ import { issueInvoice } from './admin-finance.js';
 import { pool as financePool, tx as financeTx } from '../db.js';
 
 const financeDb = { query: (sql, params) => financePool.query(sql, params), tx: financeTx };
+
+/* Statuses that are NOT a commercial progression: an order sitting in one of
+   these has not been promised to anybody, so an order held on credit review
+   may still move between them and may still be cancelled. Anything else means
+   fulfilment has begun. */
+const PENDING_ORDER_STATUSES = Object.freeze(['pending', 'cancelled']);
 
 const r = Router();
 r.use(requireAuth('admin', 'warehouse'));
@@ -477,6 +484,36 @@ r.patch('/orders/:id', async (req, res, next) => {
       if (order.status === 'shipped' && patch.fields.status
           && patch.fields.status !== 'shipped') {
         return { status: 409, body: { error: 'That order has already shipped' } };
+      }
+
+      /* ---- THE PROTECTED COMMERCIAL TRANSITION ----
+         The server found this order would take the account over its credit
+         limit and flagged it. Until an authorised person approves that
+         exception it must not move into fulfilment, or the detection was
+         decorative — the order would simply be progressed by whoever opened
+         the list next, exactly as if it had passed a credit check.
+
+         Enforced HERE, on the row we already hold locked, rather than in the
+         panel: hiding a button is not a control, because the request can be
+         issued without it. A DECLINED review blocks for the same reason as a
+         pending one — declining is a decision to hold, not to forget.
+
+         Deliberately narrow. Everything else this route does — tracking,
+         comments, collection counts, cancelling — stays available, because a
+         held order still has to be administered. */
+      if (patch.fields.status
+          && patch.fields.status !== order.status
+          && !PENDING_ORDER_STATUSES.includes(patch.fields.status)
+          && !creditReviewAllowsProgress(order.credit_review)) {
+        const state = order.credit_review?.state || 'pending';
+        return { status: 409, body: {
+          error: state === 'declined'
+            ? 'That order was declined on credit review and is on hold. It cannot be '
+              + 'progressed until the decision is revisited.'
+            : 'That order is awaiting a credit decision and cannot be progressed yet.',
+          code: 'CREDIT_REVIEW_REQUIRED',
+          creditReviewState: state,
+        } };
       }
 
       const { sets, values, nextParam } = orderUpdateSql(patch.fields);

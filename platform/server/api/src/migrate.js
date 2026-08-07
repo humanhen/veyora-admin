@@ -1039,6 +1039,11 @@ export async function ensureSchema() {
      paid or forgiving what they owe — the same reasoning that already
      separates `finance.record` from `finance.credit`.
 
+     `finance.credit_review` (mirrors db/migrations/0019) is separate again:
+     raising a customer's ceiling and letting ONE order through above the
+     existing ceiling are different responsibilities with different
+     consequences. Approving an exception never raises the limit.
+
      GRANTS NOTHING. This widens the set of keys that may exist; no row is
      inserted, so the first grant is still a supervised bootstrap. */
   await q(`alter table account_permissions
@@ -1062,6 +1067,7 @@ export async function ensureSchema() {
       'finance.record',
       'finance.credit',
       'finance.credit_limit',
+      'finance.credit_review',
       'finance.reconcile',
       'statements.send'
     ))`);

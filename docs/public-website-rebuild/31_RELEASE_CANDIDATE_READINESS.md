@@ -447,3 +447,21 @@ its documented override). `npm audit`: 0 vulnerabilities.
 
 **Unchanged from the position above:** migration rehearsal and deployment rehearsal remain
 outstanding, and both still need an actual disposable database.
+
+## Addendum — 2026-08-07, credit operations
+
+The two operational gaps left by the addendum above are closed; see `47_CREDIT_OPERATIONS.md`.
+
+Staff now have an **Account credit** screen (Finance → Collection & Debt → Credit) for maintaining a
+limit, and a **Credit Reviews** queue for resolving orders held above one. Approve and decline are
+gated on `finance.credit_review` — a **separate** capability from `finance.credit_limit`, because
+approving a single over-limit order must never imply authority to raise the ceiling. Approving an
+exception changes exactly one order and never touches `users.credit_limit`.
+
+An unapproved order can neither leave `pending` for fulfilment nor be invoiced; both would book the
+exposure the review exists to control.
+
+**Totals:** 2,678 passing, 0 failing. Release gate 18/18 (temporary override). `npm audit`: 0.
+
+**Still outstanding, unchanged:** nobody holds either capability, no real credit limits are assigned,
+and migration and deployment rehearsal both still need a real disposable database.

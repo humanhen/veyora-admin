@@ -117,10 +117,10 @@ npm --prefix platform/server/web run build     # Astro production build
 
 | Suite | Tests |
 |---|---|
-| API | **1,850** |
+| API | **1,887** |
 | Admin panel | **325** |
 | Public website | **466** |
-| **Total** | **2,641 passing, 0 failing** |
+| **Total** | **2,678 passing, 0 failing** |
 
 ---
 
@@ -159,7 +159,7 @@ output, so they are a faithful description of behaviour:
 
 `19_ACCOUNT_PERMISSION_SYSTEM.md`. The short version:
 
-- 18 keys in a **frozen, hand-written registry** with no I/O. A key must appear there **and** in the
+- 19 keys in a **frozen, hand-written registry** with no I/O. A key must appear there **and** in the
   `account_permissions` CHECK constraint, so adding one is a reviewable code + migration change.
 - **No wildcards, no prefix matching, no hierarchy.** `public_content.*` will never resolve.
 - **No role implies any capability.** Nothing in the resolver reads `users.role`.

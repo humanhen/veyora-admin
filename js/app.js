@@ -82,6 +82,13 @@ const NAV=[
   {group:'Finance',icon:'finance',items:[
     {route:'payments',label:'Payments',icon:'payments',action:'finance.manage'},
     {route:'collection',label:'Collection',icon:'collection',action:'finance.manage'},
+    /* Deliberately NOT gated with `requires:'finance.credit_review'`. Nobody
+       holds that capability yet, so the entry would be invisible to every
+       account and the queue would be unreachable — including for the person
+       deciding whether to grant it. The SERVER refuses every call without it,
+       and the screen says so plainly instead of rendering an empty list, which
+       is the honest failure. Add the gate once grants exist. */
+    {route:'credit-reviews',label:'Credit Reviews',icon:'clock',action:'finance.manage'},
     {route:'invoices',label:'Invoices',icon:'invoice',action:'finance.manage'},
     {route:'statements',label:'Statements',icon:'statement',action:'finance.manage'},
   ]},

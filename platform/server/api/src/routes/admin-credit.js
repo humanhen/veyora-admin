@@ -28,7 +28,8 @@ import { pool, tx as realTx, auditIn } from '../db.js';
 import { requireAuth } from '../authmw.js';
 import { requirePermission } from '../permissions.js';
 import {
-  CREDIT_LIMIT_CAPABILITY, CreditError, creditPosition, validateCreditLimit,
+  CREDIT_LIMIT_CAPABILITY, CREDIT_REVIEW_CAPABILITY, CREDIT_REVIEW_STATES,
+  CreditError, applyCreditReviewDecision, creditPosition, validateCreditLimit,
 } from '../credit.js';
 
 const r = Router();
@@ -74,6 +75,165 @@ r.get('/customers/:customerId/credit', canSetLimit(), (req, res, next) =>
 r.put('/customers/:customerId/credit-limit', canSetLimit(), (req, res, next) =>
   send(res, next, setCreditLimit(liveDb, req.params.customerId, req.body || {}, req.user),
     (result) => result));
+
+/* ---------------------------------------------------------------------------
+   Credit reviews
+   --------------------------------------------------------------------------- */
+
+/** Only an account holding the review capability. Not implied by the other. */
+const canReview = () => requirePermission(CREDIT_REVIEW_CAPABILITY);
+
+/** Explicit allowlist. An order row is never spread into a response. */
+function reviewRow(row) {
+  const review = row.credit_review || {};
+  return {
+    orderId: String(row.id),
+    orderNumber: String(row.number || ''),
+    orderTotal: String(row.total ?? '0'),
+    orderStatus: String(row.status || ''),
+    submittedAt: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at,
+    customerId: String(row.customer_id || ''),
+    customerBusiness: String(row.business || ''),
+    paymentTerms: String(row.payment_terms || ''),
+    /* The snapshot AS TAKEN AT SUBMISSION. Not recomputed: the question this
+       answers is "what did the system work out at the time", and re-deriving
+       it from data that has since moved would answer a different one. */
+    state: String(review.state || CREDIT_REVIEW_STATES.pending),
+    decision: String(review.decision || ''),
+    currency: String(review.currency || ''),
+    orderTotalMinor: Number(review.orderTotalMinor ?? 0),
+    projectedExposureMinor: Number(review.projectedExposureMinor ?? 0),
+    creditLimitMinor: review.creditLimitMinor ?? null,
+    overLimitByMinor: Number(review.overLimitByMinor ?? 0),
+    evaluatedAt: review.evaluatedAt ?? null,
+    resolution: review.resolution ?? null,
+    resolutionReason: review.resolutionReason ?? null,
+    resolvedByName: review.resolvedByName ?? null,
+    resolvedAt: review.resolvedAt ?? null,
+  };
+}
+
+const REVIEW_SELECT = `
+  select o.id, o.number, o.total, o.status, o.created_at, o.customer_id,
+         o.credit_review, u.business, u.payment_terms
+    from orders o
+    left join users u on u.id = o.customer_id
+   where o.credit_review is not null`;
+
+/**
+ * Orders carrying a credit decision.
+ *
+ * `state=pending` — the queue that needs action. Anything else is history, and
+ * stays readable: a decision nobody can look up afterwards is not auditable in
+ * any useful sense.
+ */
+r.get('/reviews', canReview(), (req, res, next) =>
+  send(res, next, listCreditReviews(liveDb, req.query?.state), (reviews) => ({ reviews })));
+
+export async function listCreditReviews(db, state) {
+  const wanted = String(state ?? CREDIT_REVIEW_STATES.pending).toLowerCase();
+  const known = Object.values(CREDIT_REVIEW_STATES);
+  if (wanted !== 'all' && !known.includes(wanted)) {
+    throw new CreditError(400, {
+      error: 'Unknown credit review state.', code: 'INVALID_STATE',
+    });
+  }
+  const { rows } = wanted === 'all'
+    ? await db.query(`${REVIEW_SELECT} order by o.created_at desc limit 200`)
+    : await db.query(
+      `${REVIEW_SELECT} and o.credit_review->>'state' = $1
+        order by o.created_at desc limit 200`, [wanted]);
+  return rows.map(reviewRow);
+}
+
+/**
+ * Approve or decline ONE order's credit review.
+ *
+ * APPROVING IS AN EXCEPTION FOR THIS ORDER AND NOTHING ELSE. It does not touch
+ * `users.credit_limit`, so the customer's ceiling is exactly what it was and
+ * the next order is evaluated against it afresh. Raising the ceiling is a
+ * different act needing a different capability.
+ */
+r.post('/reviews/:orderId/decision', canReview(), (req, res, next) =>
+  send(res, next,
+    decideCreditReview(liveDb, req.params.orderId, req.body || {}, req.user),
+    (result) => result));
+
+export async function decideCreditReview(db, orderId, body, actor) {
+  const resolution = String(body?.resolution ?? '').trim().toLowerCase();
+
+  const outcome = await db.tx(async (c) => {
+    /* Locked, so two people deciding at once cannot both read `pending` and
+       both write. The second waits, sees the first decision and is refused. */
+    const { rows } = await c.query(
+      `select o.id, o.number, o.customer_id, o.credit_review, o.total,
+              u.business
+         from orders o
+         left join users u on u.id = o.customer_id
+        where (o.id = $1 or o.number = $1) limit 1 for update of o`, [orderId]);
+    if (!rows.length) {
+      throw new CreditError(404, {
+        error: 'That order could not be found.', code: 'NO_ORDER',
+      });
+    }
+    const order = rows[0];
+
+    /* The stored review is the ONLY input to the merge besides the decision
+       and the reason. Nothing about the credit position comes from the
+       request — a caller cannot restate the limit, the exposure or the
+       shortfall to make an approval look justified. */
+    const updated = applyCreditReviewDecision(order.credit_review, {
+      resolution,
+      reason: body?.reason,
+      actor,
+    });
+
+    await c.query(
+      `update orders set credit_review = $2, updated_at = now() where id = $1`,
+      [order.id, JSON.stringify(updated)]);
+
+    /* In the same transaction: a decision without its record, or a record
+       without its decision, are both worse than neither. */
+    await auditIn(c,
+      { id: actor?.id, name: actor?.business || actor?.email || 'unknown', role: actor?.role || '' },
+      `order credit review ${updated.resolution}`,
+      order.number,
+      `${updated.resolution} — exposure ${updated.projectedExposureMinor} vs limit `
+        + `${updated.creditLimitMinor ?? 'not configured'} (minor units)`,
+      'web',
+      JSON.stringify({
+        orderId: order.id,
+        customerId: order.customer_id,
+        resolution: updated.resolution,
+        reason: updated.resolutionReason,
+        capability: CREDIT_REVIEW_CAPABILITY,
+        /* The original calculation, repeated into the audit payload so the
+           evidence survives even if the order row is later archived. */
+        snapshotAtSubmission: {
+          decision: updated.decision,
+          projectedExposureMinor: updated.projectedExposureMinor,
+          creditLimitMinor: updated.creditLimitMinor,
+          overLimitByMinor: updated.overLimitByMinor,
+          orderTotalMinor: updated.orderTotalMinor,
+          currency: updated.currency,
+          evaluatedAt: updated.evaluatedAt,
+        },
+      }));
+
+    return { order, review: updated };
+  });
+
+  return {
+    ok: true,
+    orderId: String(outcome.order.id),
+    orderNumber: String(outcome.order.number || ''),
+    state: outcome.review.state,
+    resolution: outcome.review.resolution,
+    resolvedAt: outcome.review.resolvedAt,
+    /* Stated explicitly in the response so no caller can conclude otherwise. */
+    creditLimitChanged: false,
+  };
+}
 
 export async function setCreditLimit(db, customerId, body, actor) {
   const { limit } = validateCreditLimit(body?.creditLimit);

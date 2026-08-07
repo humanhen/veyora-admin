@@ -109,6 +109,7 @@ test('the registry contains exactly the approved capabilities', () => {
     'finance.record',
     'finance.credit',
     'finance.credit_limit',
+    'finance.credit_review',
     'finance.reconcile',
     'statements.send',
   ]);
@@ -126,7 +127,10 @@ test('finance capabilities keep recording, crediting and limiting apart', () => 
   const finance = PERMISSION_KEYS.filter((k) => k.startsWith('finance.'));
   assert.deepEqual(finance,
     ['finance.invoice', 'finance.record', 'finance.credit', 'finance.credit_limit',
-     'finance.reconcile']);
+     'finance.credit_review', 'finance.reconcile']);
+  /* Setting the ceiling and granting a one-off exception to it are separate
+     authorities: approving one order must never imply raising the limit. */
+  assert.notEqual('finance.credit_limit', 'finance.credit_review');
   assert.ok(!PERMISSION_KEYS.includes('finance.credit_limits'),
     'one key, not a near-duplicate that would silently confer nothing');
   for (const forbidden of ['finance.*', 'finance.manage', 'finance.all']) {

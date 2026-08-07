@@ -223,8 +223,9 @@ Two further runs landed on `mathew/final-integration-2026-08-07`:
 | Branch consolidation (the second developer's storefront work) | `44_BRANCH_INTEGRATION_REPORT.md` |
 | Client feedback items A–M | `45_CLIENT_FEEDBACK_IMPLEMENTATION.md` |
 | Commercial credit control and portal privacy | `46_COMMERCIAL_CREDIT_AND_PRIVACY.md` |
+| Credit operations — limit UI and review workflow | `47_CREDIT_OPERATIONS.md` |
 
-Totals moved from **2,433** to **2,641 passing, 0 failing**; the release gate is still 18/18. One
+Totals moved from **2,433** to **2,678 passing, 0 failing**; the release gate is still 18/18. One
 migration, **0017**, adds a nullable `users.credit_limit` — mirrored in `ensureSchema()`, with the
 parity contract verified by tampering before the mirror was written.
 

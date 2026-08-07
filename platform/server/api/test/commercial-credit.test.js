@@ -197,11 +197,16 @@ test('6 — changing a credit limit is capability-gated, and by its own capabili
   assert.match(code, /requirePermission\(CREDIT_LIMIT_CAPABILITY\)/);
   assert.equal(CREDIT_LIMIT_CAPABILITY, 'finance.credit_limit');
   assert.ok(PERMISSION_KEYS.includes(CREDIT_LIMIT_CAPABILITY), 'and it is a registered key');
-  /* Every mutating route in the module carries the gate. */
-  const mutators = [...code.matchAll(/r\.(put|post|patch|delete)\('([^']+)',\s*([^,]+),/g)];
-  assert.ok(mutators.length >= 1, 'there is at least one mutating route');
-  for (const [, verb, route, guard] of mutators) {
-    assert.match(guard, /canSetLimit\(\)/, `${verb.toUpperCase()} ${route} must be gated`);
+  /* EVERY route in the module is gated, and each carries the RIGHT gate.
+     Asserting only "is gated" would pass if a review route were protected by
+     the credit-limit capability, which would silently make approving one order
+     imply authority to raise the ceiling. */
+  const routes = [...code.matchAll(/r\.(get|put|post|patch|delete)\('([^']+)',\s*([^,]+),/g)];
+  assert.ok(routes.length >= 4, `expected the full route set, saw ${routes.length}`);
+  for (const [, verb, route, guard] of routes) {
+    const expected = route.startsWith('/reviews') ? /canReview\(\)/ : /canSetLimit\(\)/;
+    assert.match(guard, expected,
+      `${verb.toUpperCase()} ${route} must carry its own capability gate`);
   }
 });
 

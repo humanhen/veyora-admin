@@ -330,6 +330,8 @@ App.register('collection',function(el){
               ${f.log&&f.log.length?`<div class="cell-sub">${f.log.length} activit${f.log.length===1?'y':'ies'} logged</div>`:''}</td>
             <td><div class="row-actions">
               <button class="btn btn-sm" data-log="${f.id}">Log</button>
+              <button class="btn btn-sm" data-credit="${f.customerId}"
+                data-business="${esc(u.business||'')}">Credit</button>
               ${f.status==='flagged'?`<button class="btn btn-sm btn-dark" data-resolve="${f.id}">Resolve</button>`:''}
             </div></td>
           </tr>`;}).join(''):`<tr><td colspan="9" class="empty-cell">No collection items found</td></tr>`}
@@ -339,6 +341,13 @@ App.register('collection',function(el){
 
     el.querySelector('#cl-status').onchange=e=>{state.status=e.target.value;render();};
     el.querySelector('#cl-agent').onchange=e=>{state.agent=e.target.value;render();};
+
+    /* One account's authoritative credit position, and the only control that
+       changes its limit. The figures come from the server, not from the
+       snapshot this page is otherwise drawn from — a balance in local page
+       state is not the exposure a credit decision is made on. */
+    el.querySelectorAll('[data-credit]').forEach(b=>b.onclick=()=>
+      customerCreditModal(b.dataset.credit,b.dataset.business));
 
     el.querySelector('#cl-flag').onclick=()=>{
       const withBalance=d.users.filter(u=>['customer','special customer'].includes(u.role)&&(u.balance||0)>0);
@@ -1001,3 +1010,255 @@ App.register('statements',function(el){
 
   if(state.cust)loadCustomer(); else render();
 });
+
+/* ============ Credit operations (Finance) ============
+
+   Two surfaces that belong together, reached from Collection & Debt where the
+   receivable already lives:
+
+     - CREDIT REVIEWS: orders the server flagged as taking an account over its
+       configured limit, awaiting an authorised decision;
+     - ACCOUNT CREDIT: one customer's authoritative position, and the only
+       control that changes their limit.
+
+   THE BROWSER COMPUTES NO MONEY. Every figure here arrives from the server,
+   which derives it from the ledger plus committed uninvoiced orders. A second
+   formula in this file would let the screen and the order-time credit decision
+   disagree about the same customer.
+
+   Both are capability-gated SERVER-SIDE. A 403 is rendered honestly rather than
+   as an empty list, because the panel cannot know what an account holds — the
+   session carries a role and no capabilities. */
+
+/** Minor units -> display. No arithmetic on money beyond splitting the units. */
+function creditMoney(minor){
+  const n=Number(minor||0),sign=n<0?'-':'',a=Math.abs(n);
+  return sign+'$'+Math.floor(a/100).toLocaleString('en-US')+'.'+String(a%100).padStart(2,'0');
+}
+
+/** A capability failure, said plainly rather than shown as "nothing here". */
+function creditDenied(el,e,what){
+  const forbidden=e&&(e.status===403||/forbidden|permission/i.test(e.message||''));
+  el.innerHTML='<div class="card card-pad"><div class="card-title">'+esc(what)+'</div>'
+    +'<p class="muted">'+esc(forbidden
+      ?'This account does not hold the capability required for this screen. Nothing is '
+       +'hidden from you by mistake — ask an administrator to grant it.'
+      :(e&&e.message)||'That could not be loaded.')+'</p></div>';
+}
+
+/** Awaiting decision / approved / declined, with why review was triggered. */
+function creditStateBadge(r){
+  if(r.state==='approved')return '<span class="badge green">Approved</span>';
+  if(r.state==='declined')return '<span class="badge red">Declined / held</span>';
+  return '<span class="badge yellow">Awaiting decision</span>'
+    +(r.decision==='exposure_unsupported'
+      ?' <span class="badge gray">exposure unavailable</span>':'');
+}
+
+App.register('credit-reviews',function(el){
+  const state=App._creditRev||(App._creditRev={filter:'pending'});
+
+  async function render(){
+    el.innerHTML='<div class="page-head"><div><div class="page-title">Credit Reviews</div>'
+      +'<div class="page-sub">Orders held above their account credit limit</div></div></div>'
+      +'<div id="cr-body" class="muted">Loading…</div>';
+    const body=el.querySelector('#cr-body');
+
+    let reviews;
+    try{reviews=await DB.creditReviews(state.filter);}
+    catch(e){return creditDenied(body,e,'Credit Reviews');}
+
+    body.innerHTML=`
+      <div class="flex" style="margin-bottom:14px">
+        ${['pending','approved','declined','all'].map(f=>
+          `<button class="chip ${state.filter===f?'active':''}" data-f="${f}">${
+            f==='pending'?'Awaiting decision':f.charAt(0).toUpperCase()+f.slice(1)}</button>`).join('')}
+      </div>
+      <div class="card"><div class="table-wrap"><table class="tbl">
+        <thead><tr>
+          <th>Order</th><th>Customer</th><th class="num">Order total</th>
+          <th class="num">Exposure at submission</th><th class="num">Credit limit</th>
+          <th class="num">Over by</th><th>Terms</th><th>Submitted</th>
+          <th>State</th><th class="col-actions">Actions</th>
+        </tr></thead>
+        <tbody>${reviews.length?reviews.map(rowHtml).join('')
+          :'<tr><td colspan="10" class="empty-cell">No credit reviews in this state</td></tr>'}
+        </tbody></table></div></div>
+      <div class="dashed-banner" style="margin-top:14px">Approving an exception lets
+        <b>that order</b> proceed. It does not raise the customer&rsquo;s credit limit —
+        that is a separate action, with a separate capability, on the account&rsquo;s
+        credit screen.</div>`;
+
+    body.querySelectorAll('[data-f]').forEach(b=>b.onclick=()=>{state.filter=b.dataset.f;render();});
+    body.querySelectorAll('[data-decide]').forEach(b=>b.onclick=()=>
+      decide(b.dataset.decide,b.dataset.resolution,b.dataset.number,render));
+    body.querySelectorAll('[data-cust]').forEach(b=>b.onclick=()=>
+      customerCreditModal(b.dataset.cust,b.dataset.business));
+  }
+
+  function rowHtml(r){
+    /* The figures the decision was made on, AS RECORDED AT SUBMISSION — not
+       recomputed now, because the question is what the system worked out then. */
+    const limit=r.creditLimitMinor==null
+      ?'<span class="muted">not configured</span>':creditMoney(r.creditLimitMinor);
+    return `<tr>
+      <td class="cell-main">${esc(r.orderNumber)}<div class="cell-sub">${esc(r.orderStatus)}</div></td>
+      <td><button class="linklike" data-cust="${esc(r.customerId)}"
+        data-business="${esc(r.customerBusiness)}">${esc(r.customerBusiness||'—')}</button></td>
+      <td class="num">${creditMoney(r.orderTotalMinor)}</td>
+      <td class="num">${creditMoney(r.projectedExposureMinor)}</td>
+      <td class="num">${limit}</td>
+      <td class="num">${r.overLimitByMinor?'<b>'+creditMoney(r.overLimitByMinor)+'</b>':'—'}</td>
+      <td>${esc(r.paymentTerms||'—')}</td>
+      <td>${r.submittedAt?fmtDateShort(r.submittedAt):'—'}</td>
+      <td>${creditStateBadge(r)}</td>
+      <td class="col-actions"><div class="row-actions">
+        ${r.state==='pending'?`
+          <button class="btn btn-sm btn-dark" data-decide="${esc(r.orderId)}"
+            data-resolution="approved" data-number="${esc(r.orderNumber)}">Approve exception</button>
+          <button class="btn btn-sm" data-decide="${esc(r.orderId)}"
+            data-resolution="declined" data-number="${esc(r.orderNumber)}">Decline / hold</button>`
+          :`<span class="cell-sub">${esc(r.resolvedByName||'—')}${
+            r.resolvedAt?' · '+fmtDateShort(r.resolvedAt):''}</span>`}
+      </div></td></tr>
+      ${r.resolutionReason?`<tr><td colspan="10" class="cell-sub" style="padding-top:0">
+        Reason: ${esc(r.resolutionReason)}</td></tr>`:''}`;
+  }
+
+  render();
+});
+
+/** Approve or decline one review. Confirmation and a reason, both required. */
+function decide(orderId,resolution,number,onDone){
+  const approving=resolution==='approved';
+  const m=Modal.open({
+    title:approving?'Approve credit exception':'Decline / keep on hold',
+    body:`<div style="font-size:13px;color:var(--ink-2)">
+        <p>${approving
+          ?'This lets order <b>'+esc(number)+'</b> proceed even though it takes the account '
+           +'over its credit limit. It does <b>not</b> raise the credit limit.'
+          :'Order <b>'+esc(number)+'</b> stays on hold and cannot be progressed. It is not '
+           +'cancelled and not deleted.'}</p>
+        <div class="field" style="margin-top:12px"><label>Reason (required)</label>
+          <textarea class="input" id="cr-reason" rows="3"
+            placeholder="Why this decision was made"></textarea></div>
+      </div>`,
+    foot:`<button class="btn" data-x>Cancel</button>
+      <button class="btn ${approving?'btn-dark':'btn-danger'}" data-go>${
+        approving?'Approve exception':'Decline / hold'}</button>`,
+    setup(ov,close){
+      ov.querySelector('[data-x]').onclick=close;
+      const go=ov.querySelector('[data-go]');
+      go.onclick=async()=>{
+        const reason=ov.querySelector('#cr-reason').value.trim();
+        if(!reason){toast('A reason is required',true);return;}
+        go.disabled=true;
+        try{
+          const res=await DB.decideCreditReview(orderId,resolution,reason);
+          close();
+          toast('Order '+res.orderNumber+' '+res.state);
+          if(onDone)onDone();
+        }catch(e){
+          go.disabled=false;
+          toast(e.message||'That decision could not be recorded',true);
+        }
+      };
+    },
+  });
+  return m;
+}
+
+/* ---------------------------------------------------------------------------
+   One account's credit position, and the only control that changes the limit
+   --------------------------------------------------------------------------- */
+
+function customerCreditModal(customerId,businessName){
+  const m=Modal.open({
+    title:'Account credit — '+(businessName||customerId),
+    body:'<div id="cc-body" class="muted">Loading…</div>',
+    foot:'<button class="btn" data-x>Close</button>',
+    setup(ov,close){ov.querySelector('[data-x]').onclick=close;},
+  });
+  const body=m.el.querySelector('#cc-body');
+
+  async function render(){
+    let p;
+    try{p=await DB.creditPosition(customerId);}
+    catch(e){return creditDenied(body,e,'Account credit');}
+
+    /* NULL is NOT CONFIGURED. Never "unlimited", never blank, never zero. */
+    const limitLine=p.creditLimitConfigured
+      ?'<b>'+esc(p.creditLimit)+'</b>'
+      :'<span class="muted">Credit limit not configured</span>';
+    const headroom=!p.creditLimitConfigured
+      ?'<span class="muted">—</span>'
+      :p.exposureUnsupported
+        ?'<span class="muted">Unavailable</span>'
+        :p.overLimit
+          ?'<span class="badge red">Over by '+esc(p.overLimitBy)+'</span>'
+          :'<b>'+esc(p.availableCredit)+'</b>';
+
+    body.innerHTML=`
+      ${p.exposureUnsupported?`<div class="dashed-banner" style="margin-bottom:12px">${
+        esc(p.unsupportedReason)}</div>`:''}
+      <table class="tbl"><tbody>
+        <tr><td>Receivable balance</td><td class="num">${esc(p.ledger)}</td></tr>
+        <tr><td>Committed, not yet invoiced${p.uninvoicedOrders
+          ?' <span class="cell-sub">('+p.uninvoicedOrders+' order'
+            +(p.uninvoicedOrders===1?'':'s')+')</span>':''}</td>
+          <td class="num">${esc(p.uninvoiced)}</td></tr>
+        <tr><td><b>Total qualifying exposure</b></td>
+          <td class="num"><b>${esc(p.exposure)}</b></td></tr>
+        <tr><td>Credit limit</td><td class="num">${limitLine}</td></tr>
+        <tr><td>Available credit</td><td class="num">${headroom}</td></tr>
+      </tbody></table>
+      <div class="flex" style="margin-top:14px">
+        <button class="btn btn-dark" id="cc-edit">Edit credit limit</button>
+      </div>`;
+    body.querySelector('#cc-edit').onclick=()=>editLimit(p);
+  }
+
+  function editLimit(p){
+    const em=Modal.open({
+      title:'Edit credit limit',
+      body:`<div style="font-size:13px;color:var(--ink-2)">
+          <p class="muted">Leave the amount empty to clear the limit back to
+            <b>not configured</b>. That is not the same as zero: zero means the account
+            may order nothing, and not configured means no limit has been decided.</p>
+          <div class="field" style="margin-top:12px"><label>Credit limit</label>
+            <input class="input" id="cc-limit" inputmode="decimal"
+              value="${p.creditLimit==null?'':esc(p.creditLimit)}" placeholder="e.g. 25000.00"></div>
+          <div class="field"><label>Reason (required)</label>
+            <textarea class="input" id="cc-reason" rows="3"
+              placeholder="Why this limit is being set or changed"></textarea></div>
+        </div>`,
+      foot:'<button class="btn" data-x>Cancel</button>'
+        +'<button class="btn btn-dark" data-save>Save credit limit</button>',
+      setup(ov,close){
+        ov.querySelector('[data-x]').onclick=close;
+        const save=ov.querySelector('[data-save]');
+        save.onclick=async()=>{
+          const reason=ov.querySelector('#cc-reason').value.trim();
+          if(!reason){toast('A reason is required',true);return;}
+          save.disabled=true;
+          try{
+            /* The value read when this screen loaded, so a change somebody else
+               made while it was open is refused rather than overwritten. */
+            await DB.setCreditLimit(customerId,ov.querySelector('#cc-limit').value.trim(),
+              reason,p.creditLimit);
+            close();
+            toast('Credit limit updated');
+            render();
+          }catch(e){
+            save.disabled=false;
+            toast(e.message||'That credit limit could not be saved',true);
+          }
+        };
+      },
+    });
+    return em;
+  }
+
+  render();
+  return m;
+}

@@ -60,6 +60,7 @@ import {
   validateCreditNote, validateOfflinePayment, validateResolution, validateVoid,
 } from '../finance-operations.js';
 import { fromMinorUnits, toMinorUnits } from '../payments/invoice-payments.js';
+import { creditReviewAllowsProgress } from '../credit.js';
 
 export const FINANCE_CAPABILITIES = Object.freeze({
   invoice: 'finance.invoice',
@@ -192,10 +193,27 @@ function recordAudit(actor, action, target, changes) {
 export async function issueInvoice(db, orderRef, actor, { capability = FINANCE_CAPABILITIES.invoice } = {}) {
   const outcome = await db.tx(async (c) => {
     const { rows: locked } = await c.query(
-      `select id, number, customer_id, total, currency, invoice_id
+      `select id, number, customer_id, total, currency, invoice_id, credit_review
          from orders where id = $1 or number = $1 limit 1 for update`, [orderRef]);
     const order = locked[0];
     if (!order) throw new FinanceError(404, { error: 'Order not found', code: 'NO_ORDER' });
+
+    /* Invoicing is the other protected commercial transition: it turns the
+       order into a debt on the customer's ledger, which is precisely what the
+       credit limit governs. An order the server flagged as over-limit, and
+       that nobody has approved, must not become one — otherwise the exposure
+       the review exists to control is booked anyway.
+
+       Checked on the locked row, and only for an order that already has NO
+       invoice: a re-issue of an existing invoice is idempotent and returns
+       above without reaching here. */
+    if (!creditReviewAllowsProgress(order.credit_review)) {
+      throw new FinanceError(409, {
+        error: 'That order is awaiting a credit decision, so it cannot be invoiced yet.',
+        code: 'CREDIT_REVIEW_REQUIRED',
+        creditReviewState: order.credit_review?.state || 'pending',
+      });
+    }
 
     if (order.invoice_id) {
       const { rows: existing } = await c.query(

@@ -166,7 +166,12 @@ An immutable `order credit review required` record is written in the same transa
 *"We could not tell"* is not *"yes"* — an unsupported exposure needs review rather than counting as
 approval.
 
-### 3.3 What still needs a human — NOT COMPLETE
+### 3.3 What still needs a human — **CLOSED, see `47_CREDIT_OPERATIONS.md`**
+
+> The approval workflow described below as missing was built immediately afterwards:
+> `finance.credit_review` (a capability separate from `finance.credit_limit`), a governed
+> approve/decline route, a Finance → Credit Reviews queue, and an admin credit-limit screen.
+> The original text is kept for the record.
 
 The **credit approval workflow itself is not built.** The server detects and records the condition;
 resolving it is a human step with no screen yet:
@@ -296,9 +301,8 @@ Explicitly **not** marked done:
 
 - **Real customer credit-limit assignment.** Every account reads NULL. No numerical limits were
   invented. Assigning them is a supervised, authorised act.
-- **The credit approval workflow.** Detection and recording are built; resolving a review has no
-  capability, no route and no screen — those are Veyora's decisions.
-- **The admin credit-limit screen.** The endpoint exists; the screen does not.
+- ~~The credit approval workflow.~~ **CLOSED** — see `47_CREDIT_OPERATIONS.md`.
+- ~~The admin credit-limit screen.~~ **CLOSED** — same.
 - **Capability bootstrap.** No account holds `finance.credit_limit` or any other capability.
 - **Migration rehearsal** and **deployment rehearsal** — both need a real disposable database.
 - **Production Stripe activation** and **production email activation.**

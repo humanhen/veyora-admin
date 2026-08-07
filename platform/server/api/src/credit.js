@@ -77,6 +77,37 @@ import { BASE_CURRENCY } from './currency.js';
 /** The capability that may set or clear a credit limit. */
 export const CREDIT_LIMIT_CAPABILITY = 'finance.credit_limit';
 
+/**
+ * The capability that may approve or decline ONE over-limit order.
+ *
+ * Deliberately NOT the same as `finance.credit_limit`. Raising a customer's
+ * ceiling and letting a single order through above the existing ceiling are
+ * different responsibilities with different consequences: the first is a
+ * standing commitment, the second is a one-off judgement about one order. A
+ * salesperson trusted to wave through a £4,000 order for a good customer is not
+ * thereby trusted to decide that customer may permanently owe £40,000, and the
+ * reverse is equally true.
+ *
+ * The platform already draws this distinction between `finance.record` and
+ * `finance.credit` for the same reason.
+ */
+export const CREDIT_REVIEW_CAPABILITY = 'finance.credit_review';
+
+/** Where a credit review can be in its life. */
+export const CREDIT_REVIEW_STATES = Object.freeze({
+  /* Detected at submission; nobody has decided. The order may not progress. */
+  pending: 'pending',
+  /* An authorised person allowed THIS order through as an exception. */
+  approved: 'approved',
+  /* An authorised person refused it. The order stays put rather than being
+     deleted — a declined order is a conversation, not a mistake to erase. */
+  declined: 'declined',
+});
+
+const RESOLUTIONS = Object.freeze([
+  CREDIT_REVIEW_STATES.approved, CREDIT_REVIEW_STATES.declined,
+]);
+
 /* Orders that have been committed but not yet invoiced still consume credit.
    'cancelled' never will. */
 const NON_COMMITTING_ORDER_STATUSES = Object.freeze(['cancelled']);
@@ -332,6 +363,7 @@ export async function evaluateOrderCredit(db, customerId, orderTotal, opts = {})
 export function creditReviewSnapshot(evaluation) {
   if (!evaluation?.reviewRequired) return null;
   return {
+    state: CREDIT_REVIEW_STATES.pending,
     decision: evaluation.decision,
     projectedExposureMinor: evaluation.projectedExposureMinor,
     creditLimitMinor: evaluation.creditLimitMinor,
@@ -342,7 +374,84 @@ export function creditReviewSnapshot(evaluation) {
     /* Filled in only by an authorised human decision, through its own route.
        Absent means nobody has decided yet. */
     resolvedBy: null,
+    resolvedByName: null,
     resolvedAt: null,
     resolution: null,
+    resolutionReason: null,
+  };
+}
+
+/**
+ * May an order carrying this review progress through a protected commercial
+ * transition — leaving `pending` for fulfilment, or being turned into a debt?
+ *
+ * A NULL review means no credit decision was ever required, which is the
+ * ordinary case and is allowed. Anything else must have been approved by a
+ * person. An unrecognised state is refused rather than allowed: a review whose
+ * shape this build does not understand is not one it may act on.
+ */
+export function creditReviewAllowsProgress(review) {
+  if (review === null || review === undefined) return true;
+  return review?.state === CREDIT_REVIEW_STATES.approved;
+}
+
+/**
+ * Merge an authorised decision into the stored review.
+ *
+ * THE ORIGINAL CALCULATION IS NEVER OVERWRITTEN. The snapshot taken at
+ * submission is what answers "what did the system work out at the time?", and
+ * a resolution that rewrote it would destroy the only evidence that the review
+ * was justified. Only the resolution fields are set, and they are set from the
+ * SERVER's view of the actor and the clock — never from the request.
+ *
+ * @throws {CreditError} if the review is absent, already resolved, or the
+ *   decision or reason is unusable.
+ */
+export function applyCreditReviewDecision(existing, { resolution, reason, actor, now }) {
+  if (!existing || typeof existing !== 'object') {
+    throw new CreditError(409, {
+      error: 'That order is not awaiting a credit decision.',
+      code: 'NO_CREDIT_REVIEW',
+    });
+  }
+  if (existing.state !== CREDIT_REVIEW_STATES.pending) {
+    /* Deterministic for a repeat or a stale second click: the first decision
+       stands and the caller is told whose it was, rather than the second
+       silently overwriting the first. */
+    throw new CreditError(409, {
+      error: `That credit review was already ${existing.state} by `
+        + `${existing.resolvedByName || 'another user'}.`,
+      code: 'ALREADY_RESOLVED',
+      state: existing.state,
+      resolvedAt: existing.resolvedAt ?? null,
+    });
+  }
+  if (!RESOLUTIONS.includes(resolution)) {
+    throw new CreditError(400, {
+      error: 'A credit review is either approved or declined.',
+      code: 'INVALID_RESOLUTION',
+    });
+  }
+  const stated = String(reason ?? '').trim();
+  if (!stated) {
+    throw new CreditError(400, {
+      error: 'A reason is required for a credit decision.', code: 'REASON_REQUIRED',
+    });
+  }
+  if (stated.length > 500) {
+    throw new CreditError(400, { error: 'That reason is too long.', code: 'REASON_TOO_LONG' });
+  }
+
+  /* Spread FIRST, then set: every original field survives, and the resolution
+     fields below cannot be supplied by a caller because they are written last
+     from server-side values. */
+  return {
+    ...existing,
+    state: resolution,
+    resolution,
+    resolutionReason: stated,
+    resolvedBy: actor?.id ?? null,
+    resolvedByName: actor?.business || actor?.email || 'unknown',
+    resolvedAt: now ?? new Date().toISOString(),
   };
 }

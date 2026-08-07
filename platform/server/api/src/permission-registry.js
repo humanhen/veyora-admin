@@ -175,6 +175,16 @@ const DEFINITIONS = [
       + 'written through the generic admin sync.',
   },
   {
+    key: 'finance.credit_review',
+    label: 'Approve over-limit orders',
+    description:
+      'Approve or decline ONE order that the server found would take an account over its '
+      + 'configured credit limit. Approving is a one-off exception for that order and NEVER '
+      + 'raises the customer\'s limit — that is a separate authority. A reason is required '
+      + 'either way, the decision is recorded in the append-only audit log, and the original '
+      + 'calculation taken at submission is preserved rather than overwritten.',
+  },
+  {
     key: 'finance.reconcile',
     label: 'Resolve payment exceptions',
     description:

@@ -429,8 +429,8 @@ The credit control itself is built (`46_COMMERCIAL_CREDIT_AND_PRIVACY.md`). What
 
 | ID | Why it is open | What it needs | Where | Effort | Business input |
 |---|---|---|---|---|---|
-| **PAY-015** | An over-limit order is detected, recorded and flagged — but nothing resolves the flag | A capability for approving an over-limit order, a route that records the decision into `credit_review.resolvedBy/resolvedAt/resolution`, and a staff screen listing `orders.credit_review is not null` | `api/src/credit.js`, a new admin route, `js/pages_sales.js` | M | **Yes** — who may approve, and what approval means commercially |
-| **PAY-016** | The credit-limit endpoint exists; no screen calls it | An admin screen for setting, changing and clearing a limit, showing the current exposure and its two components | `js/pages_customers.js` or `js/pages_finance.js` | S | No — but unusable until `finance.credit_limit` is granted |
+| ~~**PAY-015**~~ | ~~An over-limit order is detected but nothing resolves the flag~~ | **DONE** — `finance.credit_review`, a governed approve/decline route, and a Finance → Credit Reviews queue. See `47_CREDIT_OPERATIONS.md` | — | — | Grant the capability |
+| ~~**PAY-016**~~ | ~~The credit-limit endpoint exists; no screen calls it~~ | **DONE** — Finance → Collection & Debt → Credit. See `47_CREDIT_OPERATIONS.md` | — | — | Grant the capability |
 | **PAY-017** | Every account reads NULL | Assign real credit limits, per account, with a stated reason | supervised admin action | — | **Yes** — the limits themselves |
 
 None is a blocker for review. All three are blockers for the credit limit doing commercial work in

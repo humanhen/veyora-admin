@@ -286,6 +286,65 @@ const DB = (function(){
      surface an unrelated field the API might add later. `granted_by` and
      `revoked_by` are read-only here — the server takes the actor from the
      authenticated session and ignores anything a client might send. */
+  /* Explicit allowlists for the governed credit endpoints. Nothing is spread:
+     the screens read exactly these fields, and a field the API adds later does
+     not silently reach the UI.
+
+     Money arrives as decimal strings (major units) or integer minor units and
+     is kept exactly as sent. The browser never does the arithmetic — see the
+     note on DB.creditPosition. */
+  function shapeCreditPosition(p){
+    const o = p || {};
+    return {
+      customerId: String(o.customerId||''),
+      currency: String(o.currency||'USD'),
+      accountCurrency: String(o.accountCurrency||'USD'),
+      /* When true no figure below may be relied on, and the screen says so
+         rather than showing one. */
+      exposureUnsupported: o.exposureUnsupported === true,
+      unsupportedReason: String(o.unsupportedReason||''),
+      ledger: String(o.ledger||'0.00'),
+      uninvoiced: String(o.uninvoiced||'0.00'),
+      uninvoicedOrders: Number(o.uninvoicedOrders||0),
+      exposure: String(o.exposure||'0.00'),
+      /* null means NOT CONFIGURED. Never rendered as unlimited. */
+      creditLimitConfigured: o.creditLimitConfigured === true,
+      creditLimit: o.creditLimit==null ? null : String(o.creditLimit),
+      availableCredit: o.availableCredit==null ? null : String(o.availableCredit),
+      overLimit: o.overLimit === true,
+      overLimitBy: String(o.overLimitBy||'0.00'),
+    };
+  }
+
+  function shapeCreditReview(x){
+    const o = x || {};
+    return {
+      orderId: String(o.orderId||''),
+      orderNumber: String(o.orderNumber||''),
+      orderTotal: String(o.orderTotal||'0'),
+      orderStatus: String(o.orderStatus||''),
+      submittedAt: o.submittedAt==null?null:String(o.submittedAt),
+      customerId: String(o.customerId||''),
+      customerBusiness: String(o.customerBusiness||''),
+      paymentTerms: String(o.paymentTerms||''),
+      state: String(o.state||'pending'),
+      decision: String(o.decision||''),
+      currency: String(o.currency||'USD'),
+      /* The snapshot AS TAKEN AT SUBMISSION, in minor units. Displayed as the
+         figures the decision was actually made on — not re-derived from data
+         that has since moved. */
+      orderTotalMinor: Number(o.orderTotalMinor||0),
+      projectedExposureMinor: Number(o.projectedExposureMinor||0),
+      creditLimitMinor: o.creditLimitMinor==null?null:Number(o.creditLimitMinor),
+      overLimitByMinor: Number(o.overLimitByMinor||0),
+      evaluatedAt: o.evaluatedAt==null?null:String(o.evaluatedAt),
+      resolution: o.resolution==null?null:String(o.resolution),
+      resolutionReason: o.resolutionReason==null?null:String(o.resolutionReason),
+      resolvedByName: o.resolvedByName==null?null:String(o.resolvedByName),
+      resolvedAt: o.resolvedAt==null?null:String(o.resolvedAt),
+    };
+  }
+
   function shapePermissions(res){
     const r = res || {};
     const u = r.user || {};
@@ -908,6 +967,62 @@ const DB = (function(){
        The capability set is authorised by the SERVER on every one of these
        calls. Anything the browser believes about permissions is convenience
        only. */
+
+    /* ---- commercial credit control ----
+       Five narrowly scoped calls against the governed /admin/credit endpoints.
+       Fixed paths built here, `apiCall` still private, and every response
+       shaped through an explicit allowlist rather than spread.
+
+       THE BROWSER COMPUTES NO MONEY. Every figure below arrives from the
+       server, which derives it from the ledger plus committed uninvoiced
+       orders. Recomputing a headroom figure here would let this screen and the
+       order-time credit decision disagree about the same customer.
+
+       A 403 from any of these is the browser's only honest signal that this
+       account does not hold the capability — the session object carries a role
+       and no capabilities. */
+
+    /** One customer's authoritative credit position. */
+    async creditPosition(customerId){
+      const res = await apiCall('GET', '/admin/credit/customers/'+encodeURIComponent(customerId)+'/credit');
+      return shapeCreditPosition(res && res.position);
+    },
+
+    /** Set, change or clear a credit limit.
+        `creditLimit: ''` or null CLEARS it to "not configured", which is not
+        the same as zero. `expectedCurrentLimit` makes a concurrent overwrite
+        fail with 409 rather than silently winning. */
+    async setCreditLimit(customerId, creditLimit, reason, expectedCurrentLimit){
+      const res = await apiCall('PUT', '/admin/credit/customers/'+encodeURIComponent(customerId)+'/credit-limit',
+        { creditLimit, reason, expectedCurrentLimit });
+      return {
+        creditLimit: res && res.creditLimit==null ? null : String(res.creditLimit),
+        previousLimit: res && res.previousLimit==null ? null : String(res.previousLimit),
+        creditLimitConfigured: !!(res && res.creditLimitConfigured),
+      };
+    },
+
+    /** Orders carrying a credit decision. `state` is 'pending' (the queue),
+        'approved', 'declined', or 'all'. */
+    async creditReviews(state){
+      const res = await apiCall('GET', '/admin/credit/reviews?state='+encodeURIComponent(state||'pending'));
+      return ((res && res.reviews) || []).map(shapeCreditReview);
+    },
+
+    /** Approve or decline ONE order's credit review.
+        Approving is an exception for that order and does NOT raise the
+        customer's credit limit — the server says so in its response and this
+        screen never claims otherwise. */
+    async decideCreditReview(orderId, resolution, reason){
+      const res = await apiCall('POST', '/admin/credit/reviews/'+encodeURIComponent(orderId)+'/decision',
+        { resolution, reason });
+      return {
+        orderNumber: String((res && res.orderNumber) || ''),
+        state: String((res && res.state) || ''),
+        resolution: String((res && res.resolution) || ''),
+        creditLimitChanged: res ? res.creditLimitChanged === true : false,
+      };
+    },
 
     /** The fixed capability registry. A 403 here is the browser's only honest
         signal that this account does not hold permissions.manage, because the
