@@ -28,7 +28,8 @@ import { ADMIN_ORDERS_SQL, ADMIN_ORDERS_COUNT_SQL, ADMIN_ORDER_ONE_SQL,
          orderRowToJs, backorderRowToJs, resolveLimit, listCompleteness,
          sanitizeOrderPatch, orderUpdateSql, describeOrderPatch,
          recomputeOrderTotal, checkSyncPayload,
-         isFinancialActor, patchTouchesMoney } from '../admin-data.js';
+         isFinancialActor, patchTouchesMoney,
+         canTransitionOrder, transitionRefusal } from '../admin-data.js';
 import { describeAccess } from '../admin-access.js';
 /* The single governed implementation of "turn an order into a debt". This
    route is one of its two entry points — see the delegation note below. */
@@ -479,11 +480,22 @@ r.patch('/orders/:id', async (req, res, next) => {
         `select * from orders where id=$1 or number=$1 for update`, [req.params.id]);
       const order = locked[0];
       if (!order) return { status: 404, body: { error: 'Order not found' } };
-      /* A shipped order is a dispatched one. Re-opening it from a list screen
-         would contradict what the customer has already been told. */
-      if (order.status === 'shipped' && patch.fields.status
-          && patch.fields.status !== 'shipped') {
-        return { status: 409, body: { error: 'That order has already shipped' } };
+      /* ---- THE ORDER TRANSITION CONTRACT ----
+         Checked against the status the order ACTUALLY has, on the row we hold
+         locked — not against the one the client believes it has. This replaces
+         a guard that covered only `shipped`: everything else could move
+         anywhere, so a cancelled order could be revived into processing and a
+         completed one sent back to pending from a list screen.
+
+         The contract admits exactly the workflows already implemented and
+         invents no new lifecycle — see ORDER_TRANSITIONS in admin-data.js. */
+      if (patch.fields.status && !canTransitionOrder(order.status, patch.fields.status)) {
+        return { status: 409, body: {
+          error: transitionRefusal(order.status, patch.fields.status),
+          code: 'INVALID_ORDER_TRANSITION',
+          from: order.status,
+          to: patch.fields.status,
+        } };
       }
 
       /* ---- THE PROTECTED COMMERCIAL TRANSITION ----

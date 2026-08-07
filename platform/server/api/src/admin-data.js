@@ -348,6 +348,92 @@ export function checkSyncPayload(changes) {
 export const ORDER_STATUSES = ['pending', 'processing', 'approved', 'collecting',
   'collected', 'completed', 'shipped', 'cancelled'];
 
+/* ---------------------------------------------------------------------------
+   The order transition contract
+   ---------------------------------------------------------------------------
+
+   `sanitizeOrderPatch` checked that a status was one of the eight, and nothing
+   checked it against the status the order already had. So `PATCH /admin/orders`
+   would move an order anywhere: a cancelled order could be revived into
+   processing, and a completed one sent back to pending as though nothing had
+   happened. (`shipped` was already guarded separately, so the specific
+   `pending → shipped → pending` example in the older handover notes has not
+   been reachable for some time — the class of defect was real, that instance
+   was not.)
+
+   THIS IS NOT A NEW LIFECYCLE. It is the smallest closed contract that admits
+   exactly the workflows already implemented, using only the existing statuses:
+
+     - the warehouse flow the panel drives:
+         pending → collecting → collected → completed → shipped
+     - the free status dropdown staff use to correct a mis-set status;
+     - the deliberate collection reset — `admin.js` clears collected counts
+       when an order goes back to `pending`, which the panel relies on;
+     - cancellation, from anywhere.
+
+   THE WORKING SET is the five states before an order is finished. They are
+   freely interchangeable on purpose: a status set in error must be correctable,
+   and being stricter here would break the dropdown that operations use daily.
+
+   COMPLETED is progress. It may still go forward to `shipped`, or be
+   `cancelled`, but not back into the working set — "this order is finished"
+   is not something a list screen should be able to quietly retract.
+
+   TERMINAL states are `shipped` and `cancelled`. A shipped order has been
+   dispatched and the customer told; a cancelled one must not silently revive.
+   Neither has an exit here. Reversing one is a real commercial event that
+   deserves a deliberate, audited action of its own — not a dropdown. */
+
+const ORDER_WORKING_SET = Object.freeze(
+  ['pending', 'processing', 'approved', 'collecting', 'collected']);
+
+export const TERMINAL_ORDER_STATUSES = Object.freeze(['shipped', 'cancelled']);
+
+export const ORDER_TRANSITIONS = Object.freeze({
+  pending: Object.freeze([...ORDER_WORKING_SET, 'completed', 'shipped', 'cancelled']),
+  processing: Object.freeze([...ORDER_WORKING_SET, 'completed', 'shipped', 'cancelled']),
+  approved: Object.freeze([...ORDER_WORKING_SET, 'completed', 'shipped', 'cancelled']),
+  collecting: Object.freeze([...ORDER_WORKING_SET, 'completed', 'shipped', 'cancelled']),
+  collected: Object.freeze([...ORDER_WORKING_SET, 'completed', 'shipped', 'cancelled']),
+  completed: Object.freeze(['completed', 'shipped', 'cancelled']),
+  shipped: Object.freeze(['shipped']),
+  cancelled: Object.freeze(['cancelled']),
+});
+
+/**
+ * May an order move from `from` to `to`?
+ *
+ * Staying put is always allowed — a patch that sets the status it already has
+ * is a no-op, not a violation, and refusing it would make an idempotent retry
+ * an error.
+ *
+ * An UNKNOWN current status is refused rather than allowed. A row in a state
+ * this build does not recognise is not one it should be moving.
+ */
+export function canTransitionOrder(from, to) {
+  const current = String(from ?? '').toLowerCase();
+  const next = String(to ?? '').toLowerCase();
+  if (!ORDER_STATUSES.includes(next)) return false;
+  if (current === next) return true;
+  const allowed = ORDER_TRANSITIONS[current];
+  return Array.isArray(allowed) && allowed.includes(next);
+}
+
+/** The sentence a refused transition gets. Says what is possible, not just no. */
+export function transitionRefusal(from, to) {
+  const current = String(from ?? '').toLowerCase();
+  if (TERMINAL_ORDER_STATUSES.includes(current)) {
+    return current === 'shipped'
+      ? 'That order has already shipped'
+      : 'That order was cancelled and cannot be reopened from here.';
+  }
+  if (current === 'completed') {
+    return 'That order is completed. It can still be shipped or cancelled, but not '
+      + 'returned to an earlier stage from here.';
+  }
+  return `An order cannot move from ${current || 'an unknown state'} to ${String(to ?? '')}.`;
+}
+
 export const TRACKING_CARRIERS = ['UPS', 'DHL', 'GLS'];
 
 /* Keys a caller might send that this endpoint must NEVER apply. Item lines,

@@ -374,7 +374,11 @@ test('the order patch route locks the row and refuses to un-ship an order', () =
   const src = codeOf('platform/server/api/src/routes/admin.js');
   assert.match(src, /select \* from orders where id=\$1 or number=\$1 for update/,
     'the row is locked before it is read and written');
-  assert.match(src, /order\.status === 'shipped'[\s\S]{0,140}already shipped/);
+  /* The shipped-only guard became a full transition contract, so the property
+     is now asserted through the mechanism that enforces it — checked against
+     the LOCKED row's real status, not against anything the client sent. */
+  assert.match(src, /canTransitionOrder\(order\.status, patch\.fields\.status\)/);
+  assert.match(src, /INVALID_ORDER_TRANSITION/);
   assert.match(src, /recomputeOrderTotal\(items, cur\[0\]\.discount, cur\[0\]\.discount_pct\)/,
     'the total comes from the stored lines, not the request');
 });

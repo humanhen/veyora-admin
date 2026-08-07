@@ -20,13 +20,10 @@
 
    Astro's node adapter derives `clientAddress` from the LEFT-MOST
    `X-Forwarded-For` entry. Caddy APPENDS the peer it observed to whatever the
-   client sent, so a request carrying
+   client sent, so a request arriving with a forged entry already in that
+   header reaches Astro as
 
-       X-Forwarded-For: 1.2.3.4
-
-   arrives at Astro as
-
-       X-Forwarded-For: 1.2.3.4, <the real client>
+       X-Forwarded-For: <whatever the client invented>, <the real client>
 
    and the left-most entry is the value the client chose. Using it would let
    anyone mint a fresh throttle identity per request — which is precisely the
