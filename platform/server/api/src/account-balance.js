@@ -22,6 +22,8 @@
    the way to the response: converting to a JS number to add three invoices
    together is how a balance ends up at 4079.999999999999. */
 
+import { creditPosition } from './credit.js';
+
 /** Cents from a `numeric` string, without ever going through a float. */
 function toCents(value) {
   const s = String(value ?? '0').trim();
@@ -77,10 +79,18 @@ export async function accountBalance(db, customerId) {
     .filter((i) => !SETTLED_STATES.includes(String(i.settlement_state || 'on_terms')))
     .reduce((sum, i) => sum + toCents(i.amount), 0);
 
+  /* THE CREDIT POSITION COMES FROM ONE PLACE.
+     `creditPosition()` in credit.js is the same calculation the server uses to
+     decide whether an order needs a credit review. Recomputing headroom here
+     from `users.balance` alone — as this did — would let the customer's screen
+     and the order-time decision disagree: the screen would omit committed but
+     not-yet-invoiced orders, so it could promise headroom that an order would
+     then be held for exceeding. One definition, two readers. */
+  const position = await creditPosition(db, customerId);
+
   /* NULL is "not configured". It is never coerced to 0 and never to Infinity:
      0 would say the customer may order nothing, Infinity would say anything. */
-  const limitConfigured = u.credit_limit !== null && u.credit_limit !== undefined;
-  const limitCents = limitConfigured ? toCents(u.credit_limit) : null;
+  const limitConfigured = position.creditLimitConfigured;
   const balanceCents = toCents(u.balance);
 
   return {
@@ -90,12 +100,27 @@ export async function accountBalance(db, customerId) {
     outstanding: fromCents(outstanding),
 
     creditLimitConfigured: limitConfigured,
-    creditLimit: limitConfigured ? fromCents(limitCents) : null,
-    /* Headroom only exists once a limit does. `null` here means "we cannot
-       say", which is the truth, and the page renders no figure rather than a
-       reassuring one. */
-    creditAvailable: limitConfigured ? fromCents(limitCents - balanceCents) : null,
-    overLimit: limitConfigured ? balanceCents > limitCents : false,
+    creditLimit: position.creditLimit,
+    /* Headroom only exists once a limit does. `null` means "we cannot say",
+       which is the truth, and the page renders no figure rather than a
+       reassuring one. Clamped at zero: "how much more may I order" has no
+       negative answer — the shortfall is reported separately as `overLimitBy`
+       so the clamp loses nothing. */
+    creditAvailable: position.availableCredit,
+    overLimit: position.overLimit,
+    overLimitBy: position.overLimitBy,
+
+    /* What the headroom was calculated against, so the figure can be
+       understood rather than merely trusted: the settled ledger, plus orders
+       placed and not yet invoiced. */
+    exposure: position.exposure,
+    exposureLedger: position.ledger,
+    exposureUninvoiced: position.uninvoiced,
+    exposureUninvoicedOrders: position.uninvoicedOrders,
+    /* True when the account holds orders in more than one currency, so no
+       honest single figure exists. The page says so instead of showing one. */
+    exposureUnsupported: position.exposureUnsupported,
+    exposureUnsupportedReason: position.unsupportedReason,
 
     invoices: invoices.map((i) => ({
       id: String(i.id),

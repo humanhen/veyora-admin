@@ -5,8 +5,13 @@
 import { q } from './db.js';
 
 export const ALLOWED_CURRENCIES = ['USD', 'CAD', 'EUR'];
+/* The currency every stored amount is denominated in — order totals, ledger
+   balances, invoice amounts. Account currency and the rate are stamped
+   alongside for display. Named here rather than repeated as a literal, so a
+   module that must NOT silently mix currencies can say which one it means. */
+export const BASE_CURRENCY = 'USD';
 const SYMBOLS = { USD: '$', CAD: 'CA$', EUR: '€' };
-const DEFAULT_FX = { base: 'USD', rates: { USD: 1, CAD: 1.37, EUR: 0.92 } };
+const DEFAULT_FX = { base: BASE_CURRENCY, rates: { USD: 1, CAD: 1.37, EUR: 0.92 } };
 
 let _cache = null;
 let _cacheAt = 0;

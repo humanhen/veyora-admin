@@ -16,6 +16,7 @@ import adminInventoryRoutes from './routes/admin-inventory.js';
 import adminCustomerContactRoutes from './routes/admin-customer-contacts.js';
 import adminPaymentRoutes from './routes/admin-payments.js';
 import adminFinanceRoutes from './routes/admin-finance.js';
+import adminCreditRoutes from './routes/admin-credit.js';
 import { adminInvoiceDocumentRoutes, customerInvoiceDocumentRoutes } from './routes/invoice-documents.js';
 import adminStatementRoutes, { buildStatementFor } from './routes/admin-statements.js';
 import { markStatementSentOnDelivery, statementAttachmentResolver } from './notifications/statement-delivery.js';
@@ -146,6 +147,7 @@ app.use('/admin/payments', adminPaymentRoutes);
    append-only finance_events row carrying the prior balance, the new balance,
    the reason and the actor. */
 app.use('/admin/finance', adminFinanceRoutes);
+app.use('/admin/credit', adminCreditRoutes);
 
 /* Generated invoice documents (Final Handover Phase 5). Gated on
    payments.view: reading an invoice document is reading the payment state of

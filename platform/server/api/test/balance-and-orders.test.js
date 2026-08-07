@@ -33,6 +33,8 @@ function db(world = {}) {
       currency: 'usd', payment_terms: 'Net 30',
     }],
     invoices: [], payments: [], credit_notes: [],
+    /* Committed but not yet invoiced orders, which count toward exposure. */
+    orders: [],
     ...world,
   };
   return {
@@ -48,6 +50,20 @@ function db(world = {}) {
       if (s.startsWith('select id, number, amount')) return { rows: w.invoices };
       if (s.startsWith('select id, amount, method')) return { rows: w.payments };
       if (s.startsWith('select id, amount, reason')) return { rows: w.credit_notes };
+      /* The uninvoiced-order term of the exposure, asked by creditPosition(). */
+      if (s.startsWith('select coalesce(sum(total), 0)')) {
+        const mine = w.orders.filter(o => o.customer_id === id
+          && !o.invoice_id && o.status !== 'cancelled');
+        const currencies = new Set(mine.map(o => (o.currency || 'USD').toUpperCase()));
+        return {
+          rows: [{
+            total: mine.reduce((sum, o) => sum + Number(o.total || 0), 0).toFixed(2),
+            orders: mine.length,
+            currencies: currencies.size,
+            sample_currency: [...currencies].sort()[0] ?? 'USD',
+          }],
+        };
+      }
       throw new Error(`unexpected query: ${s.slice(0, 80)}`);
     },
   };
@@ -84,7 +100,10 @@ test('being over the limit is reported as such', async () => {
   const d = db({ users: [{ id: 'cust-a', balance: '12500.00', credit_limit: '10000.00', currency: 'USD', payment_terms: '' }] });
   const b = await accountBalance(d, 'cust-a');
   assert.equal(b.overLimit, true);
-  assert.equal(b.creditAvailable, '-2500.00', 'the shortfall is a real number, not a clamp');
+  /* Headroom clamps at zero — "how much more may I order" has no negative
+     answer — and the shortfall is reported separately, so nothing is lost. */
+  assert.equal(b.creditAvailable, '0.00');
+  assert.equal(b.overLimitBy, '2500.00');
 });
 
 test('a zero credit limit is configured — it is not the same as unset', async () => {

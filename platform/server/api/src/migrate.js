@@ -1031,4 +1031,46 @@ export async function ensureSchema() {
      shows no headroom rather than implying either a limit or the absence of
      one. */
   await q(`alter table users add column if not exists credit_limit numeric(12,2)`);
+
+  /* ---- commercial credit control (mirrors db/migrations/0018) ----
+
+     `finance.credit_limit` is a capability of its own because deciding how
+     much a customer may owe is a different authority from recording what they
+     paid or forgiving what they owe — the same reasoning that already
+     separates `finance.record` from `finance.credit`.
+
+     GRANTS NOTHING. This widens the set of keys that may exist; no row is
+     inserted, so the first grant is still a supervised bootstrap. */
+  await q(`alter table account_permissions
+    drop constraint if exists account_permissions_permission_key_registered`);
+  await q(`alter table account_permissions
+    add constraint account_permissions_permission_key_registered
+    check (permission_key in (
+      'public_content.view',
+      'public_content.edit',
+      'public_content.publish',
+      'permissions.manage',
+      'enquiries.view',
+      'enquiries.manage',
+      'customer_contacts.view',
+      'customer_contacts.manage',
+      'payments.view',
+      'payments.collect',
+      'payments.refund',
+      'payments.reconcile',
+      'finance.invoice',
+      'finance.record',
+      'finance.credit',
+      'finance.credit_limit',
+      'finance.reconcile',
+      'statements.send'
+    ))`);
+
+  /* Present ONLY when an order needs an authorised credit decision, so an
+     absent snapshot can never be mistaken for a passed check. Deliberately not
+     a new order status: the platform has one order state machine and a
+     parallel one would be a far larger change than this needs. */
+  await q(`alter table orders add column if not exists credit_review jsonb`);
+  await q(`create index if not exists orders_credit_review_idx
+    on orders (customer_id, created_at desc) where credit_review is not null`);
 }

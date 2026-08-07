@@ -36,10 +36,20 @@ const contactMigrationSql = fs.readFileSync(path.join(MIGRATIONS, '0012_customer
 const paymentMigrationSql = fs.readFileSync(path.join(MIGRATIONS, '0013_stripe_payments.sql'), 'utf8');
 const financeMigrationSql = fs.readFileSync(path.join(MIGRATIONS, '0014_finance_operations.sql'), 'utf8');
 const statementMigrationSql = fs.readFileSync(path.join(MIGRATIONS, '0015_account_statements.sql'), 'utf8');
-/* Every migration that has widened the capability CHECK. The widening one is
-   always the LAST of these — see 6b, which reads `latestWidenedSql`. */
-const allMigrationSql = `${migrationSql}\n${enquiryMigrationSql}\n${contactMigrationSql}\n${paymentMigrationSql}\n${financeMigrationSql}\n${statementMigrationSql}`;
-const latestWidenedSql = statementMigrationSql;
+/* Every migration that widens the capability CHECK, DISCOVERED rather than
+   listed. The list used to be hand-maintained, which meant each new capability
+   needed this file edited before the superset check could even see the
+   migration that added it — a boundary test that has to be updated to keep
+   working is one that gets updated carelessly. Numeric order is migration
+   order, so the last match is the current CHECK. */
+const WIDENING_MIGRATIONS = fs.readdirSync(MIGRATIONS)
+  .filter((f) => f.endsWith('.sql'))
+  .sort()
+  .filter((f) => fs.readFileSync(path.join(MIGRATIONS, f), 'utf8').includes('permission_key in'));
+const allMigrationSql = WIDENING_MIGRATIONS
+  .map((f) => fs.readFileSync(path.join(MIGRATIONS, f), 'utf8')).join('\n');
+const latestWidenedSql = fs.readFileSync(
+  path.join(MIGRATIONS, WIDENING_MIGRATIONS[WIDENING_MIGRATIONS.length - 1]), 'utf8');
 const migrateJs = fs.readFileSync(path.join(SRC, 'migrate.js'), 'utf8');
 const managementCode = stripComments(fs.readFileSync(path.join(SRC, 'routes', 'account-permissions.js'), 'utf8'));
 const publicContentCode = stripComments(fs.readFileSync(path.join(SRC, 'routes', 'admin-public-content.js'), 'utf8'));

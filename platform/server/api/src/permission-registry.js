@@ -159,6 +159,21 @@ const DEFINITIONS = [
       'Reduce what a customer owes without money arriving. Always requires a stated reason. This is '
       + 'deliberately not implied by being able to record a payment.',
   },
+  /* Commercial credit control. A third authority, separate from both of the
+     above for the same reason they are separate from each other: recording
+     money that arrived, forgiving money that is owed, and deciding how much a
+     customer may owe in future are three different acts. The first two record
+     something that has already happened; this one COMMITS VEYORA TO RISK. */
+  {
+    key: 'finance.credit_limit',
+    label: 'Set customer credit limits',
+    description:
+      'Set, change or clear the credit limit on a customer account — the ceiling on what they '
+      + 'may owe at once. Clearing it returns the account to "not configured", which is not the '
+      + 'same as zero. Every change records the previous value, the new value, who made it and '
+      + 'why, in the append-only audit log. Customers can never reach this, and it cannot be '
+      + 'written through the generic admin sync.',
+  },
   {
     key: 'finance.reconcile',
     label: 'Resolve payment exceptions',

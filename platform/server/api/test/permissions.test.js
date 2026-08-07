@@ -108,6 +108,7 @@ test('the registry contains exactly the approved capabilities', () => {
     'finance.invoice',
     'finance.record',
     'finance.credit',
+    'finance.credit_limit',
     'finance.reconcile',
     'statements.send',
   ]);
@@ -117,10 +118,17 @@ test('the registry contains exactly the approved capabilities', () => {
    look identical on a balance and are completely different events; the person
    who keys in bank transfers all day should not be able to write off an
    invoice. */
-test('finance capabilities keep recording and crediting apart', () => {
+test('finance capabilities keep recording, crediting and limiting apart', () => {
+  /* `finance.credit_limit` is a THIRD authority, separate from both for the
+     same reason they are separate from each other. Recording a payment and
+     issuing a credit note both record something that has already happened;
+     setting a credit limit commits Veyora to future risk. */
   const finance = PERMISSION_KEYS.filter((k) => k.startsWith('finance.'));
   assert.deepEqual(finance,
-    ['finance.invoice', 'finance.record', 'finance.credit', 'finance.reconcile']);
+    ['finance.invoice', 'finance.record', 'finance.credit', 'finance.credit_limit',
+     'finance.reconcile']);
+  assert.ok(!PERMISSION_KEYS.includes('finance.credit_limits'),
+    'one key, not a near-duplicate that would silently confer nothing');
   for (const forbidden of ['finance.*', 'finance.manage', 'finance.all']) {
     assert.ok(!PERMISSION_KEYS.includes(forbidden), forbidden + ' must not be a key');
   }

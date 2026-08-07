@@ -35,22 +35,46 @@ Routes['#/balance'] = {
     /* The credit block is built as one of two mutually exclusive shapes, so
        there is no path where a headroom figure is rendered from a limit that
        does not exist. */
-    const creditBlock = b.creditLimitConfigured
-      ? `<div class="bal-stat">
-           <div class="bal-k">Credit limit</div>
-           <div class="bal-v">${cur(b.creditLimit)}</div>
-         </div>
-         <div class="bal-stat${b.overLimit ? ' over' : ''}">
-           <div class="bal-k">${b.overLimit ? 'Over limit by' : 'Credit available'}</div>
-           <div class="bal-v">${cur(b.overLimit
-             ? String(Math.abs(Number(b.creditAvailable))) : b.creditAvailable)}</div>
-         </div>`
-      : `<div class="bal-stat bal-unset">
+    /* Three mutually exclusive shapes, so there is no path where a headroom
+       figure is rendered from a limit that does not exist, or from an exposure
+       the server said it could not compute honestly. */
+    const creditBlock = !b.creditLimitConfigured
+      ? `<div class="bal-stat bal-unset">
            <div class="bal-k">Credit limit</div>
            <div class="bal-v">Not configured</div>
            <div class="bal-note">No credit limit has been set for this account.
              Please contact us if you need one.</div>
-         </div>`;
+         </div>`
+      : b.exposureUnsupported
+        ? `<div class="bal-stat">
+             <div class="bal-k">Credit limit</div>
+             <div class="bal-v">${cur(b.creditLimit)}</div>
+           </div>
+           <div class="bal-stat bal-unset">
+             <div class="bal-k">Credit available</div>
+             <div class="bal-v">Unavailable</div>
+             <div class="bal-note">${esc(b.exposureUnsupportedReason
+               || 'This figure cannot be shown for this account.')}</div>
+           </div>`
+        : `<div class="bal-stat">
+             <div class="bal-k">Credit limit</div>
+             <div class="bal-v">${cur(b.creditLimit)}</div>
+           </div>
+           <div class="bal-stat">
+             <div class="bal-k">Current exposure</div>
+             <div class="bal-v">${cur(b.exposure)}</div>
+             <div class="bal-note">${cur(b.exposureLedger)} on account${
+               Number(b.exposureUninvoicedOrders) > 0
+                 ? ` · ${cur(b.exposureUninvoiced)} in ${b.exposureUninvoicedOrders} order${
+                   Number(b.exposureUninvoicedOrders) === 1 ? '' : 's'} not yet invoiced`
+                 : ''}</div>
+           </div>
+           <div class="bal-stat${b.overLimit ? ' over' : ''}">
+             <div class="bal-k">${b.overLimit ? 'Over limit by' : 'Credit available'}</div>
+             <div class="bal-v">${cur(b.overLimit ? b.overLimitBy : b.creditAvailable)}</div>
+             ${b.overLimit ? `<div class="bal-note">New orders may need to be
+               approved before they are processed.</div>` : ''}
+           </div>`;
 
     wrap.innerHTML = `
       <div class="card"><div class="pad">

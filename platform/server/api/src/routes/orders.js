@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { q, tx, audit } from '../db.js';
+import { q, tx, audit, auditIn } from '../db.js';
 import { requireAuth } from '../authmw.js';
 import { round2, allocateCommercials } from '../pricing.js';
 import { cartSummary } from './cart.js';
@@ -15,6 +15,7 @@ import { resolveOrderingCustomer, orderingContextShape, sanitizeOrderNote,
          orderLinesForLocking } from '../ordering.js';
 import { afterCommit, afterCommitDetached } from '../postcommit.js';
 import { listReturnableOrders, buildReturn, searchExchangeVariations } from '../returns.js';
+import { evaluateOrderCredit, creditReviewSnapshot } from '../credit.js';
 
 const r = Router();
 r.use(requireAuth());
@@ -28,6 +29,9 @@ function orderShape(o, items) {
     tracking: o.tracking, comments: o.comments, invoiceId: o.invoice_id,
     shippingAddress: o.shipping_address, billingAddress: o.billing_address,
     promo: o.promo, currency: o.currency, fxRate: o.fx_rate, createdAt: o.created_at,
+    /* Present ONLY when the order needs an authorised credit decision. An
+       absent value means no decision was required — never that one passed. */
+    creditReview: o.credit_review ?? null,
     items: items?.map(i => ({
       id: i.id, sku: i.sku, name: i.name, color: i.color,
       // Model number is the PRODUCT sku, never a slice of the variation sku —
@@ -276,12 +280,27 @@ r.post('/place-order', async (req, res, next) => {
         const discount = commercials.order.discount;
         const total = commercials.order.total;
         const { rows: num } = await c.query(`select 'SO' || nextval('order_number_seq') as n`);
+        /* ---- COMMERCIAL CREDIT EVALUATION ----
+           Server-authoritative and inside this transaction, so the exposure it
+           reads is the exposure this order is about to join. `total` is the
+           figure the SERVER priced from the customer's own pricing profile —
+           the request body carries no total, no balance, no limit and no credit
+           verdict, and none would be read if it did.
+
+           This does NOT reject the order. Veyora's commercial model is credit
+           CHECKING with an approval stage: a legitimate order above the limit
+           is a conversation, not an error. What the snapshot guarantees is that
+           such an order can never be mistaken for one that passed a credit
+           check — an ordinary order carries NULL here. */
+        const creditEvaluation = await evaluateOrderCredit(c, customer.id, total);
+        const creditReview = creditReviewSnapshot(creditEvaluation);
+
         const { rows: ord } = await c.query(`
           insert into orders (number, customer_id, agent_id, source, status, order_date,
                               discount, free_shipping, shipping, total,
                               shipping_address, billing_address, promo, currency, fx_rate,
-                              comments)
-          values ($1,$2,$3,$4,'pending',current_date,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+                              comments, credit_review)
+          values ($1,$2,$3,$4,'pending',current_date,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
           returning *`,
           [num[0].n, customer.id, placedByStaff ? user.id : customer.agent_id,
            placedByStaff ? 'agent' : 'customer', discount,
@@ -299,8 +318,23 @@ r.post('/place-order', async (req, res, next) => {
            JSON.stringify(note
              ? [{ by: `${customer.business || customer.email} (order note)`,
                   text: note, at: new Date().toISOString() }]
-             : [])]);
+             : []),
+           creditReview ? JSON.stringify(creditReview) : null]);
         order = ord[0];
+
+        /* An order needing a credit decision leaves an immutable record of the
+           decision and the figures it was made on. Written INSIDE the
+           transaction: if the order does not exist, neither does the claim
+           that it was reviewed. */
+        if (creditReview) {
+          await auditIn(c,
+            { id: user.id, name: customer.business || customer.email || customer.id, role: user.role || '' },
+            'order credit review required', ord[0].number,
+            `projected exposure ${creditEvaluation.projectedExposure}`
+              + ` vs limit ${creditEvaluation.creditLimit ?? 'not configured'}`,
+            'web',
+            JSON.stringify({ orderId: ord[0].id, customerId: customer.id, ...creditReview }));
+        }
         for (const i of orderItems) {
           await c.query(`
             insert into order_items (order_id, sku, name, color, qty, collected, price, note, labels)
