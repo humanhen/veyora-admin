@@ -404,7 +404,7 @@ App.register('product',function(el,args){
       </div>
       <div class="flex-col">
         <div class="card card-pad">
-          <div class="card-title">💰 Pricing (Multi-Currency)</div>
+          <div class="card-title">${I.money} Pricing (Multi-Currency)</div>
           <div class="price-cards">
             <div class="price-card"><div class="cur">USD</div><div class="val">$${(usd||0).toFixed(2)}</div>
               <div class="sale">Sale: ${p.salePrice!=null?'$'+p.salePrice.toFixed(2):'$—'}</div></div>
@@ -810,7 +810,7 @@ App.register('stock-csv',function(el){
   <div class="card card-pad" style="margin-top:14px">
     <div class="flex">
       <button class="btn" id="sc-tpl">${I.download} Download Template</button>
-      <button class="btn" id="sc-choose">📎 Choose CSV</button>
+      <button class="btn" id="sc-choose">${I.fileCsv} Choose CSV</button>
       <button class="btn btn-dark" id="sc-apply" disabled>${I.upload} Apply Stock Update</button>
     </div>
     <div id="sc-preview" style="margin-top:14px"></div>
@@ -852,7 +852,7 @@ App.register('inventory-csv',function(el){
   <div class="card card-pad" style="margin-top:14px">
     <div class="flex">
       <button class="btn" id="ic-tpl">${I.download} Download Template</button>
-      <button class="btn" id="ic-choose">📎 Choose CSV</button>
+      <button class="btn" id="ic-choose">${I.fileCsv} Choose CSV</button>
       <button class="btn btn-dark" id="ic-apply" disabled>${I.upload} Apply Inventory Changes</button>
     </div>
     <div id="ic-preview" style="margin-top:14px"></div>
@@ -923,21 +923,21 @@ App.register('import-data',function(el){
       inner=`
       <div class="info-banner">${I.eye}<div>Upload a CSV file to import or update customer records. Existing customers (matched by email) will be updated.</div></div>
       <button class="btn" id="id-tpl" style="margin-top:12px">${I.download} Download Template</button>
-      <div class="upload-zone" id="id-up" style="margin-top:12px">📄 Choose Customers CSV File</div>
+      <div class="upload-zone" id="id-up" style="margin-top:12px">${I.fileCsv} Choose Customers CSV File</div>
       <button class="btn btn-dark" id="id-apply" style="margin-top:12px;width:100%;justify-content:center" disabled>${I.upload} Upload Customers CSV</button>
       <div id="id-note" class="small" style="margin-top:8px"></div>`;
     }else if(state.tab==='Balances'){
       inner=`
       <div class="info-banner">${I.eye}<div>Update a customer's opening balance by email. Columns: <b>email, balance</b>.</div></div>
       <button class="btn" id="ib-tpl" style="margin-top:12px">${I.download} Download Template</button>
-      <div class="upload-zone" id="ib-up" style="margin-top:12px">📄 Choose Balances CSV File</div>
+      <div class="upload-zone" id="ib-up" style="margin-top:12px">${I.fileCsv} Choose Balances CSV File</div>
       <div id="ib-note" class="small" style="margin-top:8px"></div>`;
     }else{
       inner=`
       <div class="info-banner">${I.eye}<div>Upload account-statement documents (PDF) for customers.</div></div>
       <div class="field" style="margin-top:12px"><label>Customer</label>
         <select class="select" id="is-cust">${DB.d.users.filter(u=>['customer','special customer'].includes(u.role)).map(c=>`<option value="${c.id}">${esc(c.business)}</option>`).join('')}</select></div>
-      <div class="upload-zone" id="is-up" style="margin-top:12px">📄 Choose PDF statement</div>
+      <div class="upload-zone" id="is-up" style="margin-top:12px">${I.pdf} Choose PDF statement</div>
       <div id="is-note" class="small" style="margin-top:8px"></div>`;
     }
     el.innerHTML=`

@@ -11,15 +11,15 @@ Routes['#/cart'] = {
       const cart = noteOrderingFx(await API.get(withOrderingContext('/user/get-cart')));
       setCartBadge(cart.totalQty);
       if (!cart.items.length) {
-        box.innerHTML = `<div class="card"><div class="empty"><div class="big">🛒</div>
+        box.innerHTML = `<div class="card"><div class="empty"><div class="big">${emptyIcon('cart')}</div>
           Your cart is empty<br/><br/>
           <button class="btn" onclick="location.hash='#/products'">Browse products</button></div></div>`;
         return;
       }
       const hide = Store.session.user.hidePrices;
       box.innerHTML = `
-        ${cart.promotion ? `<div class="promo-banner">🎁 ${esc(cart.promotion.name)} applied — you save ${money(cart.promotion.discount)}</div>` : ''}
-        ${cart.backorderQty ? `<div class="bo-banner">📦 <b>${cart.backorderQty === 1
+        ${cart.promotion ? `<div class="promo-banner">${icon('gift')} ${esc(cart.promotion.name)} applied — you save ${money(cart.promotion.discount)}</div>` : ''}
+        ${cart.backorderQty ? `<div class="bo-banner">${icon('package')} <b>${cart.backorderQty === 1
             ? 'One item is not in stock.' : `${cart.backorderQty} items are not in stock.`}</b>
           ${cart.allowBackorders === false
             ? `Stock changed since you added them. Please reduce those lines to the quantity shown before checking out.`
@@ -45,11 +45,11 @@ Routes['#/cart'] = {
             <div class="nm">${esc(i.name || i.sku)}${i.color ? ` <span class="sub">· ${esc(i.color)}</span>` : ''}</div>
             <div class="meta">${identityLine(i)}</div>
             ${i.backorderQty ? `<div class="meta bo-split">${esc(stockSplitLabel(i.inStockQty, i.backorderQty))}</div>` : ''}
-            <div class="meta"><a href="javascript:void 0" class="noteLink">${i.note ? '✎ ' + esc(i.note) : '+ add note'}</a></div>
+            <div class="meta"><a href="javascript:void 0" class="noteLink">${i.note ? icon('pencil', { size: 13 }) + ' ' + esc(i.note) : '+ add note'}</a></div>
           </div>
           ${qtyBox(i.qty, 0, cart.allowBackorders === false ? i.available : null)}
           ${hide ? '' : `<div class="lt">${money(i.lineTotal)}</div>`}
-          <button class="icon-btn" style="color:var(--muted);font-size:16px" title="Remove">🗑</button>
+          <button class="icon-btn" style="color:var(--muted);font-size:16px" title="Remove" aria-label="Remove">${icon('trash', { size: 16 })}</button>
         </div>`).join('');
 
       lines.querySelectorAll('.cart-line').forEach(line => {
@@ -97,7 +97,7 @@ Routes['#/cart'] = {
             <span>${esc(x.name)} <span class="sub">(${x.itemCount} pcs)</span></span>
             <span>
               <button class="btn ghost sm" data-load="${esc(x.id)}">Load</button>
-              <button class="btn ghost sm" data-del="${esc(x.id)}">✕</button>
+              <button class="btn ghost sm" data-del="${esc(x.id)}" aria-label="Remove">${icon('x', { size: 14 })}</button>
             </span>
           </div>`).join('');
       dbox.querySelectorAll('[data-load]').forEach(b => b.onclick = async () => {
@@ -311,7 +311,7 @@ Routes['#/thank-you'] = {
       </div>`;
 
     el.innerHTML = `<div class="card"><div class="empty">
-      <div class="big">${order ? '✅' : '📦'}</div>
+      <div class="big">${order ? emptyIcon('checkCircle') : emptyIcon('package')}</div>
       <h2 style="margin-bottom:8px">Thank you!</h2>
       ${res?.placedForCustomer ? `<p class="sub">Placed for <b>${esc(res.placedForCustomer.business || '')}</b>.</p>` : ''}
       ${order ? `<p>Your order <b>${esc(order.number)}</b> has been received.${

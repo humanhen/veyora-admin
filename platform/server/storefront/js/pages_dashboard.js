@@ -56,7 +56,7 @@ Routes['#/dashboard'] = {
       <div class="card" style="margin-top:16px"><div class="pad">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap">
           <div>
-            <h3 style="font-size:15px">↻ Time to reorder</h3>
+            <h3 style="font-size:15px">${icon('repeat', { size: 15 })} Time to reorder</h3>
             <p class="sub">SKUs you regularly order — ranked by how overdue they are.</p>
           </div>
           <a href="#/products" class="sub" style="font-weight:600">Browse all →</a>
@@ -113,7 +113,7 @@ Routes['#/dashboard'] = {
     }).sort((a, b) => (b.overdue ?? -9999) - (a.overdue ?? -9999)).slice(0, 8);
 
     if (!items.length) {
-      box.innerHTML = `<div class="empty" style="padding:24px"><div class="big">📦</div>No purchase history yet</div>`;
+      box.innerHTML = `<div class="empty" style="padding:24px"><div class="big">${emptyIcon('package')}</div>No purchase history yet</div>`;
       return;
     }
     box.innerHTML = items.map(i => `

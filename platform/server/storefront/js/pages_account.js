@@ -175,7 +175,7 @@ Routes['#/favourites'] = {
     const res = await API.get(withOrderingContext('/user/favourites'));
     const grid = el.querySelector('#grid');
     if (!res.products.length) {
-      grid.innerHTML = `<div class="empty" style="grid-column:1/-1"><div class="big">♡</div>No favorites yet — tap the heart on any product</div>`;
+      grid.innerHTML = `<div class="empty" style="grid-column:1/-1"><div class="big">${emptyIcon('heart')}</div>No favorites yet — tap the heart on any product</div>`;
     }
     for (const p of res.products) grid.appendChild(productCard(p));
     el.querySelector('#allToCart').onclick = async () => {

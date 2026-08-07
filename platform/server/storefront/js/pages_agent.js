@@ -42,7 +42,7 @@ Routes['#/customers'] = {
             <td class="sub">${esc(c.customerNumber || '')}</td>
             <td><b>${esc(c.business)}</b></td>
             <td>${esc((c.firstName + ' ' + c.lastName).trim())}<br/><span class="sub">${esc(c.email)}</span></td>
-            <td>${esc(c.city)}${c.country === 'CA' ? ' 🇨🇦' : ''}</td>
+            <td>${esc(c.city)}${c.country ? ' <span class="sub">' + esc(c.country) + '</span>' : ''}</td>
             <td>${pill(c.status)}</td>
             <td>${money(c.balance)}</td>
             <td>${c.status === 'active'
@@ -50,7 +50,7 @@ Routes['#/customers'] = {
               : `<span class="sub">not active</span>`}</td>
           </tr>`).join('')}
         </tbody></table></div>`
-        : `<div class="empty"><div class="big">👥</div>No customers yet</div>`;
+        : `<div class="empty"><div class="big">${emptyIcon('users')}</div>No customers yet</div>`;
       box.querySelectorAll('tr.click').forEach(tr =>
         tr.onclick = (e) => {
           if (e.target.closest('[data-order]')) return;
@@ -79,8 +79,8 @@ async function renderCustomerDetail(el, id) {
       <span>${esc(c.business)} ${pill(c.status)}</span>
       ${c.status === 'active'
         ? (acting && acting.id === c.id
-          ? `<button class="btn ghost sm" id="stopOrderFor">✕ Stop ordering for them</button>`
-          : `<button class="btn sm" id="startOrderFor">🧾 Order for this customer</button>`)
+          ? `<button class="btn ghost sm" id="stopOrderFor">${icon('x', { size: 15 })} Stop ordering for them</button>`
+          : `<button class="btn sm" id="startOrderFor">${icon('receipt', { size: 15 })} Order for this customer</button>`)
         : `<span class="sub">Account not active — cannot order for them</span>`}
     </h1>
     <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start">

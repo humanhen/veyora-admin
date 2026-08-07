@@ -268,7 +268,7 @@ App.register('order',function(el,args){
           ${o.items.map((it,ix)=>{
             const n=scanned(it),done=n>=it.qty;
             return `<tr>
-              <td><button class="count-circle" data-count="${ix}" title="Count manually (+1)">${done?'✓':'+'}</button></td>
+              <td><button class="count-circle" data-count="${ix}" title="Count manually (+1)" aria-label="Count manually">${done?I.check:I.plus}</button></td>
               <td><div class="cell-main">${esc(it.name)} &times; ${it.qty}</div><div class="cell-sub">${
                 it.brand?esc(it.brand)+' | ':''}${it.modelSku?'Model: '+esc(it.modelSku)+' | ':''}Color: ${esc(it.color||'N/A')} | SKU: ${esc(it.sku)}</div></td>
               <td>${esc(it.sku)}</td>

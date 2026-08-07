@@ -137,14 +137,11 @@ function eyeIcon(off) {
 }
 
 /* icons for the app-style bottom nav (matching the old site's outline set) */
-const NAVICON = {
-  home: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg>`,
-  glasses: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="6.5" cy="14.5" r="3.5"/><circle cx="17.5" cy="14.5" r="3.5"/><path d="M10 14.5q2 -1.6 4 0"/><path d="M3 14.5 2 10M21 14.5 22 10"/></svg>`,
-  gear: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.55-1 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34h0a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55h0a1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87v0a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1z"/></svg>`,
-  bag: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 7h12l1 14H5L6 7z"/><path d="M9 10V6a3 3 0 0 1 6 0v4"/></svg>`,
-  user: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`,
-  burger: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>`,
-};
+/* The nav icons come from the shared registry in icons.js rather than a
+   second hand-written copy of the same shapes. navIcon() omits width and
+   height so the nav CSS keeps sizing them. */
+const NAVICON = Object.freeze(Object.fromEntries(
+  ['home', 'glasses', 'gear', 'bag', 'user', 'burger'].map(n => [n, navIcon(n)])));
 
 /* Old-site bottom nav: Home (public home), Products, Spare parts, Cart,
    My Account (→ the dashboard, exactly like the old site). */
@@ -171,9 +168,9 @@ function shell(contentEl, activeHash) {
       <button class="icon-btn" title="Home" aria-label="Home" onclick="location.hash='#/'">${NAVICON.home}</button>
       <button class="icon-btn present-toggle ${Store.presenting ? 'on' : ''}" data-present
         title="${Store.presenting ? 'Presentation mode ON — prices hidden. Click to show prices.' : 'Presentation mode — hide your prices to show frames to customers'}">${eyeIcon(Store.presenting)}</button>
-      <button class="icon-btn" title="Favorites" onclick="location.hash='#/favourites'">♡</button>
-      <button class="icon-btn" title="Cart" onclick="location.hash='#/cart'">🛒<span class="badge" id="cartBadge" style="${Store.cartCount ? '' : 'display:none'}">${Store.cartCount}</span></button>
-      <button class="icon-btn" title="My Account" onclick="location.hash='#/account'">👤</button>
+      <button class="icon-btn" title="Favorites" aria-label="Favorites" onclick="location.hash='#/favourites'">${icon('heart', { size: 20 })}</button>
+      <button class="icon-btn" title="Cart" aria-label="Cart" onclick="location.hash='#/cart'">${icon('cart', { size: 20 })}<span class="badge" id="cartBadge" style="${Store.cartCount ? '' : 'display:none'}">${Store.cartCount}</span></button>
+      <button class="icon-btn" title="My Account" aria-label="My Account" onclick="location.hash='#/account'">${icon('user', { size: 20 })}</button>
     </header>
     <nav class="nav">${navFor(u).map(n =>
       `<a href="${n.hash}" class="${navLinkActive(n.hash, activeHash) ? 'active' : ''}">${n.label}</a>`).join('')}
@@ -192,7 +189,7 @@ function shell(contentEl, activeHash) {
       <span>${eyeIcon(true)} <b>Presentation mode</b> — your prices are hidden, so you can show frames to customers.</span>
       <button data-present-exit>Show my prices</button></div>` : ''}
     ${actingFor() ? `<div class="acting-bar">
-      <span>🧾 Ordering for: <b>${esc(actingFor().business || actingFor().id)}</b>${
+      <span>${icon('receipt')} Ordering for: <b>${esc(actingFor().business || actingFor().id)}</b>${
         actingFor().customerNumber ? ` <span class="sub">(customer #${esc(actingFor().customerNumber)})</span>` : ''}
         — prices and promotions are theirs, and the order will be placed in their name.</span>
       <span class="acting-actions">
@@ -314,7 +311,7 @@ async function route() {
     /* FAIL CLOSED. The customer is still selected — we simply could not reach
        their prices. Rendering the page now would quietly show the salesperson's
        own prices under a banner naming the customer. */
-    content.innerHTML = `<div class="empty"><div class="big">⚠️</div>
+    content.innerHTML = `<div class="empty"><div class="big">${emptyIcon('alert')}</div>
       ${esc(orderingContextError.message)}
       <div style="margin-top:16px"><button class="btn" onclick="route()">Retry</button></div></div>`;
     window.scrollTo(0, 0);
@@ -324,7 +321,7 @@ async function route() {
     await page.render(content, args);
   } catch (e) {
     if (e.status !== 401) {
-      content.innerHTML = `<div class="empty"><div class="big">⚠️</div>${esc(e.message || 'Something went wrong')}</div>`;
+      content.innerHTML = `<div class="empty"><div class="big">${emptyIcon('alert')}</div>${esc(e.message || 'Something went wrong')}</div>`;
     }
   }
   window.scrollTo(0, 0);

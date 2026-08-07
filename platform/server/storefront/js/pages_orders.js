@@ -10,7 +10,7 @@ Routes['#/orders'] = {
     async function load() {
       const res = await API.get(`/user/get-user-orders?page=${page}&perPage=20`);
       if (!res.orders.length && page === 1) {
-        box.innerHTML = `<div class="empty"><div class="big">📦</div>No orders yet</div>`;
+        box.innerHTML = `<div class="empty"><div class="big">${emptyIcon('package')}</div>No orders yet</div>`;
         return;
       }
       const hide = Store.session.user.hidePrices;
@@ -70,7 +70,7 @@ Routes['#/order'] = {
             <div class="summary-row"><span>Shipping</span><b>${o.freeShipping ? 'Free' : money(o.shipping, o)}</b></div>
             <div class="summary-row total"><span>Total</span><span>${money(o.total, o)}</span></div>`}
           ${o.tracking ? `<div class="summary-row"><span>Tracking</span><b>${esc(o.tracking.company || '')} ${esc(o.tracking.number || '')}</b></div>` : ''}
-          <button class="btn ghost" style="width:100%;margin-top:14px" id="repeatBtn">↺ Repeat this order</button>
+          <button class="btn ghost" style="width:100%;margin-top:14px" id="repeatBtn">${icon('repeat', { size: 15 })} Repeat this order</button>
         </div></div>
       </div>`;
     el.querySelector('#repeatBtn').onclick = async () => {
@@ -94,7 +94,7 @@ Routes['#/backorders'] = {
     async function load() {
       const res = await API.get('/user/backorders');
       if (!res.backorders.length) {
-        box.innerHTML = `<div class="card"><div class="empty"><div class="big">🎉</div>No backorders</div></div>`;
+        box.innerHTML = `<div class="card"><div class="empty"><div class="big">${emptyIcon('checkCircle')}</div>No backorders</div></div>`;
         return;
       }
       const hide = Store.session.user.hidePrices;
@@ -136,7 +136,7 @@ Routes['#/returns'] = {
     const res = await API.get('/user/returns');
     const box = el.querySelector('#box');
     if (!res.returns.length) {
-      box.innerHTML = `<div class="card"><div class="empty"><div class="big">↩️</div>No returns</div></div>`;
+      box.innerHTML = `<div class="card"><div class="empty"><div class="big">${emptyIcon('undo')}</div>No returns</div></div>`;
       return;
     }
     box.innerHTML = res.returns.map(x => `
@@ -171,7 +171,7 @@ async function renderCreateReturn(el) {
         <select class="r-res" style="flex:1;min-width:132px;padding:9px 8px;border:1px solid var(--line);border-radius:8px">
           <option value="credit">Credit</option><option value="exchange">Exchange</option>
         </select>
-        <button class="btn ghost sm" type="button">✕</button>
+        <button class="btn ghost sm" type="button" aria-label="Remove">${icon('x', { size: 14 })}</button>
       </div>
       <div class="r-exwrap" style="display:none;margin-top:6px">
         <input class="r-ex" placeholder="Exchange for — SKU of the frame you want instead"

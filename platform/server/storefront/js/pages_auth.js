@@ -99,7 +99,7 @@ function otpFlow(el, { title, requestPath, verifyPath, donePath, doneMsg }) {
           <input name="email" type="email" required autofocus /></div>
         <button class="btn" type="submit">Send code</button>
       </form>
-      <div class="auth-links"><a href="#/login">← Back to sign in</a></div>`);
+      <div class="auth-links"><a href="#/login">${icon('arrowLeft', { size: 14 })} Back to sign in</a></div>`);
     card.querySelector('form').onsubmit = async (e) => {
       e.preventDefault();
       email = e.target.email.value.trim();
@@ -120,7 +120,7 @@ function otpFlow(el, { title, requestPath, verifyPath, donePath, doneMsg }) {
           <input name="password" type="password" minlength="8" autocomplete="new-password" required /></div>
         <button class="btn" type="submit">Set password</button>
       </form>
-      <div class="auth-links"><a href="#/login">← Back to sign in</a></div>`);
+      <div class="auth-links"><a href="#/login">${icon('arrowLeft', { size: 14 })} Back to sign in</a></div>`);
     const err = card.querySelector('.auth-err');
     card.querySelector('form').onsubmit = async (e) => {
       e.preventDefault();

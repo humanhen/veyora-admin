@@ -84,14 +84,14 @@ Routes['#/list'] = {
     grid.innerHTML = Array(6).fill('<div class="skeleton" style="height:430px"></div>').join('');
 
     if (!slug) {
-      grid.innerHTML = `<div class="empty" style="grid-column:1/-1"><div class="big">🔗</div>No list link given.</div>`;
+      grid.innerHTML = `<div class="empty" style="grid-column:1/-1"><div class="big">${emptyIcon('link')}</div>No list link given.</div>`;
       return;
     }
     let res;
     try {
       res = await API.get(withOrderingContext('/user/shared-lists/' + encodeURIComponent(slug)));
     } catch (e) {
-      grid.innerHTML = `<div class="empty" style="grid-column:1/-1"><div class="big">🔍</div>
+      grid.innerHTML = `<div class="empty" style="grid-column:1/-1"><div class="big">${emptyIcon('search')}</div>
         ${e.status === 404 ? 'This list link isn’t available — it may have been removed.'
           : 'Couldn’t load this list. Please try again.'}</div>`;
       return;
@@ -106,7 +106,7 @@ Routes['#/list'] = {
 
     grid.innerHTML = '';
     if (!frames.length) {
-      grid.innerHTML = `<div class="empty" style="grid-column:1/-1"><div class="big">🕶️</div>
+      grid.innerHTML = `<div class="empty" style="grid-column:1/-1"><div class="big">${emptyIcon('glasses')}</div>
         These frames aren’t available right now.</div>`;
       return;
     }
@@ -120,7 +120,7 @@ Routes['#/lists'] = {
   async render(el) {
     const role = Store.session?.user?.role;
     if (!STAFF_LIST_ROLES.includes(role)) {
-      el.innerHTML = `<div class="empty"><div class="big">🔒</div>This page is for Veyora staff.</div>`;
+      el.innerHTML = `<div class="empty"><div class="big">${emptyIcon('lock')}</div>This page is for Veyora staff.</div>`;
       return;
     }
 
@@ -204,7 +204,7 @@ Routes['#/lists'] = {
           : `<div class="sub" style="margin-top:8px">All ${res.total} SKUs matched.</div>`;
         resultBox.innerHTML = `
           <div class="card" style="background:var(--card)"><div class="pad">
-            <div style="font-weight:600;margin-bottom:6px">✓ Your link is ready</div>
+            <div style="font-weight:600;margin-bottom:6px">${icon('check', { size: 14 })} Your link is ready</div>
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
               <input readonly value="${esc(res.url)}" id="lUrl"
                 style="flex:1;min-width:220px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:#fff"/>

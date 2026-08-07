@@ -79,7 +79,7 @@ Routes['#/products'] = {
       </div>
       ${guest ? '' : `<div class="cart-total-row">
         ${catalogUser().hidePrices ? '' : `<span>Total: <span class="amt" id="ctAmt">—</span></span>`}
-        <button class="btn sm" type="button" onclick="location.hash='#/cart'">🛒 Cart<span
+        <button class="btn sm" type="button" onclick="location.hash='#/cart'">${icon('cart', { size: 15 })} Cart<span
           class="badge" id="cartBadgeT" style="${Store.cartCount ? '' : 'display:none'}">${Store.cartCount}</span></button>
       </div>`}
       <span id="fbarSlot"></span>
@@ -97,7 +97,7 @@ Routes['#/products'] = {
         </div>
         <div class="frow brands" id="brandRow"><span class="flabel">Brand</span></div>
         <div class="frow fclear-row">
-          <button type="button" class="fclear" id="clearFilters" style="display:none">✕ Clear filters</button>
+          <button type="button" class="fclear" id="clearFilters" style="display:none">${icon('x', { size: 13 })} Clear filters</button>
         </div>
       </div>
       <div class="fsheet-back">
@@ -158,7 +158,7 @@ Routes['#/products'] = {
       if (my !== loadSeq) return;   // a newer search/filter/pager click superseded this
       grid.innerHTML = '';
       if (!res.products.length) {
-        grid.innerHTML = `<div class="empty" style="grid-column:1/-1"><div class="big">🕶️</div>No products match your filters</div>`;
+        grid.innerHTML = `<div class="empty" style="grid-column:1/-1"><div class="big">${emptyIcon('glasses')}</div>No products match your filters</div>`;
       }
       for (const p of res.products) grid.appendChild(productCard(p));
       // Guests don't get a total — keep a fixed-width sliding window of page
@@ -267,10 +267,10 @@ function funnelIcon() {
 
 function sellerBadge(p) {
   if ((p.tags || []).includes('best-seller')) {
-    return `<span class="seller best">🔥 Best Seller</span>`;
+    return `<span class="seller best">${icon('trendUp', { size: 13 })} Best Seller</span>`;
   }
   if ((p.tags || []).includes('good-seller')) {
-    return `<span class="seller good">★ Good Seller</span>`;
+    return `<span class="seller good">${icon('star', { size: 13 })} Good Seller</span>`;
   }
   return '';
 }
@@ -329,7 +329,7 @@ function productCard(p) {
 
   const card = h(`<div class="pcard2">
     ${sellerBadge(p)}
-    ${u.guest ? '' : `<button class="fav ${p.isFavourite ? 'on' : ''}" title="Favorite">${p.isFavourite ? '♥' : '♡'}</button>`}
+    ${u.guest ? '' : `<button class="fav ${p.isFavourite ? 'on' : ''}" title="Favorite" aria-label="Favorite">${icon('heart', { size: 15, filled: p.isFavourite })}</button>`}
     <div class="photo-wrap">
       <div class="imgbox2">${imgOr(mainImg)}</div>
       ${hoverImg ? `<img class="hover-img" src="${esc(hoverImg)}" alt="" loading="lazy"/>` : ''}
@@ -375,7 +375,7 @@ function productCard(p) {
     e.stopPropagation();
     const r = await API.post(`/user/favourites/${p.id}/toggle`);
     e.target.classList.toggle('on', r.favourite);
-    e.target.textContent = r.favourite ? '♥' : '♡';
+    e.target.innerHTML = icon('heart', { size: 15, filled: r.favourite });
   };
   card.querySelector('.orderbtn').onclick = (e) => {
     e.stopPropagation();
@@ -457,7 +457,7 @@ function productModal(p, startSrc = null) {
       <div class="pdetail-img">
         <div class="imgbox big" id="mainImg" title="Click to enlarge">
           ${imgOr(gallery[startIdx] || gallery[0])}
-          <span class="zoom-hint">⤢</span>
+          <span class="zoom-hint">${icon('expand', { size: 15 })}</span>
         </div>
         ${gallery.length > 1 ? `<div class="thumbstrip">
           ${gallery.map((src, i) => `<img src="${esc(src)}" data-i="${i}" class="${i === startIdx ? 'sel' : ''}"/>`).join('')}
@@ -526,7 +526,7 @@ function productModal(p, startSrc = null) {
   let curIdx = startIdx;
   function setMain(i) {
     curIdx = i;
-    mainBox.innerHTML = imgOr(gallery[i]) + '<span class="zoom-hint">⤢</span>';
+    mainBox.innerHTML = imgOr(gallery[i]) + `<span class="zoom-hint">${icon('expand', { size: 15 })}</span>`;
     m.querySelectorAll('.thumbstrip img').forEach(t => t.classList.toggle('sel', +t.dataset.i === i));
   }
   m.querySelectorAll('.thumbstrip img').forEach(t =>
@@ -583,10 +583,10 @@ function productModal(p, startSrc = null) {
         ? `${total} pcs selected${boTotal ? ` · ${boTotal} on backorder` : ''}` : '';
     });
   });
-  // notify buttons reflect their real state (pressed = "✓ We'll email you")
+  // notify buttons reflect their real state (pressed = a tick and "We'll email you")
   const setNotify = (b, on) => {
     b.classList.toggle('on', on);
-    b.textContent = on ? '✓ We\'ll email you' : 'Notify me';
+    b.innerHTML = on ? `${icon('check', { size: 13 })} We'll email you` : 'Notify me';
   };
   const notifyBtns = [...m.querySelectorAll('.notify')];
   if (notifyBtns.length) {
@@ -676,14 +676,14 @@ function scanListModal(pageEl) {
     <p class="sub" style="margin-bottom:14px">Got a notepad list of SKUs? Snap a photo or drop the image
       here and your cart will auto-populate. List each item as model.color — e.g. 2057.81.</p>
     <div class="scan-drop" id="scanDrop">
-      <div class="scan-ic">🖼️</div>
+      <div class="scan-ic">${icon('image', { size: 30 })}</div>
       <p style="max-width:420px;margin:0 auto 16px">Snap a photo of your handwritten list, or drag and drop
         the image here. We'll match each line to a SKU and add it to your cart.
         Format: model.color, e.g. 2057.81.</p>
-      <button class="btn" id="scanPick">📷 Upload Or Take Photo</button>
+      <button class="btn" id="scanPick">${icon('camera', { size: 15 })} Upload Or Take Photo</button>
       <p class="sub" style="margin-top:12px">…or drop the image anywhere in this box</p>
       <p class="sub">Up to 8 photos per scan. JPG, PNG, WebP, or HEIC.</p>
-      <p style="margin-top:14px"><a href="javascript:void 0" id="scanSearch" class="sub" style="font-weight:600">🔍 Search Catalog</a></p>
+      <p style="margin-top:14px"><a href="javascript:void 0" id="scanSearch" class="sub" style="font-weight:600">${icon('search', { size: 14 })} Search Catalog</a></p>
       <input type="file" id="scanFiles" accept="image/*" multiple style="display:none"/>
     </div>
     <div id="scanResults"></div>`);
@@ -716,7 +716,7 @@ function scanListModal(pageEl) {
     drop.style.display = 'none';
     const box = m.querySelector('#scanResults');
     if (!r.matched.length) {
-      box.innerHTML = `<div class="empty"><div class="big">🤷</div>No SKUs matched.
+      box.innerHTML = `<div class="empty"><div class="big">${emptyIcon('search')}</div>No SKUs matched.
         ${r.unmatched.length ? `Read but not found: ${r.unmatched.map(esc).join(', ')}` : ''}</div>`;
       return;
     }
@@ -767,7 +767,7 @@ Routes['#/replenishment'] = {
     const res = await API.get(withOrderingContext('/user/replenishment'));
     const box = el.querySelector('#box');
     if (!res.items.length) {
-      box.innerHTML = `<div class="empty"><div class="big">📦</div>No purchase history yet</div>`;
+      box.innerHTML = `<div class="empty"><div class="big">${emptyIcon('package')}</div>No purchase history yet</div>`;
       return;
     }
     box.innerHTML = res.items.map(i => `
