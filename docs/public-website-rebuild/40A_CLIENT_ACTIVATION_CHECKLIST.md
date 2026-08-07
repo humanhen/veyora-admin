@@ -140,6 +140,8 @@ the capability system — and it means the first grant is a supervised bootstrap
 | Item | Detail |
 |---|---|
 | **Nodemailer advisory** | See `40_FINAL_ENGINEERING_HANDOVER.md` for the current status and what was attempted |
+| **Credit limits** | **Every account reads NULL** — meaning *not configured*, never unlimited. The storefront says "Credit limit not configured" and shows no headroom. There is deliberately no customer-facing route and no generic-sync path to set one, so the first values need a supervised admin action. See `45_CLIENT_FEEDBACK_IMPLEMENTATION.md` §2 G |
+| **Meta Pixel on the storefront** | **Decision required.** The portal loads `connect.facebook.net` on every page and tracks each in-app navigation for **signed-in** trade customers, with a hard-coded pixel id and no consent gate. Pre-existing and deliberate ("same pixel the old veyora.com uses"); left untouched because it is a marketing and privacy decision, not an engineering one. Google Fonts is loaded from a CDN on the same page |
 | **Storefront payment control** | **DONE 2026-08-07.** The "Pay securely" button is applied and tested (12 tests). It appears only for an invoice that is genuinely outstanding, and every other state gets a sentence rather than a silent disabled control. Nothing about account terms changes. See `44_BRANCH_INTEGRATION_REPORT.md` |
 | **Public-form throttle key** | Keyed on the Astro container's IP rather than the visitor's, so the 8-per-window budget is shared across all visitors. An availability concern, not a duplication one — the duplicate guard is separate and works |
 | **Order state machine** | `pending → shipped → pending` is currently permitted. A missing *transition* guard, not a duplicate-submission hazard |

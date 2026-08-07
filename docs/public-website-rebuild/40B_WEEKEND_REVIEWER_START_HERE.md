@@ -29,10 +29,11 @@ deliberate and long-standing; please do not propose a framework migration as a r
 ## 2. Branch to review
 
 ```
-mathew/public-website-rebuild
+mathew/final-integration-2026-08-07
 ```
 
-Never `main`. Do not merge, rebase, fast-forward or push anything.
+This branch consolidates the second developer's
+storefront work and the client feedback run on top of `mathew/public-website-rebuild`. Never `main`. Do not merge, rebase, fast-forward or push anything.
 
 ---
 
@@ -116,10 +117,10 @@ npm --prefix platform/server/web run build     # Astro production build
 
 | Suite | Tests |
 |---|---|
-| API | **1,669** |
-| Admin panel | **298** |
+| API | **1,802** |
+| Admin panel | **325** |
 | Public website | **466** |
-| **Total** | **2,433 passing, 0 failing** |
+| **Total** | **2,593 passing, 0 failing** |
 
 ---
 
@@ -306,7 +307,7 @@ This branch has a clean, readable commit history and the reasoning lives in the 
 - If you change nothing, leave the tree clean — `git status --short` should be empty.
 
 The repository has a guard test that fails if changes land in a protected path
-(`platform/server/storefront/`, the live `Caddyfile`, any real `.env`). If you trip it, that is the
+(the live `Caddyfile`, any real `.env`). If you trip it, that is the
 guard working.
 
 ---
@@ -318,9 +319,12 @@ Before you finish:
 - [ ] `git status --short` is empty, or contains only changes you intend to hand back
 - [ ] `git log --oneline -1` still shows the commit you started from, or your own commits **on your
       own branch**
-- [ ] `node scripts/verify-release.mjs` still reports 17/17
+- [ ] `node scripts/verify-release.mjs` still reports 18/18
+      (on this branch it needs `VEYORA_RELEASE_BRANCH_OVERRIDE=mathew/final-integration-2026-08-07`;
+      the gate is doing its job — the approved release branch has not changed)
 - [ ] No `.env` file exists in the working tree
-- [ ] No file under `platform/server/storefront/` is modified
+- [ ] No real `.env` and no change to the live `Caddyfile`
+      (the storefront guard was retired once that work was consolidated — see `44`)
 - [ ] Nothing was pushed
 - [ ] Findings written up per §18
 

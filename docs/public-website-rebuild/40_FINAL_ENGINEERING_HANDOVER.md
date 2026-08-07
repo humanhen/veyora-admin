@@ -214,6 +214,26 @@ live webhook registered. No branch merged. No fast-forward of `main`. **No push.
 
 ---
 
+## 8A. Since this handover — the integration and client-feedback run
+
+Two further runs landed on `mathew/final-integration-2026-08-07`:
+
+| Run | Document |
+|---|---|
+| Branch consolidation (the second developer's storefront work) | `44_BRANCH_INTEGRATION_REPORT.md` |
+| Client feedback items A–M | `45_CLIENT_FEEDBACK_IMPLEMENTATION.md` |
+
+Totals moved from **2,433** to **2,593 passing, 0 failing**; the release gate is still 18/18. One
+migration, **0017**, adds a nullable `users.credit_limit` — mirrored in `ensureSchema()`, with the
+parity contract verified by tampering before the mirror was written.
+
+Three pre-existing defects worth flagging to anyone reading this document for the first time:
+a return's **price came from the request body**; a return could cite **any customer's order**; and
+`shipping_address` was the browser's word for it and usually NULL, which forced every screen to
+fall back to the customer's *current* profile address. All three are closed.
+
+---
+
 ## 9. Where to start
 
 - Reviewing the code → `40B_WEEKEND_REVIEWER_START_HERE.md`
