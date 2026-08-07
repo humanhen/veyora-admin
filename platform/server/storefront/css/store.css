@@ -1019,3 +1019,38 @@ body.hm-dark .hm-wa{width:48px;height:48px;bottom:calc(22px + env(safe-area-inse
   .topbar .backbtn span{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
   .topbar .backbtn{padding:8px}
 }
+
+/* ---------- Balance & Payments (feedback G, H) ---------- */
+.bal-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px}
+.bal-stat{border:1px solid var(--line);border-radius:var(--radius);padding:12px 14px;background:#fff}
+.bal-k{font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.bal-v{font-size:22px;font-weight:700;margin-top:4px;font-variant-numeric:tabular-nums}
+/* An unset credit limit is a NEUTRAL state, not an error. It is greyed rather
+   than reddened, because "nobody has set one" is not the customer's problem
+   and must not read as a warning about their account. */
+.bal-unset .bal-v{font-size:15px;font-weight:600;color:var(--muted)}
+.bal-note{font-size:12px;color:var(--muted);margin-top:6px;line-height:1.45}
+/* Over the limit IS a warning, and looks like one. */
+.bal-stat.over{border-color:#f3c9c4;background:#fdf6f5}
+.bal-stat.over .bal-v{color:var(--bad)}
+.bal-h{font-size:14px;font-weight:700;display:flex;align-items:center;gap:7px;margin-bottom:10px}
+.bal-h svg{flex:0 0 auto}
+
+/* ---------- expandable orders (feedback I) ---------- */
+.ord-x{width:34px}
+.ord-toggle{background:none;border:0;padding:4px;color:var(--muted);cursor:pointer;
+  display:flex;align-items:center;border-radius:5px}
+.ord-toggle:hover{background:var(--soft-blue);color:var(--ink)}
+.ord-toggle svg{transition:transform .14s ease}
+.ord-row.open .ord-toggle svg{transform:rotate(90deg)}
+.ord-detail > td{background:#fbfcfd;padding:12px 14px}
+.ord-lines td{vertical-align:middle;font-size:13px}
+.ord-thumb{width:56px}
+/* Same treatment as the reorder list: no border, no white plate. */
+.ord-thumb img{width:48px;height:36px;object-fit:contain;border:0;background:transparent}
+/* The address AS STAMPED on the order. Set apart so it cannot be mistaken for
+   an editable profile field — it is a record of where the goods went. */
+.ord-addr{margin-top:12px;padding-top:10px;border-top:1px solid var(--line);font-size:13px;line-height:1.5}
+.ord-addr-h{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;
+  letter-spacing:.05em;margin-bottom:4px}
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}

@@ -218,12 +218,39 @@ test('6b — the latest widened CHECK is a strict superset of every earlier one'
 });
 
 test('7 — no destructive SQL in either definition', () => {
-  const section = migrateJs.slice(migrateJs.indexOf('account_permissions'));
+  /* The ensureSchema slice is bounded by the NEXT mirrored migration. It used
+     to run to the end of the file, so it silently covered every migration
+     mirrored after 0008 and would fail on any later additive `alter table
+     users` — which is a legitimate thing for a later migration to do, and not
+     what this test is about. This test is about the PERMISSIONS work: it
+     replaced role-based authorisation, so it must not have touched `users`. */
+  const from = migrateJs.indexOf('account_permissions');
+  const next = migrateJs.indexOf('/* ---- ', from);
+  const section = migrateJs.slice(from, next > 0 ? next : undefined);
+  assert.ok(section.length > 200 && section.length < migrateJs.length - from,
+    'the section is bounded, not the whole remaining file');
+
   for (const [name, sql] of [['migration', migrationSql], ['ensureSchema', section]]) {
     assert.doesNotMatch(sql, /drop\s+(table|column)/i, `${name} contains a drop`);
     assert.doesNotMatch(sql, /truncate/i);
     assert.doesNotMatch(sql, /delete\s+from/i);
     assert.doesNotMatch(sql, /alter table users/i, `${name} alters the users table`);
+  }
+});
+
+test('7b — nothing in ensureSchema ever touches users.role or drops a users column', () => {
+  /* The invariant the bounded test above can no longer see across the whole
+     file, asserted directly and for every migration rather than one section:
+     capabilities replaced roles, and no mirrored migration may quietly
+     reintroduce a role column or remove something from `users`. */
+  const statements = migrateJs
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/(^|[^:])\/\/[^\n]*/g, '$1 ');
+  for (const alter of statements.match(/alter table users[^`]*/gi) ?? []) {
+    assert.doesNotMatch(alter, /\brole\b/i, `a users alter touches role: ${alter.slice(0, 90)}`);
+    assert.doesNotMatch(alter, /drop\s+column/i, `a users alter drops a column: ${alter.slice(0, 90)}`);
+    assert.match(alter, /add column if not exists/i,
+      `a users alter must be additive and idempotent: ${alter.slice(0, 90)}`);
   }
 });
 

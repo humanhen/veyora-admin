@@ -1,6 +1,82 @@
 /* Orders, order detail, backorders, returns. */
 'use strict';
 
+/* ---------- shared order rendering (client feedback item I) ---------- */
+
+/**
+ * The delivery address AS STAMPED ON THE ORDER.
+ *
+ * It NEVER falls back to the customer's current profile address. An order
+ * placed before a customer moved was delivered to the old premises, and
+ * saying otherwise would turn the record into a guess — the fallback is a
+ * sentence saying nothing was recorded, which is the truth for orders placed
+ * before the address began being stamped.
+ */
+function stampedAddress(addr, label) {
+  const lines = addr
+    ? ['business', 'address', 'city', 'state', 'zip', 'country', 'phone']
+      .map(k => String(addr[k] ?? '').trim()).filter(Boolean)
+    : [];
+  return `<div class="ord-addr"><div class="ord-addr-h">${esc(label)}</div>${lines.length
+      ? lines.map(l => `<div>${esc(l)}</div>`).join('')
+      : '<div class="sub">No delivery address was recorded with this order.</div>'}</div>`;
+}
+
+/** One order line with its photo. */
+function orderLineRow(i, o, hide) {
+  return `<tr>
+    <td class="ord-thumb">${imgOr(i.image)}</td>
+    <td><b>${esc(i.modelSku || i.sku)}</b><div class="sub">${esc(i.sku)}${
+      i.color ? ' · ' + esc(i.color) : ''}</div></td>
+    <td>${esc(i.name)}${i.brand ? `<div class="sub">${esc(i.brand)}</div>` : ''}</td>
+    <td>${i.qty}</td>
+    ${hide ? '' : `<td>${money(i.qty * i.price, o)}</td>`}</tr>`;
+}
+/**
+ * Wire an orders table: the row opens the order, the caret expands it in
+ * place. Two different intentions, so two different targets rather than one
+ * control that has to guess which was meant.
+ */
+function bindOrderRows(box, hide) {
+  box.querySelectorAll('tr.ord-row').forEach(tr => {
+    tr.onclick = (e) => {
+      if (e.target.closest('.ord-toggle')) return;
+      location.hash = '#/order/' + tr.dataset.id;
+    };
+    const toggle = tr.querySelector('.ord-toggle');
+    let detail = null;
+    toggle.onclick = async () => {
+      const open = toggle.getAttribute('aria-expanded') === 'true';
+      if (open) {
+        toggle.setAttribute('aria-expanded', 'false');
+        tr.classList.remove('open');
+        if (detail) detail.hidden = true;
+        return;
+      }
+      toggle.setAttribute('aria-expanded', 'true');
+      tr.classList.add('open');
+      if (detail) { detail.hidden = false; return; }
+      /* Fetched once, on first expand. The list endpoint carries counts, not
+         lines, and loading every order's items to show none of them would be
+         the wrong trade on a twenty-row page. */
+      const cols = tr.children.length;
+      detail = h(`<tr class="ord-detail"><td colspan="${cols}">Loading…</td></tr>`);
+      tr.after(detail);
+      try {
+        const { order } = await API.get(
+          '/user/get-order-detail/' + encodeURIComponent(tr.dataset.id));
+        detail.querySelector('td').innerHTML = `
+          <table class="list ord-lines"><tbody>${
+            order.items.map(i => orderLineRow(i, order, hide)).join('')}</tbody></table>
+          ${stampedAddress(order.shippingAddress, 'Delivered to')}`;
+      } catch (ex) {
+        detail.querySelector('td').innerHTML =
+          `<span class="sub">${esc(ex.message || 'Those items could not be loaded.')}</span>`;
+      }
+    };
+  });
+}
+
 Routes['#/orders'] = {
   title: 'Orders',
   async render(el) {
@@ -17,9 +93,11 @@ Routes['#/orders'] = {
       const isAgent = ['agent', 'super-agent'].includes(Store.session.user.role);
       box.innerHTML = `
         <div style="overflow-x:auto"><table class="list">
-          <thead><tr><th>Order</th><th>Date</th>${isAgent ? '<th>Customer</th>' : ''}<th>Items</th>${hide ? '' : '<th>Total</th>'}<th>Status</th><th>Tracking</th></tr></thead>
+          <thead><tr><th class="ord-x"><span class="sr-only">Expand</span></th><th>Order</th><th>Date</th>${isAgent ? '<th>Customer</th>' : ''}<th>Items</th>${hide ? '' : '<th>Total</th>'}<th>Status</th><th>Tracking</th></tr></thead>
           <tbody>${res.orders.map(o => `
-            <tr class="click" data-id="${esc(o.id)}">
+            <tr class="click ord-row" data-id="${esc(o.id)}">
+              <td class="ord-x"><button class="ord-toggle" type="button" aria-expanded="false"
+                aria-label="Show the items on order ${esc(o.number)}">${icon('caretRight', { size: 14 })}</button></td>
               <td><b>${esc(o.number)}</b></td>
               <td>${fmtDate(o.date)}</td>
               ${isAgent ? `<td>${esc(o.customerBusiness || '')}</td>` : ''}
@@ -34,8 +112,7 @@ Routes['#/orders'] = {
           <span class="sub">Page ${page}</span>
           <button ${page * 20 >= res.total ? 'disabled' : ''} data-d="1">Next ›</button>
         </div>`;
-      box.querySelectorAll('tr.click').forEach(tr =>
-        tr.onclick = () => location.hash = '#/order/' + tr.dataset.id);
+      bindOrderRows(box, hide);
       box.querySelectorAll('.pager button').forEach(b =>
         b.onclick = () => { page += parseInt(b.dataset.d, 10); load(); });
     }
@@ -52,11 +129,12 @@ Routes['#/order'] = {
       <h1 class="pagetitle">Order ${esc(o.number)} ${pill(o.status)}</h1>
       <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start">
         <div class="card" style="flex:2;min-width:300px"><div class="pad">
-          <table class="list"><thead><tr><th>Model</th><th>Item</th><th>Qty</th>
+          <table class="list"><thead><tr><th class="ord-thumb"><span class="sr-only">Photo</span></th><th>Model</th><th>Item</th><th>Qty</th>
             <th><span class="desktop-only">Shipped</span><span class="mobile-only">Shp.</span></th>
             ${hide ? '' : '<th class="hide-m">Price</th><th>Total</th>'}</tr></thead>
           <tbody>${o.items.map(i => `
-            <tr><td><b>${esc(i.modelSku || i.sku)}</b><br/><span class="sub">${esc(i.sku)}</span></td>
+            <tr><td class="ord-thumb">${imgOr(i.image)}</td>
+            <td><b>${esc(i.modelSku || i.sku)}</b><br/><span class="sub">${esc(i.sku)}</span></td>
             <td>${esc(i.name)}${i.color ? ' · ' + esc(i.color) : ''}
               ${i.brand ? `<br/><span class="sub">${esc(i.brand)}</span>` : ''}</td>
             <td>${i.qty}</td><td>${i.collected}</td>
@@ -70,6 +148,7 @@ Routes['#/order'] = {
             <div class="summary-row"><span>Shipping</span><b>${o.freeShipping ? 'Free' : money(o.shipping, o)}</b></div>
             <div class="summary-row total"><span>Total</span><span>${money(o.total, o)}</span></div>`}
           ${o.tracking ? `<div class="summary-row"><span>Tracking</span><b>${esc(o.tracking.company || '')} ${esc(o.tracking.number || '')}</b></div>` : ''}
+          ${stampedAddress(o.shippingAddress, 'Delivered to')}
           <button class="btn ghost" style="width:100%;margin-top:14px" id="repeatBtn">${icon('repeat', { size: 15 })} Repeat this order</button>
         </div></div>
       </div>`;

@@ -7,6 +7,7 @@ const NAV = [
   { hash: '#/',            label: 'Home' },
   { hash: '#/products',    label: 'Products' },
   { hash: '#/orders',      label: 'Orders' },
+  { hash: '#/balance',     label: 'Balance & Invoices' },
   { hash: '#/backorders',  label: 'Backorders' },
   { hash: '#/returns',     label: 'Returns' },
   { hash: '#/favourites',  label: 'Favorites' },
@@ -141,16 +142,16 @@ function eyeIcon(off) {
    second hand-written copy of the same shapes. navIcon() omits width and
    height so the nav CSS keeps sizing them. */
 const NAVICON = Object.freeze(Object.fromEntries(
-  ['home', 'glasses', 'gear', 'bag', 'user', 'burger'].map(n => [n, navIcon(n)])));
+  ['home', 'glasses', 'gear', 'bag', 'user', 'burger', 'orders'].map(n => [n, navIcon(n)])));
 
 /* Old-site bottom nav: Home (public home), Products, Spare parts, Cart,
    My Account (→ the dashboard, exactly like the old site). */
 const BOTTOM_NAV = [
-  { hash: '#/',            label: 'Home',       icon: 'home' },
-  { hash: '#/products',    label: 'Products',   icon: 'glasses' },
-  { hash: '#/spare-parts', label: 'Spare parts', icon: 'gear' },
-  { hash: '#/cart',        label: 'Cart',       icon: 'bag', badge: true },
-  { hash: '#/dashboard',   label: 'My Account', icon: 'user' },
+  { hash: '#/',            label: 'Home',     icon: 'home' },
+  { hash: '#/products',    label: 'Products', icon: 'glasses' },
+  { hash: '#/orders',      label: 'Orders',   icon: 'orders' },
+  { hash: '#/cart',        label: 'Cart',     icon: 'bag', badge: true },
+  { hash: '#/dashboard',   label: 'Account',  icon: 'user' },
 ];
 
 /* ---------- Back navigation (client feedback item E) ----------
@@ -186,6 +187,7 @@ const BACK_PARENT = Object.freeze({
   '#/checkout': '#/cart',
   '#/thank-you': '#/orders',
   '#/account': '#/dashboard',
+  '#/balance': '#/dashboard',
   '#/customers': '#/dashboard',
   '#/create-customer': '#/customers',
   '#/lists': '#/dashboard',

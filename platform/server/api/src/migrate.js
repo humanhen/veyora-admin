@@ -1021,4 +1021,14 @@ export async function ensureSchema() {
     add column if not exists idempotency_key text`);
   await q(`create unique index if not exists inventory_movements_idempotency_idx
     on inventory_movements (idempotency_key) where idempotency_key is not null`);
+
+  /* ---- customer credit limit (mirrors db/migrations/0017) ----
+
+     NULL means NOT CONFIGURED, never unlimited. No default and no backfill,
+     because inventing a number here would be inventing a commercial decision:
+     every account that exists when this first runs reads NULL, which is the
+     truthful answer. The storefront says "Credit limit not configured" and
+     shows no headroom rather than implying either a limit or the absence of
+     one. */
+  await q(`alter table users add column if not exists credit_limit numeric(12,2)`);
 }

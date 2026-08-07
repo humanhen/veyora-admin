@@ -33,6 +33,10 @@ function orderShape(o, items) {
       // Model number is the PRODUCT sku, never a slice of the variation sku —
       // dash colorways (VEDETTE-2002) make prefix-parsing wrong.
       modelSku: i.model_sku ?? i.modelSku ?? null, brand: i.brand ?? null,
+      /* From the variation join, so an expanded order shows the frame rather
+         than a line of text. Nullable: a discontinued variation may no longer
+         have one, and a missing photo is not an error. */
+      image: i.image ?? null,
       qty: i.qty, collected: i.collected ?? 0, price: i.price,
       note: i.note, labels: i.labels,
     })),
@@ -46,6 +50,40 @@ function orderShape(o, items) {
 const ITEM_IDENTITY_JOIN = `
   left join variations v on v.sku = i.sku
   left join products  p on p.id = v.product_id`;
+
+/**
+ * The delivery address AS IT WAS when the order was placed.
+ *
+ * This used to be the browser's word for it, and NULL when the browser said
+ * nothing — so most orders carried no address at all, and any screen wanting
+ * to show one had no choice but to fall back to the customer's CURRENT
+ * profile address. That is the one thing an order record must never do: a
+ * customer who moves would see every historical order redirected to their new
+ * premises, and a dispute about where goods actually went would be
+ * unanswerable.
+ *
+ * Every order now stamps a complete snapshot from the customer record at that
+ * moment. A supplied address may override the fields it names — a one-off
+ * delivery elsewhere is legitimate — but it can never leave the snapshot
+ * empty, and it can never introduce a field that is not part of an address.
+ */
+const ADDRESS_FIELDS = Object.freeze(
+  ['business', 'address', 'city', 'state', 'zip', 'country', 'phone']);
+
+function stampAddress(customer, supplied) {
+  const snapshot = {};
+  for (const field of ADDRESS_FIELDS) {
+    const override = supplied && typeof supplied === 'object' ? supplied[field] : undefined;
+    const value = override === undefined || override === null || override === ''
+      ? customer?.[field]
+      : override;
+    snapshot[field] = String(value ?? '').slice(0, 200);
+  }
+  /* Stamped, so a reader never has to guess whether a blank field means "not
+     recorded" or "recorded as blank". */
+  snapshot.stampedAt = new Date().toISOString();
+  return snapshot;
+}
 
 /** Send mail without ever letting a mail problem affect the caller. */
 async function sendMailSafely(message, context) {
@@ -248,8 +286,11 @@ r.post('/place-order', async (req, res, next) => {
           [num[0].n, customer.id, placedByStaff ? user.id : customer.agent_id,
            placedByStaff ? 'agent' : 'customer', discount,
            commercials.order.freeShipping, commercials.order.shipping, total,
-           req.body?.shippingAddress ? JSON.stringify(req.body.shippingAddress) : null,
-           req.body?.billingAddress ? JSON.stringify(req.body.billingAddress) : null,
+           /* Always a complete snapshot — never NULL, and never the current
+              profile address read back later. See stampAddress(). */
+           JSON.stringify(stampAddress(customer, req.body?.shippingAddress)),
+           JSON.stringify(stampAddress(customer, req.body?.billingAddress
+             ?? req.body?.shippingAddress)),
            summary.promotion ? JSON.stringify(summary.promotion) : null,
            orderCurrency, orderRate,
            // The checkout note lands in the existing comments thread (shape
@@ -301,8 +342,12 @@ r.post('/place-order', async (req, res, next) => {
            placedByStaff ? user.id : customer.agent_id,
            placedByStaff ? 'agent' : 'customer',
            orderCurrency, orderRate,
-           req.body?.shippingAddress ? JSON.stringify(req.body.shippingAddress) : null,
-           req.body?.billingAddress ? JSON.stringify(req.body.billingAddress) : null,
+           /* Same snapshot as the order. A backorder ships later, often much
+              later, so this is the case where reading the profile address back
+              at delivery time would be most likely to be wrong. */
+           JSON.stringify(stampAddress(customer, req.body?.shippingAddress)),
+           JSON.stringify(stampAddress(customer, req.body?.billingAddress
+             ?? req.body?.shippingAddress)),
            summary.promotion ? JSON.stringify(summary.promotion) : null,
            /* Whatever discount the immediate order could not absorb carries
               here, so a fully backordered promoted checkout keeps its discount.
@@ -503,7 +548,7 @@ r.get('/get-order-detail/:id', async (req, res) => {
     [req.params.id, req.user.id]);
   if (!rows.length) return res.status(404).json({ error: 'Order not found' });
   const { rows: items } = await q(
-    `select i.*, p.sku as model_sku, p.brand
+    `select i.*, p.sku as model_sku, p.brand, v.image
        from order_items i ${ITEM_IDENTITY_JOIN}
       where i.order_id=$1 order by i.created_at`, [rows[0].id]);
   res.json({ order: orderShape(rows[0], items) });
@@ -576,6 +621,7 @@ r.get('/backorders', async (req, res) => {
     select b.*, coalesce((
       select json_agg(json_build_object('sku', i.sku, 'name', i.name, 'color', i.color,
                                         'modelSku', p.sku, 'brand', p.brand,
+                                        'image', v.image,
                                         'qty', i.qty, 'price', i.price))
         from backorder_items i ${ITEM_IDENTITY_JOIN}
        where i.backorder_id = b.id), '[]') as items

@@ -10,6 +10,7 @@ import { loadProducts } from './catalog.js';
 import { getFx, rateFor, symbolFor, normalizeCurrency } from '../currency.js';
 import { publicFeatures } from '../config.js';
 import { pricingIdentity, resolveOrderingCustomer, orderingContextShape } from '../ordering.js';
+import { accountBalance } from '../account-balance.js';
 import { priceForCustomer } from '../pricing.js';
 
 const r = Router();
@@ -26,6 +27,23 @@ const UPLOADS = process.env.UPLOADS_DIR || '/uploads';
 // The account's operating currency + the rate to convert base (USD) prices for
 // display. USD accounts get rate 1 (identical output), so this is dormant until
 // an account is explicitly set to CAD/EUR.
+/**
+ * Balance & Payments — what the customer owes, what they have paid, and how
+ * much credit remains, for THEIR OWN account only. `req.user.id` comes from
+ * the session, so there is no id to tamper with.
+ *
+ * Read-only by design. A credit limit is a commercial decision Veyora makes
+ * about a customer; this route accepts no input and there is no companion
+ * write route.
+ */
+r.get('/balance', async (req, res, next) => {
+  try {
+    const summary = await accountBalance({ query: q }, req.user.id);
+    if (!summary) return res.status(404).json({ error: 'Account not found' });
+    res.json(summary);
+  } catch (e) { next(e); }
+});
+
 r.get('/fx', async (req, res) => {
   const fx = await getFx();
   const currency = normalizeCurrency(req.user.currency);
