@@ -412,34 +412,164 @@ function productGallery(p) {
   return { gallery, colorAt };
 }
 
-/* Per-colour ordering controls.
-   With backorders ON  — every active colourway takes a quantity, and the box is
-                         uncapped so a customer may deliberately order more than
-                         is on the shelf. Out-of-stock rows keep "Notify me" too,
+/* Per-colour ordering controls — ONE CLICK, ONE PIECE.
+   There is no quantity to pre-select here and no second "submit what you
+   chose" step: the button adds a single unit of that exact sku to the real
+   cart, and the row states how many of it the cart actually holds. Quantity
+   EDITING lives in the cart itself, where a customer reviewing an order
+   expects it.
+
+   With backorders ON  — every active colourway is addable, including ones with
+                         nothing on the shelf. Those keep "Notify me" as well,
                          for customers who would rather wait than commit.
-   With backorders OFF — only stocked colourways take a quantity, capped at what
-                         is available; the rest offer "Notify me" as before. */
+   With backorders OFF — only stocked colourways are addable; the rest offer
+                         "Notify me" alone, and the server refuses an increment
+                         past what is available whatever the browser does. */
 function variationNotifyButton(v) {
   /* Any colour that is not on the shelf, whether or not backorders are on.
      Committing to a backorder and asking to be told when stock actually lands
      are different decisions, and a buyer is allowed to want the second without
-     the first — so the qty box leads and this stays beside it as a secondary
+     the first — so Add to cart leads and this stays beside it as a secondary
      action. It is only dropped once there is stock to sell. */
   if (v.qty > 0) return '';
   return `<button class="btn ghost sm notify" data-sku="${esc(v.sku)}"
     title="Email me when this colour is back in stock">Notify me</button>`;
 }
-function variationQtyControls(v) {
-  const bo = backordersAllowed();
-  if (v.qty === 0 && !bo) return '';
-  const max = bo ? null : v.qty;
-  return qtyBox(0, 0, max);
+/** Can this colourway be ordered at all right now? */
+function variationAddable(v) {
+  return v.qty > 0 || backordersAllowed();
+}
+function variationAddButton(v) {
+  if (!variationAddable(v)) return '';
+  /* Every row's button reads "Add to cart", so the visible label alone would
+     tell a screen-reader user nothing about WHICH colour they are adding. The
+     accessible name carries the colour and the sku; the visible text stays
+     short, and the row is not padded with duplicated identity for sighted
+     users to read twice. */
+  const colour = v.color || v.sku;
+  return `<button class="btn sm addone" type="button" data-sku="${esc(v.sku)}"
+    aria-label="Add ${esc(colour)} — SKU ${esc(v.sku)} to cart">Add to cart</button>`;
+}
+/* The row's own quantity readout. Deliberately EMPTY here: it is filled from
+   the authoritative cart when the modal opens and after every add, so it can
+   never show a number the server does not agree with. Out-of-stock rows that
+   are not addable still get one — "In cart: 2" is worth knowing even when no
+   more may be added. */
+function variationCartState(v) {
+  return `<span class="vincart" data-incart="${esc(v.sku)}"></span>`;
 }
 function variationOrderControls(v) {
-  const notify = variationNotifyButton(v);
-  const qty = variationQtyControls(v);
-  if (!notify && !qty) return '';
-  return `<span class="vactions">${qty}${notify}</span>`;
+  return `${variationCartState(v)}${variationAddButton(v)}${variationNotifyButton(v)}`;
+}
+
+/* ---------- direct add-to-cart ----------
+
+   The customer clicks Add to cart on a colour and expects to SEE that piece
+   land in the cart at once, then click again for a second piece. Three things
+   have to be true together, and this controller is what keeps them true:
+
+     * the number on the row is the REAL cart quantity for that exact sku,
+       taken from the server — never a count of clicks;
+     * the click feels immediate, so the row count and the header badge move
+       before the server has answered;
+     * five fast clicks are five pieces. Requests for one sku are sent one at a
+       time, and the UI only adopts a server response once nothing is still in
+       flight — so a reply that is already behind the customer cannot drag the
+       count backwards.
+
+   Every failure — stock refusal, network, server, a sku that has since been
+   withdrawn — drops that sku's queued clicks, re-reads the authoritative cart
+   and repaints from it. An optimistic number is never left standing on an add
+   that did not happen.
+
+   Takes its collaborators as arguments and touches no DOM, so the behaviour
+   can be exercised directly. */
+function createDirectAddController({ getCart, addOne, available, render, onError }) {
+  const counts = new Map();     // sku -> quantity in the cart
+  const splits = new Map();     // sku -> {inStockQty, backorderQty}
+  const queues = new Map();     // sku -> tail of that sku's request chain
+  const stopped = new Set();    // skus whose queued clicks a failure dropped
+  let total = 0;                // units across the WHOLE cart (the header badge)
+  let pending = 0;              // requests started and not yet settled
+  let resync = false;           // something failed — re-read the cart when quiet
+
+  const paint = changed => render({ counts, splits, total, changed });
+
+  /* The server's own in-stock/backorder rule, applied to the optimistic
+     quantity so the row's note tracks the number the customer can see. It is
+     replaced by the server's values at the next reconcile — this invents no
+     second backorder policy, it just avoids a note that lags the count. */
+  function optimisticSplit(sku, qty) {
+    const inStockQty = Math.min(qty, Math.max(0, available(sku)));
+    return { inStockQty, backorderQty: qty - inStockQty };
+  }
+
+  /** Replace everything shown with the server's cart. */
+  function adopt(cart, changed) {
+    counts.clear(); splits.clear();
+    for (const i of (cart && cart.items) || []) {
+      counts.set(i.sku, i.qty);
+      splits.set(i.sku, { inStockQty: i.inStockQty, backorderQty: i.backorderQty });
+    }
+    total = (cart && cart.totalQty) || 0;
+    paint(changed || null);
+  }
+
+  const hydrate = (changed) => getCart().then(c => adopt(c, changed));
+
+  function settle(cart) {
+    pending -= 1;
+    if (pending > 0) return;              // newer clicks are still in flight
+    const failed = [...stopped];
+    stopped.clear();
+    if (resync) {
+      resync = false;
+      hydrate(failed[0] || null).catch(() => onError(new Error(
+        "Couldn't refresh your cart — open the cart to see the current quantities.")));
+      return;
+    }
+    if (cart) adopt(cart, null);
+  }
+
+  /** One click: one more unit of this sku. */
+  function add(sku) {
+    const next = (counts.get(sku) || 0) + 1;
+    counts.set(sku, next);
+    splits.set(sku, optimisticSplit(sku, next));
+    total += 1;
+    paint(sku);
+    pending += 1;
+    const run = (queues.get(sku) || Promise.resolve()).then(async () => {
+      // An earlier click on this colour already failed; sending the rest would
+      // only collect the same refusal again.
+      if (stopped.has(sku)) return settle(null);
+      try {
+        settle(await addOne(sku));
+      } catch (ex) {
+        stopped.add(sku);
+        resync = true;
+        onError(ex);
+        settle(null);
+      }
+    });
+    queues.set(sku, run);
+    return run;
+  }
+
+  return {
+    add, hydrate, adopt,
+    quantityOf: sku => counts.get(sku) || 0,
+    splitOf: sku => splits.get(sku) || { inStockQty: 0, backorderQty: 0 },
+    get totalQty() { return total; },
+  };
+}
+
+/** "2 now · 1 on backorder" — the per-row split, from the cart's own numbers. */
+function variationBackorderNote({ inStockQty, backorderQty }) {
+  if (!backorderQty) return '';
+  return inStockQty > 0
+    ? `${inStockQty} now · ${backorderQty} on backorder`
+    : `${backorderQty} on backorder`;
 }
 
 function productModal(p, startSrc = null) {
@@ -452,6 +582,16 @@ function productModal(p, startSrc = null) {
   const startIdx = Math.max(0, startSrc ? gallery.indexOf(startSrc) : 0);
   const pricesVary = (p.variations || []).some(v =>
     v.price != null && p.price != null && Number(v.price) !== Number(p.price));
+  /* The bottom bar no longer submits anything — every colour is added from its
+     own row — so it carries only the guest sign-in prompt or the salesperson's
+     demonstration action, and is left out entirely when there is neither. */
+  const detailActions = guest
+    ? `<button class="btn" onclick="location.hash='#/login'">Sign in to see prices &amp; order</button>`
+    /* Salesperson demonstration action — staff only. A customer viewing their
+       own account has no "customer" to show it to. */
+    : canPresentToCustomer()
+      ? `<button class="btn ghost" id="custViewBtn" type="button" title="Show this frame to a customer, without the price">${eyeIcon(false)} Show to customer</button>`
+      : '';
   const m = modal(`
     <div class="pdetail">
       <div class="pdetail-img">
@@ -476,7 +616,7 @@ function productModal(p, startSrc = null) {
         <h3 class="pdetail-colors-h">Colors</h3>
         <div id="vrows" class="vrows">
           ${p.variations.map(v => `
-            <div class="vrow" data-sku="${esc(v.sku)}" data-avail="${v.qty || 0}">
+            <div class="vrow" data-sku="${esc(v.sku)}">
               ${imgOr(v.image || p.images?.[0])}
               <span class="vcol">${esc(v.color || v.sku)}</span>
               ${stockPill(v, { short: true })}
@@ -484,23 +624,13 @@ function productModal(p, startSrc = null) {
                 ${!hide && pricesVary ? `<b class="vprice">${money(v.price)}</b>`
                   : guest || !hide ? ''
                   : pricesVary ? `<b class="vprice pr-hidden">${money(v.price)}</b>` : ''}
-                ${guest ? '' : variationQtyControls(v)}
-                ${guest ? '' : variationNotifyButton(v)}
+                ${guest ? '' : variationOrderControls(v)}
               </div>
               <span class="vbo"></span>
             </div>`).join('')}
         </div>
-        <div class="pdetail-actions">
-          ${guest
-            ? `<button class="btn" onclick="location.hash='#/login'">Sign in to see prices & order</button>`
-            : `<button class="btn" id="addBtn">Add to cart</button>
-               ${/* Salesperson demonstration action — staff only. A customer
-                     viewing their own account has no "customer" to show it to. */
-                 canPresentToCustomer()
-                 ? `<button class="btn ghost" id="custViewBtn" type="button" title="Show this frame to a customer, without the price">${eyeIcon(false)} Show to customer</button>`
-                 : ''}
-               <span class="sub" id="addSummary"></span>`}
-        </div>
+        ${guest ? '' : `<span class="sr-only" id="cartLive" role="status" aria-live="polite"></span>`}
+        ${detailActions ? `<div class="pdetail-actions">${detailActions}</div>` : ''}
       </div>
     </div>`);
 
@@ -553,36 +683,55 @@ function productModal(p, startSrc = null) {
     const sku = row.dataset.sku;
     const gi = gallery.findIndex(src => src === p.variations.find(v => v.sku === sku)?.image);
     if (gi >= 0) row.addEventListener('click', e => {
-      if (e.target.closest('.qtybox') || e.target.closest('button')) return;
+      if (e.target.closest('button')) return;
       setMain(gi);
     });
   });
 
-  const chosen = new Map();
-  const boTotals = new Map();
-  m.querySelectorAll('.vrow .qtybox').forEach(box => {
-    const row = box.closest('.vrow');
-    const sku = row.dataset.sku;
-    const avail = parseInt(row.dataset.avail, 10) || 0;
-    const note = row.querySelector('.vbo');
-    bindQtyBox(box, v => {
-      if (v > 0) chosen.set(sku, v); else chosen.delete(sku);
-      // Say per row exactly what ships now and what is being backordered, so
-      // nobody discovers the split only after checkout.
-      const backordered = Math.max(0, v - avail);
-      boTotals.set(sku, backordered);
-      if (note) {
-        note.textContent = backordered > 0
-          ? (avail > 0 ? `${avail} now · ${backordered} on backorder` : `${backordered} on backorder`)
-          : '';
-        note.classList.toggle('on', backordered > 0);
+  /* ---- direct add: one click, one piece, straight into the real cart ---- */
+  const rows = new Map();
+  m.querySelectorAll('.vrow').forEach(row => rows.set(row.dataset.sku, row));
+  const colourOf = new Map((p.variations || []).map(v => [v.sku, v.color || v.sku]));
+  const availOf = new Map((p.variations || []).map(v => [v.sku, v.qty || 0]));
+  const live = m.querySelector('#cartLive');
+
+  const cart = createDirectAddController({
+    getCart: () => API.get(withOrderingContext('/user/get-cart')),
+    addOne: sku => API.post('/user/add-one-to-cart', { sku }),
+    available: sku => availOf.get(sku) || 0,
+    onError: ex => toast(ex.message, true),
+    render: ({ counts, splits, total, changed }) => {
+      for (const [sku, row] of rows) {
+        const n = counts.get(sku) || 0;
+        const state = row.querySelector('.vincart');
+        if (state) state.textContent = n > 0 ? `In cart: ${n}` : '';
+        // Say per row exactly what is available now and what is being
+        // backordered, so nobody discovers the split only after checkout.
+        const note = row.querySelector('.vbo');
+        if (note) {
+          const text = variationBackorderNote(
+            splits.get(sku) || { inStockQty: 0, backorderQty: 0 });
+          note.textContent = text;
+          note.classList.toggle('on', !!text);
+        }
       }
-      const total = [...chosen.values()].reduce((s, x) => s + x, 0);
-      const boTotal = [...chosen.keys()].reduce((s, k) => s + (boTotals.get(k) || 0), 0);
-      m.querySelector('#addSummary').textContent = total
-        ? `${total} pcs selected${boTotal ? ` · ${boTotal} on backorder` : ''}` : '';
-    });
+      // The badge is the WHOLE cart, not this product — every screen's count.
+      setCartBadge(total);
+      if (changed && live) {
+        live.textContent =
+          `${colourOf.get(changed) || changed} — SKU ${changed}: ${counts.get(changed) || 0} in cart`;
+      }
+    },
   });
+
+  m.querySelectorAll('.addone').forEach(b => b.onclick = (e) => {
+    e.stopPropagation();
+    cart.add(b.dataset.sku);
+  });
+  /* The number on a row is the CART's number, so it is read from the cart when
+     the modal opens rather than started at zero because the modal is new. A
+     customer who already has three of this colour sees three. */
+  if (!guest) cart.hydrate().catch(() => {});
   // notify buttons reflect their real state (pressed = a tick and "We'll email you")
   const setNotify = (b, on) => {
     b.classList.toggle('on', on);
@@ -600,25 +749,9 @@ function productModal(p, startSrc = null) {
     setNotify(b, r.notify);
     toast(r.notify ? 'We\'ll email you when it\'s back' : 'Notification removed');
   });
-  const addBtn = m.querySelector('#addBtn');
-  if (addBtn) addBtn.onclick = async () => {
-    if (!chosen.size) { toast('Choose quantities first', true); return; }
-    let cart;
-    try {
-      for (const [sku, qty] of chosen) {
-        cart = await API.post('/user/add-to-cart', { sku, qty });
-      }
-    } catch (ex) {
-      // With backorders disabled the server refuses over-ordering; say why.
-      toast(ex.message, true);
-      if (cart) setCartBadge(cart.totalQty);
-      return;
-    }
-    setCartBadge(cart.totalQty);
-    const boTotal = [...chosen.keys()].reduce((s, k) => s + (boTotals.get(k) || 0), 0);
-    toast(boTotal ? `Added to cart · ${boTotal} on backorder` : 'Added to cart');
-    m.remove();
-  };
+  /* Nothing closes the modal on a successful add. The customer may want a
+     second piece, or another colour, and the row count plus the header badge
+     already show that the cart moved. */
 }
 
 /* Customer view — a clean, fullscreen card of ONE frame with NO price and none

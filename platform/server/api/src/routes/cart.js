@@ -4,6 +4,7 @@ import { requireAuth } from '../authmw.js';
 import { priceForCustomer, previewPromotions, round2 } from '../pricing.js';
 import { allowCustomerBackorders } from '../config.js';
 import { resolveOrderingCustomer, orderingContextShape } from '../ordering.js';
+import { incrementCartLine, stockRefusalMessage } from '../cart-operations.js';
 import { getFx, rateFor, symbolFor, normalizeCurrency } from '../currency.js';
 
 const r = Router();
@@ -96,6 +97,10 @@ export async function cartSummary(cartOwner, pricingUser = cartOwner) {
   };
 }
 
+/* SET this line to an ABSOLUTE quantity. The cart's own +/- controls, "Scan
+   your list" and Quick reorder all mean exactly that, and qty <= 0 removes the
+   line. The meaning is load-bearing — see cart-operations.js for why "add one"
+   is a separate operation rather than a second interpretation of this one. */
 r.post('/add-to-cart', async (req, res) => {
   const { sku, qty } = req.body || {};
   const n = parseInt(qty, 10);
@@ -108,9 +113,7 @@ r.post('/add-to-cart', async (req, res) => {
     const available = await availableForSku(sku);
     if (available != null && n > available) {
       return res.status(409).json({
-        error: available > 0
-          ? `Only ${available} left in stock for ${sku}.`
-          : `${sku} is out of stock.`,
+        error: stockRefusalMessage(sku, available),
         sku, available, requested: n,
       });
     }
@@ -123,6 +126,23 @@ r.post('/add-to-cart', async (req, res) => {
       on conflict (user_id, sku) do update set qty = $3`, [req.user.id, sku, n]);
   }
   res.json(await cartSummary(req.user));
+});
+
+/* ADD ONE unit of this sku — the product page's direct "Add to cart".
+   Repeated clicks mean repeated units, so the quantity is decided by the
+   database from the row it has locked, never by a quantity the browser
+   calculated. The whole rule lives in cart-operations.js. */
+r.post('/add-one-to-cart', async (req, res, next) => {
+  try {
+    await incrementCartLine(q, req.user.id, req.body?.sku,
+      { allowBackorders: allowCustomerBackorders() });
+    // The authoritative cart back in one round trip: the caller needs both the
+    // line's own quantity and the global total, and must never derive either.
+    res.json(await cartSummary(req.user));
+  } catch (e) {
+    if (e.expose) return res.status(e.status).json({ error: e.message, ...(e.data || {}) });
+    next(e);
+  }
 });
 
 /* Cart preview. `?forCustomer=<id>` prices the actor's cart with a customer's

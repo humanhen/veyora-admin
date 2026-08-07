@@ -242,8 +242,8 @@ table.list tr.click:hover td{background:var(--soft-blue)}
 .vrow .vcol{flex:1 1 80px;min-width:0;color:var(--muted);font-size:12.5px;overflow-wrap:anywhere}
 .vrow .vprice{flex:0 0 auto;min-width:56px;text-align:right}
 .vrow .stockpill{flex:0 0 auto;font-size:11px;font-weight:700;padding:3px 9px;border-radius:var(--radius-badge);white-space:nowrap}
-/* qty box + "Notify me" travel together and wrap as one unit */
-.vrow .vactions{flex:0 0 auto;display:flex;align-items:center;gap:8px;margin-left:auto}
+/* The product modal's ordering controls travel together and wrap as one unit;
+   see `.pdetail .vctrl`, which is that unit. */
 /* per-item price reveal (presentation / hidden-price mode) */
 .pdetail .pr-hidden{display:none}
 .pdetail.show-prices .pr-hidden{display:initial}
@@ -296,8 +296,21 @@ table.list tr.click:hover td{background:var(--soft-blue)}
 .qtyfield input:focus{opacity:1}
 .qtyfield input::-webkit-outer-spin-button,
 .qtyfield input::-webkit-inner-spin-button{-webkit-appearance:none;appearance:none;margin:0;display:none}
-/* "Notify me" is secondary — it must never crowd out the quantity control */
+/* "Notify me" is secondary — it must never crowd out the ordering control */
 .vrow .notify{flex:0 0 auto;white-space:nowrap}
+/* ---- direct add-to-cart, per colourway ----
+   "In cart: N" is the row's persistent statement of what the CART holds, so it
+   sits with the control rather than in a toast that disappears. `:empty` is
+   load-bearing: a colour with nothing in the cart contributes no width and no
+   flex gap, so the common row is no wider than it was before the count
+   existed, and only a row that actually has stock in the cart grows. */
+.vincart{
+  flex:0 0 auto;white-space:nowrap;
+  font-size:11.5px;font-weight:700;font-variant-numeric:tabular-nums;
+  color:var(--ink-2);background:var(--soft-blue);border-radius:999px;padding:3px 9px;
+}
+.vincart:empty{display:none}
+.vrow .addone{flex:0 0 auto;white-space:nowrap}
 
 /* product modal image gallery */
 .pdetail{display:flex;gap:24px;align-items:stretch}
@@ -346,14 +359,25 @@ table.list tr.click:hover td{background:var(--soft-blue)}
   grid-area:pill;justify-self:start;margin:0;
   font-size:10px;padding:2px 7px;line-height:1.3;white-space:nowrap;
 }
+/* The ordering unit: price · "In cart: N" · Add to cart · Notify me.
+   flex-wrap is load-bearing rather than cosmetic — a backorderable colour
+   already in the cart carries all four at once, and on a 360px phone they do
+   not fit on one line. Wrapping inside the control area keeps the colour name
+   readable instead of ellipsing it away to make room. */
 .pdetail .vctrl{
   grid-area:ctrl;justify-self:end;align-self:center;
-  display:flex;align-items:center;gap:8px;margin:0;
+  display:flex;align-items:center;justify-content:flex-end;
+  flex-wrap:wrap;gap:8px;row-gap:6px;margin:0;
 }
 .pdetail .vprice{min-width:0;font-size:13px;font-weight:700}
-.pdetail .vctrl .qtybox{margin:0}
 .pdetail .vctrl .notify{
   flex:0 0 auto;white-space:nowrap;padding:6px 10px;font-size:11.5px;min-height:0;
+}
+/* The primary control of the whole modal now, and the one a customer taps
+   repeatedly — it keeps a real target height rather than the secondary
+   action's. */
+.pdetail .vctrl .addone{
+  flex:0 0 auto;white-space:nowrap;padding:7px 13px;font-size:12px;min-height:36px;
 }
 .pdetail .vbo{
   grid-column:1 / -1;flex:none;min-height:0;margin:0;width:100%;
@@ -366,7 +390,9 @@ table.list tr.click:hover td{background:var(--soft-blue)}
   border-top:1px solid #f1f5f9;margin-left:-2px;margin-right:-2px;padding-left:2px;padding-right:2px;
   padding-bottom:2px;
 }
-.pdetail-actions > .btn:first-child{flex:1 1 auto;min-width:140px}
+/* The guest sign-in prompt fills the bar. The staff "Show to customer" ghost
+   button is a secondary action and keeps its own width. */
+.pdetail-actions > .btn:not(.ghost):first-child{flex:1 1 auto;min-width:140px}
 /* clean stage: soft grey field, no border lines (old-site look) */
 .imgbox.big{position:relative;aspect-ratio:1/1;background:#f7f6f4;border:none;border-radius:12px;display:flex;align-items:center;justify-content:center;overflow:hidden;cursor:zoom-in}
 .imgbox.big img{object-fit:contain;width:100%;height:100%;mix-blend-mode:multiply}
@@ -397,11 +423,9 @@ table.list tr.click:hover td{background:var(--soft-blue)}
   .pdetail .vcol{font-size:13px;max-width:none;min-width:0}
   .pdetail .stockpill{font-size:10px;padding:2px 6px}
   .pdetail .vctrl{margin-left:0;justify-self:end}
-  .pdetail .qtybox{height:34px}
-  .pdetail .qtybox button{width:32px;min-width:32px}
-  .pdetail .qtyfield{width:36px}
-  .pdetail .qtyfield .qtynum{font-size:13px}
-  .pdetail .qtyfield input{font-size:13px}
+  /* a thumb-sized target for the control the customer taps repeatedly */
+  .pdetail .vctrl .addone{min-height:40px;padding:9px 14px}
+  .pdetail .vctrl .notify{min-height:34px}
   .pdetail-actions{
     position:sticky;bottom:-2px;padding-top:12px;padding-bottom:calc(8px + env(safe-area-inset-bottom,0px));
     box-shadow:0 -8px 16px rgba(255,255,255,.9);
@@ -414,7 +438,6 @@ table.list tr.click:hover td{background:var(--soft-blue)}
   .vrow .qtybox button{width:30px;height:34px}
   .vrow .qtyfield{width:40px}
   .vrow .qtybox{height:34px}
-  .vrow .vactions{flex:1 0 100%;margin-left:0;justify-content:flex-end}
 }
 
 /* sign-in page — replica of old veyora.com /my-account (measured values) */
@@ -881,10 +904,6 @@ body.hm-dark .hm-wa{width:48px;height:48px;bottom:calc(22px + env(safe-area-inse
   .qtybox button{min-width:40px;width:40px}
   .qtyfield{width:40px}
   .vrow .qtybox button{width:40px}
-  /* product modal stays denser */
-  .pdetail .qtybox{height:34px}
-  .pdetail .qtybox button{width:32px;min-width:32px}
-  .pdetail .qtyfield{width:36px}
 }
 .pcard2{position:relative;background:#fff;border:none;border-radius:2px;cursor:pointer;display:flex;flex-direction:column;transition:box-shadow .15s}
 .pcard2:hover{box-shadow:var(--shadow)}
