@@ -71,36 +71,41 @@ function loadStorefront({ role = 'customer', allowBackorders = true } = {}) {
 const OUT_OF_STOCK = { sku: '1844.9', color: 'Havana', qty: 0, price: 49, stockStatus: 'out of stock' };
 const IN_STOCK = { sku: '1844.1', color: 'Black', qty: 44, price: 49, stockStatus: 'in stock' };
 
-/* ============ TASK 1 — out-of-stock variations must be orderable ============ */
+/* ============ TASK 1 — out-of-stock variations must be orderable ============
 
-test('the shipped helper renders a QUANTITY BOX for a zero-stock variation', () => {
+   The REQUIREMENT is unchanged and still enforced here: a frame with nothing on
+   the shelf must be orderable while backorders are on, must keep "Notify me" as
+   a separate intent, and must go notification-only when backorders are off.
+
+   What changed is the control. Post-handover client feedback replaced the
+   product page's pre-selection quantity box with a direct per-colour "Add to
+   cart"; quantity editing now lives in the cart itself. These assertions were
+   rewritten against the new control rather than deleted — the interaction moved,
+   the guarantee did not. The direct-add interaction has its own suite in
+   storefront-direct-add.test.js. */
+
+test('the shipped helper renders an ADD TO CART control for a zero-stock variation', () => {
   const sf = loadStorefront({ allowBackorders: true });
   const html = sf.variationOrderControls(OUT_OF_STOCK);
-  assert.match(html, /class="qtybox"/, 'the customer must be able to choose a quantity');
-  /* A numeric entry field. `type="text"` with `inputmode="numeric"` is
-     deliberate rather than `type="number"`: it raises the numeric keypad on a
-     phone without the spinner, and a stray scroll wheel cannot silently change
-     an order quantity. The cap is enforced in `bindQtyBox`'s clamp(), which
-     reads the max attribute itself, so it does not depend on the input type. */
-  assert.match(html, /<input[^>]*inputmode="numeric"/);
-  assert.match(html, /<input[^>]*pattern="\[0-9\]\*"/);
-  assert.equal((html.match(/data-q="-1"/g) || []).length, 1, 'minus button');
-  assert.equal((html.match(/data-q="1"/g) || []).length, 1, 'plus button');
+  assert.match(html, /class="btn sm addone"/, 'the customer must be able to order it');
+  assert.match(html, /data-sku="1844\.9"/, 'and it must add THAT colour');
+  assert.ok(!/qtybox/.test(html),
+    'the two-stage "choose a quantity, then submit" step is gone from the product page');
 });
 
-test('the quantity box for a backordered row is UNCAPPED', () => {
+test('a backordered row is not limited by stock that does not exist', () => {
   const sf = loadStorefront({ allowBackorders: true });
   const html = sf.variationOrderControls(OUT_OF_STOCK);
-  assert.ok(!/\bmax="/.test(html),
-    'a backorder is not limited by stock that does not exist');
+  assert.ok(!/\bmax="/.test(html));
+  assert.ok(!/disabled/.test(html), 'the control is live, not a dead button');
 });
 
-test('"Notify me" remains, but as a SECONDARY action beside the quantity box', () => {
+test('"Notify me" remains, but as a SECONDARY action beside Add to cart', () => {
   const sf = loadStorefront({ allowBackorders: true });
   const html = sf.variationOrderControls(OUT_OF_STOCK);
   assert.match(html, /class="btn ghost sm notify"/);
-  assert.ok(html.indexOf('qtybox') < html.indexOf('notify'),
-    'the quantity control comes first — it must not be replaced by Notify me');
+  assert.ok(html.indexOf('addone') < html.indexOf('notify'),
+    'ordering comes first — it must not be replaced by Notify me');
 });
 
 test('the row is labelled "Available to Backorder"', () => {
@@ -109,25 +114,31 @@ test('the row is labelled "Available to Backorder"', () => {
     '<span class="stockpill back">Available to Backorder</span>');
 });
 
-test('an in-stock row is unchanged: quantity box, no Notify me', () => {
+test('an in-stock row is unchanged: addable, no Notify me', () => {
   const sf = loadStorefront({ allowBackorders: true });
   const html = sf.variationOrderControls(IN_STOCK);
-  assert.match(html, /class="qtybox"/);
+  assert.match(html, /class="btn sm addone"/);
   assert.ok(!/notify/.test(html), 'nothing to notify about — it is in stock');
 });
 
-test('backorders DISABLED: a zero-stock row gets no quantity box at all', () => {
+test('backorders DISABLED: a zero-stock row gets no add control at all', () => {
   const sf = loadStorefront({ allowBackorders: false });
   const html = sf.variationOrderControls(OUT_OF_STOCK);
-  assert.ok(!/qtybox/.test(html), 'it must not be addable');
+  assert.ok(!/addone/.test(html), 'it must not be addable');
+  assert.ok(!/qtybox/.test(html));
   assert.match(html, /notify/, 'notification-only behaviour is preserved');
   assert.equal(sf.stockPill(OUT_OF_STOCK),
     '<span class="stockpill out">Out of Stock</span>');
 });
 
-test('backorders DISABLED: an in-stock row is capped at what exists', () => {
+test('backorders DISABLED: an in-stock row stays addable, and the SERVER holds the cap', () => {
   const sf = loadStorefront({ allowBackorders: false });
-  assert.match(sf.variationOrderControls(IN_STOCK), /max="44"/);
+  assert.match(sf.variationOrderControls(IN_STOCK), /class="btn sm addone"/);
+  /* The old cap was a max= attribute on a browser input. One click cannot
+     encode a limit, so the boundary moved to where it was always authoritative:
+     the increment statement refuses to take the line past available stock, and
+     the row reconciles to what the server allowed. See cart-increment.test.js. */
+  assert.ok(!/\bmax="/.test(sf.variationOrderControls(IN_STOCK)));
 });
 
 test('the product card CTA and the modal agree for a zero-stock frame', () => {
@@ -135,8 +146,8 @@ test('the product card CTA and the modal agree for a zero-stock frame', () => {
   const cta = sf.orderButton({ qty: 0, price: 49 }, false);
   assert.match(cta, /Backorder/, 'card offers a backorder…');
   assert.ok(!/disabled/.test(cta), '…and is not a dead button');
-  assert.match(sf.variationOrderControls(OUT_OF_STOCK), /qtybox/,
-    '…and the modal actually lets them choose a quantity');
+  assert.match(sf.variationOrderControls(OUT_OF_STOCK), /addone/,
+    '…and the modal actually lets them order it');
 });
 
 test('the CTA is disabled only when backorders are off', () => {
@@ -144,42 +155,28 @@ test('the CTA is disabled only when backorders are off', () => {
   assert.match(off.orderButton({ qty: 0, price: 49 }, false), /disabled/);
 });
 
-/* ---- selection is preserved: mixed carts, and Notify me must not clear it ---- */
+/* ---- a backordered colour and "Notify me" stay independent decisions ---- */
 
-/** Reproduces the modal's chosen-quantity bookkeeping over the real qtyBox. */
-function selectionHarness(sf) {
-  const chosen = new Map();
-  return {
-    chosen,
-    setQty(sku, qty) { if (qty > 0) chosen.set(sku, qty); else chosen.delete(sku); },
-    // the notify handler only toggles the button's own state
-    pressNotify() { /* deliberately touches nothing in `chosen` */ },
-    payload() { return [...chosen].map(([sku, qty]) => ({ sku, qty })); },
-  };
-}
-
-test('a zero-stock variation is included in the add-to-cart payload', () => {
+test('a zero-stock variation can be added to the cart on its own', () => {
   const sf = loadStorefront({ allowBackorders: true });
-  const h = selectionHarness(sf);
-  h.setQty(OUT_OF_STOCK.sku, 2);
-  assert.deepEqual(h.payload(), [{ sku: '1844.9', qty: 2 }]);
+  const html = sf.variationOrderControls(OUT_OF_STOCK);
+  assert.match(html, /data-sku="1844\.9"[^>]*aria-label="Add Havana — SKU 1844\.9 to cart"/);
 });
 
-test('a MIXED selection keeps both the in-stock and the backordered line', () => {
+test('an in-stock and a zero-stock colour each get their OWN control', () => {
   const sf = loadStorefront({ allowBackorders: true });
-  const h = selectionHarness(sf);
-  h.setQty(IN_STOCK.sku, 1);
-  h.setQty(OUT_OF_STOCK.sku, 3);
-  assert.deepEqual(h.payload(), [{ sku: '1844.1', qty: 1 }, { sku: '1844.9', qty: 3 }]);
+  const skus = [IN_STOCK, OUT_OF_STOCK]
+    .map(v => sf.variationOrderControls(v).match(/class="btn sm addone"[^>]*data-sku="([^"]+)"/)[1]);
+  assert.deepEqual(skus, ['1844.1', '1844.9'],
+    'a mixed cart is built one colour at a time, and each button knows its own sku');
 });
 
-test('pressing "Notify me" does not erase a selected backorder quantity', () => {
+test('"Notify me" carries no cart quantity — it is a different intention', () => {
   const sf = loadStorefront({ allowBackorders: true });
-  const h = selectionHarness(sf);
-  h.setQty(OUT_OF_STOCK.sku, 2);
-  h.pressNotify();
-  assert.deepEqual(h.payload(), [{ sku: '1844.9', qty: 2 }],
-    'notification is independent of the order selection');
+  const notify = sf.variationNotifyButton(OUT_OF_STOCK);
+  assert.match(notify, /data-sku="1844\.9"/);
+  assert.ok(!/addone|qty/.test(notify),
+    'asking to be told when stock lands must not order anything');
 });
 
 /* ============ TASK 2 — the quantity control must not be clipped ============ */
@@ -215,23 +212,31 @@ test('the variation row WRAPS instead of squeezing', () => {
 
 test('only the colour name yields space; everything else is fixed', () => {
   assert.match(CSS, /\.vrow \.vcol\{flex:1 1 80px/, 'the colour label absorbs the squeeze');
-  for (const sel of ['img', '.vsku', '.vprice', '.stockpill', '.vactions']) {
+  for (const sel of ['img', '.vsku', '.vprice', '.stockpill']) {
     const re = new RegExp(`\\.vrow ${sel.replace('.', '\\.')}\\{flex:0 0 auto`);
     assert.match(CSS, re, `.vrow ${sel} must not shrink`);
   }
 });
 
+/* The ordering controls used to be wrapped in a `.vactions` span that only the
+   helper produced — the shipped modal rendered the pieces itself, so the CSS
+   under test was never on screen. The unit is now `.pdetail .vctrl`, which the
+   modal really does render, and the helper fills it. */
 test('the actions travel together as one wrappable unit', () => {
-  assert.match(CSS, /\.vrow \.vactions\{[^}]*display:flex/);
-  const sf = loadStorefront({ allowBackorders: true });
-  const html = sf.variationOrderControls(OUT_OF_STOCK);
-  assert.match(html, /^<span class="vactions">/, 'markup and CSS agree');
-  assert.match(html, /<\/span>$/);
+  const rule = CSS.match(/\n\.pdetail \.vctrl\{[^}]*\}/);
+  assert.ok(rule, '.pdetail .vctrl must exist');
+  assert.match(rule[0], /display:flex/);
+  assert.match(rule[0], /flex-wrap:wrap/, 'it wraps rather than overflowing the row');
+  assert.match(rule[0], /justify-self:end/, 'and stays pinned to the trailing edge');
+  assert.match(modalSource, /<div class="vctrl">[\s\S]*?variationOrderControls\(v\)/,
+    'markup and CSS agree: the helper fills the unit the CSS styles');
 });
 
-test('on a phone the actions take their own full-width line', () => {
+test('on a phone the actions keep a real target and still wrap', () => {
   const mobile = CSS.slice(CSS.indexOf('@media(max-width:760px)'));
-  assert.match(mobile, /\.vrow \.vactions\{flex:1 0 100%/);
+  assert.match(mobile, /\.pdetail \.vctrl\{margin-left:0;justify-self:end\}/);
+  assert.match(mobile, /\.pdetail \.vctrl \.addone\{min-height:40px/,
+    'the control a customer taps repeatedly must be thumb-sized');
 });
 
 test('nothing important is hidden to make it fit', () => {
@@ -245,7 +250,9 @@ test('the row now fits the modal column budget', () => {
   // .modal 860 − padding 44 − .pdetail-img 340 − gap 24 − .pdetail-info pad 20
   const rowWidth = 860 - 44 - 340 - 24 - 20;                       // 432
   const line1 = 56 + 84 + 150 + 56 + 3 * 12;                        // img+sku+pill+price
-  const actions = (34 + 46 + 34) + 8 + 88;                          // qtybox + gap + notify
+  // "In cart: 12" + gap + "Add to cart" + gap + "Notify me" — the worst case,
+  // a backorderable colour that already has pieces in the cart.
+  const actions = 74 + 8 + 96 + 8 + 88;
   assert.ok(line1 <= rowWidth, 'line 1 fits');
   assert.ok(actions <= rowWidth, 'the actions unit fits on its own wrapped line');
 });
