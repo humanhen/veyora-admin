@@ -13,8 +13,17 @@
   --ok:#15803d;
   --warn:#b45309;
   --bad:#b91c1c;
-  --radius:10px;
-  --shadow:0 1px 3px rgba(19,30,66,.08),0 4px 14px rgba(19,30,66,.06);
+  --radius:8px;
+  /* Status labels and chips. Fully-round shapes are reserved for things that
+     genuinely are round - a count bubble, a circular icon button. A status
+     badge is a LABEL, and a label with a straight edge reads as trade
+     software rather than as a consumer app. */
+  --radius-badge:4px;
+  --radius-chip:6px;
+  /* One shadow, close to the surface. The previous pair stacked a tight
+     shadow under a wide soft one, which lifted every card off the page and
+     made a dense ordering screen look like a set of floating tiles. */
+  --shadow:0 1px 2px rgba(19,30,66,.07),0 1px 6px rgba(19,30,66,.05);
 }
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 html{-webkit-text-size-adjust:100%}
@@ -62,7 +71,7 @@ h1.pagetitle{font-size:20px;font-weight:700;margin-bottom:14px}
 .welcome-card h1{font-size:22px;font-weight:700;margin-bottom:2px}
 .welcome-card .sub{font-size:13.5px}
 .dash-links{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
-.dash-links a{background:#fff;border:1px solid var(--line);border-radius:999px;padding:7px 14px;font-size:12.5px;font-weight:600;color:var(--ink-2)}
+.dash-links a{background:#fff;border:1px solid var(--line);border-radius:var(--radius-chip);padding:7px 14px;font-size:12.5px;font-weight:600;color:var(--ink-2)}
 .dash-links a:hover{background:var(--soft-blue)}
 .dash-tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:14px}
 @media(max-width:900px){.dash-tiles{grid-template-columns:repeat(2,1fr)}}
@@ -218,12 +227,16 @@ table.list tr.click:hover td{background:var(--soft-blue)}
    because .qtybox has overflow:hidden, it CLIPPED its own number and + button,
    so the control looked absent and out-of-stock items appeared unorderable. */
 .vrow{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid #f1f5f9;flex-wrap:wrap}
-.vrow img{flex:0 0 auto;width:56px;height:42px;object-fit:contain;border:1px solid var(--line);border-radius:6px;background:#fff}
+/* No border and no white plate behind the frame. The product photos are
+   already cut out on white, so a white box with a grey outline drew a second
+   rectangle around every thumbnail and made the list look like a spreadsheet
+   rather than a catalogue. */
+.vrow img{flex:0 0 auto;width:56px;height:42px;object-fit:contain;border:0;border-radius:6px;background:transparent}
 .vrow .vsku{flex:0 0 auto;font-weight:600;font-size:13px;min-width:84px}
 /* the only element that yields space */
 .vrow .vcol{flex:1 1 80px;min-width:0;color:var(--muted);font-size:12.5px;overflow-wrap:anywhere}
 .vrow .vprice{flex:0 0 auto;min-width:56px;text-align:right}
-.vrow .stockpill{flex:0 0 auto;font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;white-space:nowrap}
+.vrow .stockpill{flex:0 0 auto;font-size:11px;font-weight:700;padding:3px 9px;border-radius:var(--radius-badge);white-space:nowrap}
 /* qty box + "Notify me" travel together and wrap as one unit */
 .vrow .vactions{flex:0 0 auto;display:flex;align-items:center;gap:8px;margin-left:auto}
 /* per-item price reveal (presentation / hidden-price mode) */
@@ -491,12 +504,12 @@ table.list tr.click:hover td{background:var(--soft-blue)}
 .ty-values div{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #f1f5f9}
 .ty-values span{color:var(--muted)}
 /* backorder state chip on the customer's backorders page */
-.bo-state{display:inline-block;background:#efe9f5;color:#56416d;font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px;margin-left:4px}
+.bo-state{display:inline-block;background:#efe9f5;color:#56416d;font-size:11px;font-weight:700;padding:2px 9px;border-radius:var(--radius-badge);margin-left:4px}
 /* "Ordering for: X" — a salesperson must never lose track of whose order this is */
 .acting-bar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;background:#2f2440;color:#f3eefa;padding:10px 3%;font-size:13px;line-height:1.5}
 .acting-bar .sub{color:#bda0d3}
 .acting-actions{display:flex;gap:8px;flex-shrink:0}
-.acting-bar button{background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.28);color:#fff;border-radius:999px;padding:5px 13px;font-size:12px;font-weight:600;cursor:pointer}
+.acting-bar button{background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.28);color:#fff;border-radius:var(--radius-chip);padding:5px 13px;font-size:12px;font-weight:600;cursor:pointer}
 .acting-bar button:hover{background:rgba(255,255,255,.24)}
 /* Checkout confirmation of WHO the assisted order is for — the last chance to
    notice you are ordering for the wrong account. */
@@ -504,7 +517,7 @@ table.list tr.click:hover td{background:var(--soft-blue)}
 .co-acting .sub{display:block;margin-top:4px;color:#6b5c7d;font-size:12.5px}
 
 /* ---------- status pills ---------- */
-.pill{display:inline-block;font-size:11px;font-weight:700;padding:3px 10px;border-radius:999px;text-transform:capitalize}
+.pill{display:inline-block;font-size:11px;font-weight:700;padding:3px 9px;border-radius:var(--radius-badge);text-transform:capitalize;letter-spacing:.01em}
 .pill.pending{background:#fef3c7;color:var(--warn)}
 .pill.processing,.pill.collecting,.pill.approved{background:var(--soft-blue);color:var(--accent)}
 .pill.completed,.pill.shipped,.pill.collected,.pill.closed,.pill.active{background:#dcfce7;color:var(--ok)}
@@ -524,7 +537,7 @@ table.list tr.click:hover td{background:var(--soft-blue)}
 .zoom-hint svg,.scan-ic svg{display:block}
 .fav svg{display:block;margin:auto}
 #toasts{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);z-index:100;display:flex;flex-direction:column;gap:8px;align-items:center}
-.toast{background:var(--ink);color:#fff;padding:11px 20px;border-radius:999px;font-size:13.5px;font-weight:600;box-shadow:var(--shadow);animation:pop .2s}
+.toast{background:var(--ink);color:#fff;padding:11px 18px;border-radius:var(--radius);font-size:13.5px;font-weight:600;box-shadow:var(--shadow);animation:pop .16s}
 .toast.err{background:var(--bad)}
 @keyframes pop{from{opacity:0;transform:translateY(8px)}to{opacity:1}}
 .skeleton{background:linear-gradient(90deg,#f1f5f9 25%,#e2e8f0 37%,#f1f5f9 63%);background-size:400% 100%;animation:sk 1.2s infinite;border-radius:8px}
@@ -895,7 +908,7 @@ body.hm-dark .hm-wa{width:48px;height:48px;bottom:calc(22px + env(safe-area-inse
 .pcard2 .share{background:none;border:none;color:#8a857f;cursor:pointer;padding:4px}
 .pcard2 .share:hover{color:var(--ink)}
 .pcard2 .vthumbs{display:flex;gap:8px;align-items:center;padding:6px 14px 10px;min-height:56px;flex-wrap:wrap}
-.pcard2 .vthumbs img{width:44px;height:44px;border-radius:999px;object-fit:cover;border:1.5px solid #ddd9d2;cursor:pointer;background:#f4f3f1}
+.pcard2 .vthumbs img{width:44px;height:44px;border-radius:var(--radius-chip);object-fit:cover;border:1.5px solid #ddd9d2;cursor:pointer;background:#f4f3f1}
 .pcard2 .vthumbs img.sel{border-color:#221F20}
 .pcard2 .vthumbs .more{font-size:12px;color:#8a857f;font-weight:600}
 .pcard2 .orderbtn{margin-top:auto;background:#1a1a1a;color:#fff;border:none;height:30px;padding:0 8px;font-size:8.8px;font-weight:500;letter-spacing:1.5px;text-transform:uppercase;cursor:pointer}
@@ -976,4 +989,33 @@ body.hm-dark .hm-wa{width:48px;height:48px;bottom:calc(22px + env(safe-area-inse
 @media (max-width:640px){
   .ret-lines td{padding:8px 6px}
   .ret-lines .r-qty-cell,.ret-lines .r-res-cell{display:block}
+}
+
+/* The reorder list carries a thumbnail, SKU, name, cadence, an overdue badge,
+   a stock pill and a button. At tablet width the name column was the only
+   thing allowed to yield, so it collapsed to its 80px basis and wrapped to
+   four lines while everything else kept its size. It gets a workable basis
+   here, and the row wraps as a whole once it genuinely cannot fit. */
+.reorder-row .vcol{flex:1 1 220px}
+.reorder-row .btn{flex:0 0 auto}
+@media (max-width:560px){
+  .reorder-row .vcol{flex:1 1 100%}
+  .reorder-row .btn{margin-left:auto}
+}
+
+/* ---------- Back control (feedback E) ---------- */
+/* Sits in the dark topbar beside the menu button, so it is in the same place
+   on every screen that has one. It inherits the topbar's colour like the other
+   icon controls rather than carrying its own. */
+.topbar .backbtn{display:inline-flex;align-items:center;gap:6px;background:none;border:0;
+  color:inherit;font:inherit;font-size:13px;font-weight:600;padding:8px 10px;border-radius:8px;
+  cursor:pointer;white-space:nowrap}
+.topbar .backbtn:hover{background:rgba(255,255,255,.12)}
+.topbar .backbtn:focus-visible{outline:2px solid #fff;outline-offset:-2px}
+.topbar .backbtn svg{display:block}
+/* On a phone the word is dropped and the arrow carries it; the button keeps
+   its aria-label, so it is still announced as "Back". */
+@media (max-width:520px){
+  .topbar .backbtn span{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+  .topbar .backbtn{padding:8px}
 }

@@ -67,16 +67,16 @@ function backordersAllowed() {
 }
 function stockPill(v, opts = {}) {
   // Old-site behavior: availability only, never the quantity number.
-  if (v.qty > 0) return `<span class="stockpill in">in stock</span>`;
+  if (v.qty > 0) return `<span class="stockpill in">In Stock</span>`;
   if (v.stockStatus === 'in production') {
-    return `<span class="stockpill prod">${opts.short ? 'production' : 'in production'}</span>`;
+    return `<span class="stockpill prod">${opts.short ? 'Production' : 'In Production'}</span>`;
   }
   // Nothing on the shelf, but it can still be ordered — say so plainly rather
   // than showing a dead end.
   if (backordersAllowed()) {
-    return `<span class="stockpill back">${opts.short ? 'Backorder' : 'Available to backorder'}</span>`;
+    return `<span class="stockpill back">${opts.short ? 'Backorder' : 'Available to Backorder'}</span>`;
   }
-  return `<span class="stockpill out">out of stock</span>`;
+  return `<span class="stockpill out">Out of Stock</span>`;
 }
 /** "Charlett · Model 2057 · SKU 2057.81" — the full product identity of a line.
     modelSku is the PRODUCT sku supplied by the API; never split the variation

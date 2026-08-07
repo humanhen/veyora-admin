@@ -153,6 +153,110 @@ const BOTTOM_NAV = [
   { hash: '#/dashboard',   label: 'My Account', icon: 'user' },
 ];
 
+/* ---------- Back navigation (client feedback item E) ----------
+
+   Every screen that can be reached from another one now offers Back, and it
+   always goes somewhere sensible.
+
+   `history.back()` alone is not good enough. A customer who opens a deep link
+   from an email, a WhatsApp message or a bookmark has no previous entry inside
+   the portal, so `back()` either does nothing at all or walks them out of the
+   site entirely. Both look broken, and the second loses the session context.
+
+   So Back is history-first, fallback-always: it steps back through history only
+   while we know the previous entry was one of OUR screens, and otherwise sends
+   the customer to the parent of the screen they are on. That parent is derived
+   from the route, so it is the same answer every time — never "wherever you
+   happened to come from".
+
+   BACK_PARENT is keyed by the FIRST hash segment. A detail screen goes to its
+   list; a list goes to the dashboard; the dashboard and the public home have no
+   parent and therefore show no Back control at all, because a control that goes
+   nowhere is worse than no control. */
+const BACK_PARENT = Object.freeze({
+  '#/order': '#/orders',
+  '#/orders': '#/dashboard',
+  '#/backorders': '#/dashboard',
+  '#/returns': '#/dashboard',
+  '#/replenishment': '#/dashboard',
+  '#/products': '#/dashboard',
+  '#/spare-parts': '#/dashboard',
+  '#/favourites': '#/dashboard',
+  '#/cart': '#/products',
+  '#/checkout': '#/cart',
+  '#/thank-you': '#/orders',
+  '#/account': '#/dashboard',
+  '#/customers': '#/dashboard',
+  '#/create-customer': '#/customers',
+  '#/lists': '#/dashboard',
+  '#/list': '#/products',
+});
+
+/* Screens with no parent: the two entry points, and the pre-session screens
+   where a Back control would be an invitation to leave. */
+const BACK_ROOTS = Object.freeze([
+  '#/', '#/home', '#/dashboard',
+  '#/login', '#/forgot', '#/activate', '#/set-password',
+]);
+
+/* Routes that are only ever rendered WITH an argument. `#/order` on its own is
+   not a screen, so `#/order/SO-100` must consult the parent table (giving
+   `#/orders`) rather than falling back to its own key and landing nowhere.
+   Contrast `#/returns/create`, whose key IS a real list to go back to. */
+const DETAIL_ONLY = Object.freeze(['#/order', '#/list']);
+
+/** How many navigations this session has made INSIDE the portal. */
+let inAppDepth = 0;
+function noteNavigation() { inAppDepth += 1; }
+
+/**
+ * Where Back goes from `hash`, ignoring history entirely.
+ *
+ * A sub-route falls back to its own top-level screen first: from
+ * `#/returns/create` the parent is `#/returns`, not the dashboard. Anything
+ * unrecognised lands on the dashboard rather than nowhere.
+ */
+function backTarget(hash) {
+  const raw = String(hash || '#/');
+  const parts = raw.replace(/^#\//, '').split('/');
+  const key = '#/' + (parts[0] || '');
+  if (BACK_ROOTS.includes(key)) return null;
+  if (parts.length > 1 && parts[1] !== '' && !DETAIL_ONLY.includes(key)) return key;
+  return BACK_PARENT[key] || '#/dashboard';
+}
+
+/**
+ * Go back one step.
+ *
+ * History is preferred because it restores the customer's place in a long
+ * catalogue, but it is only trusted while we know we are the ones who put
+ * those entries there.
+ */
+function goBack() {
+  const target = backTarget(location.hash);
+  if (inAppDepth > 0 && typeof history !== 'undefined' && history.back) {
+    inAppDepth -= 1;
+    const before = location.hash;
+    history.back();
+    /* If the hash has not moved shortly afterwards, that entry was not ours
+       after all — a deep link, or a pop the browser declined. Fall back
+       deterministically rather than leaving a control that does nothing. */
+    setTimeout(() => {
+      if (location.hash === before && target) location.hash = target;
+    }, 120);
+    return;
+  }
+  if (target) location.hash = target;
+}
+
+/** The Back control, or nothing at all on a screen that has no parent. */
+function backButton(activeHash) {
+  const target = backTarget(activeHash);
+  if (!target) return '';
+  return `<button class="backbtn" data-back type="button" aria-label="Back">${
+    icon('arrowLeft', { size: 16 })}<span>Back</span></button>`;
+}
+
 function navLinkActive(hash, activeHash) {
   return hash === '#/' ? activeHash === '#/' || activeHash === '#/home'
     : activeHash.startsWith(hash);
@@ -163,6 +267,7 @@ function shell(contentEl, activeHash) {
   const el = h(`<div>
     <header class="topbar">
       <button class="burger" aria-label="Menu">${NAVICON.burger}</button>
+      ${backButton(activeHash)}
       <img class="logo" src="assets/logo-white.svg" alt="Veyora" style="width:126px;cursor:pointer" onclick="location.hash='#/'"/>
       <div class="spacer"></div>
       <button class="icon-btn" title="Home" aria-label="Home" onclick="location.hash='#/'">${NAVICON.home}</button>
@@ -205,6 +310,11 @@ function shell(contentEl, activeHash) {
         <span>${n.label}</span></a>`).join('')}
     </nav>
   </div>`);
+  /* The Back control is absent by design on a screen with no parent, so this
+     is conditional rather than assumed present. */
+  const backCtl = el.querySelector('[data-back]');
+  if (backCtl) backCtl.onclick = goBack;
+
   el.querySelector('[data-present]').onclick = () => setPresenting(!Store.presenting);
   const exitBtn = el.querySelector('[data-present-exit]');
   if (exitBtn) exitBtn.onclick = () => setPresenting(false);
@@ -327,5 +437,5 @@ async function route() {
   window.scrollTo(0, 0);
 }
 
-window.addEventListener('hashchange', route);
+window.addEventListener('hashchange', () => { noteNavigation(); route(); });
 window.addEventListener('DOMContentLoaded', route);

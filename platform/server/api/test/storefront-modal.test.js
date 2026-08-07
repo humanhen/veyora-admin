@@ -103,10 +103,10 @@ test('"Notify me" remains, but as a SECONDARY action beside the quantity box', (
     'the quantity control comes first — it must not be replaced by Notify me');
 });
 
-test('the row is labelled "Available to backorder"', () => {
+test('the row is labelled "Available to Backorder"', () => {
   const sf = loadStorefront({ allowBackorders: true });
   assert.equal(sf.stockPill(OUT_OF_STOCK),
-    '<span class="stockpill back">Available to backorder</span>');
+    '<span class="stockpill back">Available to Backorder</span>');
 });
 
 test('an in-stock row is unchanged: quantity box, no Notify me', () => {
@@ -122,7 +122,7 @@ test('backorders DISABLED: a zero-stock row gets no quantity box at all', () => 
   assert.ok(!/qtybox/.test(html), 'it must not be addable');
   assert.match(html, /notify/, 'notification-only behaviour is preserved');
   assert.equal(sf.stockPill(OUT_OF_STOCK),
-    '<span class="stockpill out">out of stock</span>');
+    '<span class="stockpill out">Out of Stock</span>');
 });
 
 test('backorders DISABLED: an in-stock row is capped at what exists', () => {

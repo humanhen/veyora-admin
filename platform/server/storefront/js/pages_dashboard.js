@@ -117,7 +117,7 @@ Routes['#/dashboard'] = {
       return;
     }
     box.innerHTML = items.map(i => `
-      <div class="vrow" data-sku="${esc(i.sku)}">
+      <div class="vrow reorder-row" data-sku="${esc(i.sku)}">
         ${imgOr(i.image)}
         <span class="vsku">${esc(i.sku)}</span>
         <span class="vcol">${esc(i.name)}${i.color ? ' · ' + esc(i.color) : ''}<br/>
