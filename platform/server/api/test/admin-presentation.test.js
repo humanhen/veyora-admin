@@ -140,8 +140,11 @@ test('the mobile card layout keeps the actions inside the card', () => {
 const CORE = codeOf('js/pages_core.js');
 
 test('the two aggregate pulse tiles name their currency', () => {
-  assert.match(CORE, /<div class="stat-label">REVENUE \(USD\) &middot; LAST 24H/);
-  assert.match(CORE, /<div class="stat-label">AVG ORDER VALUE \(USD\) &middot; LAST 24H/);
+  /* The tiles are built by statCard() now rather than written out as divs. The
+     property is unchanged and is asserted the same way — the LABEL names the
+     currency. Pinning the surrounding markup would only pin the construction. */
+  assert.match(CORE, /label: 'REVENUE \(USD\) &middot; LAST 24H'/);
+  assert.match(CORE, /label: 'AVG ORDER VALUE \(USD\) &middot; LAST 24H'/);
   assert.ok(!/>REVENUE &middot; LAST 24H/.test(CORE), 'the unlabelled version is gone');
   assert.ok(!/AVG ORDER VALUE &middot; L…/.test(CORE),
     'the truncated, unlabelled version is gone');
@@ -159,9 +162,9 @@ test('the calculations behind both tiles are untouched', () => {
   assert.match(CORE, /const rev24=p24\.reduce\(\(s,o\)=>s\+o\.total,0\);/);
   assert.match(CORE, /const aov24=p24\.length\?rev24\/p24\.length:null;/);
   assert.match(CORE, /const cut24=new Date\(Date\.now\(\)-864e5\);/);
-  assert.match(CORE, /\$\{p24\.length\?money\(rev24\):'—'\}/,
+  assert.match(CORE, /value: p24\.length\?money\(rev24\):'—'/,
     'the revenue tile still renders the same value');
-  assert.match(CORE, /\$\{aov24!=null\?money\(aov24\):'—'\}/,
+  assert.match(CORE, /value: aov24!=null\?money\(aov24\):'—'/,
     'and so does the average');
   /* Base USD: these sum orders in mixed currencies, so orderMoney would be
      wrong here — it converts per order. Batch 1G established this. */
@@ -170,7 +173,7 @@ test('the calculations behind both tiles are untouched', () => {
 });
 
 test('the rest of the dashboard USD labelling from Batch 1G still stands', () => {
-  assert.match(CORE, /REVENUE \(USD\) \$\{I\.money\}/, 'the performance tile');
+  assert.match(CORE, /label: 'REVENUE \(USD\)', icon: I\.money/, 'the performance tile');
   assert.match(CORE, /\['Revenue \(USD\)','revenue'/, 'the by-country column');
   assert.match(codeOf('js/pages_ops.js'), /<div class="page-title">Revenue \(USD\)<\/div>/);
   assert.match(codeOf('js/pages_sales.js'), /'Customer','Orders','Amount \(USD\)','Frames'/);

@@ -177,7 +177,13 @@ Routes['#/lists'] = {
           const l = lists.find(x => x.slug === row.dataset.slug);
           row.querySelector('[data-act="copy"]').onclick = () => copyToClipboard(l.url, 'Link copied — paste it to your customer');
           row.querySelector('[data-act="del"]').onclick = async () => {
-            if (!confirm(`Delete "${l.name || l.slug}"? The link will stop working.`)) return;
+            const ok = await confirmModal({
+              title: 'Delete this list?',
+              body: `"${l.name || l.slug}" will be removed and its link will stop working `
+                + 'for anyone you have already sent it to.',
+              confirmLabel: 'Delete list', danger: true,
+            });
+            if (!ok) return;
             await API.del('/user/shared-lists/' + encodeURIComponent(l.slug));
             toast('List deleted');
             refreshLists();

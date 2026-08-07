@@ -553,3 +553,40 @@ pre.payload{background:#faf7f0;border:1px solid var(--line);border-radius:10px;p
   border-left:4px solid var(--yellow-ink);background:var(--yellow-soft)}
 
 @media(max-width:760px){.pc-publication .flex .btn{flex:1 1 100%}}
+
+/* ---------- clickable dashboard tiles (feedback K) ---------- */
+/* A tile that leads somewhere is an anchor, so it is focusable, announced as a
+   link, and ctrl/middle-click work. The affordance is deliberately quiet: this
+   is a dense operations screen, not a set of buttons. */
+.g5{grid-template-columns:repeat(5,1fr)}
+.stat-link{position:relative;display:block;text-decoration:none;color:inherit;
+  transition:border-color .12s ease,box-shadow .12s ease,transform .12s ease}
+.stat-link:hover{border-color:var(--accent);box-shadow:0 2px 10px rgba(28,24,16,.07)}
+.stat-link:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.stat-go{position:absolute;top:14px;right:12px;color:var(--muted);opacity:0;
+  transition:opacity .12s ease,transform .12s ease;display:flex;transform:rotate(-90deg)}
+.stat-link:hover .stat-go,.stat-link:focus-visible .stat-go{opacity:1}
+.stat-go svg{width:14px;height:14px}
+/* A tile with no destination must not LOOK like one that has been disabled —
+   there is nothing wrong with it, it simply is not a link. */
+.stat-card:not(.stat-link){cursor:default}
+
+/* ---------- accounts receivable (feedback L) ---------- */
+.ar-ageing{display:flex;flex-direction:column;gap:9px;margin-top:10px}
+.ar-age-row{display:grid;grid-template-columns:120px minmax(0,1fr) 96px;gap:12px;align-items:center}
+.ar-age-k{font-size:12.5px;font-weight:600;color:var(--ink-2)}
+.ar-age-track{height:9px;background:var(--line-2);border-radius:3px;overflow:hidden}
+.ar-age-fill{height:100%;border-radius:3px}
+/* The ramp is the message: not-yet-due is unremarkable, 90+ is not. */
+.ar-age-fill.current{background:#94a3b8}
+.ar-age-fill.d1_30{background:#5b8bc4}
+.ar-age-fill.d31_60{background:#c9922e}
+.ar-age-fill.d61_90{background:#c96a2e}
+.ar-age-fill.d90p{background:var(--red)}
+.ar-age-v{text-align:right;font-weight:700;font-size:13px;font-variant-numeric:tabular-nums}
+@media(max-width:1100px){.g5{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:760px){
+  .g5{grid-template-columns:repeat(2,1fr)}
+  .ar-age-row{grid-template-columns:96px minmax(0,1fr) 80px;gap:8px}
+  .ar-age-k{font-size:11.5px}
+}

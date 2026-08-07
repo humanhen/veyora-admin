@@ -406,13 +406,23 @@ test('a full backorder says "Full backorder" instead of "from order —"', () =>
 });
 
 test('the customer backorders page keeps every material detail', () => {
+  /* The line markup moved into orderLineRow(), now shared with the orders
+     screen, so the per-line details are asserted where they live. The point of
+     the test is unchanged: none of these facts may quietly disappear. */
   const orders = copyOf('js/pages_orders.js');
   for (const [what, re] of [
     ['backorder number', /esc\(b\.number\)/],
     ['status', /pill\(b\.status\)/],
-    ['SKU', /esc\(i\.sku\)/],
-    ['quantity', /× \$\{i\.qty\}/],
-    ['value', /money\(i\.price, b\)/],
     ['cancel action', /data-ca="\$\{esc\(b\.id\)\}"/],
+    ['lines from the shared renderer', /b\.items\.map\(i => orderLineRow\(i, b, hide\)\)/],
   ]) assert.match(orders, re, `${what} must remain`);
+
+  const fn = orders.slice(orders.indexOf('function orderLineRow'));
+  const body = fn.slice(0, fn.indexOf('\n}'));
+  for (const [what, re] of [
+    ['SKU', /esc\(i\.sku\)/],
+    ['quantity', /\$\{i\.qty\}/],
+    ['value', /money\(i\.qty \* i\.price, o\)/],
+    ['photo', /imgOr\(i\.image\)/],
+  ]) assert.match(body, re, `${what} must remain on the line`);
 });

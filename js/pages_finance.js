@@ -259,6 +259,49 @@ App.register('collection',function(el){
     const agents=d.users.filter(u=>['agent','super-agent'].includes(u.role));
 
     el.innerHTML=`
+    ${(() => {
+      /* The receivable as a whole, above the flagged-customer list: that list
+         answers "who", these answer "how much" and "how late". */
+      const ar = receivablesSummary(d.invoices, d.users, todayISO());
+      const m = c => money0(c / 100);
+      return `
+      <div class="section-label">ACCOUNTS RECEIVABLE</div>
+      <div class="grid g5" style="margin-bottom:14px">
+        ${statCard({ label: 'REVENUE INVOICED', icon: I.money, value: m(ar.revenue),
+          note: 'billed, not collected', to: 'invoices' })}
+        ${statCard({ label: 'OPEN AR', icon: I.invoice, value: m(ar.openAr),
+          note: 'unsettled invoices', to: 'invoices' })}
+        ${statCard({ label: 'PAST DUE', icon: I.clock, value: m(ar.pastDue),
+          note: ar.openAr ? Math.round(ar.pastDue / ar.openAr * 100) + '% of open AR' : 'nothing open' })}
+        ${statCard({ label: 'FUTURE DUE', icon: I.calendar, value: m(ar.futureDue),
+          note: 'issued, not yet due' })}
+        ${statCard({ label: 'TOTAL AR (LEDGER)', icon: I.collection, value: m(ar.totalAr),
+          note: 'customer balances', to: 'payments' })}
+      </div>
+      ${ar.unreconciled !== 0 ? `<div class="dashed-banner" style="margin-bottom:14px">
+        The ledger and the open invoices differ by <b>${m(Math.abs(ar.unreconciled))}</b>.
+        ${ar.unreconciled > 0
+          ? 'The balances say more is owed than the open invoices account for — usually a manual balance adjustment.'
+          : 'The open invoices exceed the balances — usually a payment or credit note that has not been matched to an invoice.'}
+      </div>` : ''}
+      <div class="card card-pad" style="margin-bottom:16px">
+        <div class="card-title">Ageing</div>
+        <div class="ar-ageing">
+          ${ar.buckets.map(b => {
+            const v = ar.ageing[b.key];
+            const pct = ar.openAr ? Math.max(v ? 2 : 0, v / ar.openAr * 100) : 0;
+            return `<div class="ar-age-row">
+              <div class="ar-age-k">${esc(b.label)}</div>
+              <div class="ar-age-track"><div class="ar-age-fill ${b.key}" style="width:${pct}%"></div></div>
+              <div class="ar-age-v">${m(v)}</div></div>`;
+          }).join('')}
+        </div>
+        ${ar.assumedTerms || ar.undatable ? `<div class="small muted" style="margin-top:10px">
+          ${ar.assumedTerms ? `${ar.assumedTerms} invoice${ar.assumedTerms === 1 ? '' : 's'} aged on default 30-day terms, because none are recorded for that customer.` : ''}
+          ${ar.undatable ? ` ${ar.undatable} invoice${ar.undatable === 1 ? ' has' : 's have'} no usable date and could not be aged; ${ar.undatable === 1 ? 'it is' : 'they are'} counted in Open AR but shown as not yet due.` : ''}
+        </div>` : ''}
+      </div>`;
+    })()}
     <div class="page-head">
       <div class="page-title">Collection &amp; Debt</div>
       <button class="btn btn-dark" id="cl-flag">${I.flag} Flag Customer</button>

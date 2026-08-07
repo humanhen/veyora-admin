@@ -188,15 +188,19 @@ Routes['#/backorders'] = {
               ${['open', 'approved'].includes(b.status) ? `<button class="btn ghost sm" data-ca="${esc(b.id)}">Cancel</button>` : ''}
             </div>
           </div>
-          <table class="list" style="margin-top:8px"><tbody>
-            ${b.items.map(i => `<tr><td><b>${esc(i.modelSku || i.sku)}</b><br/><span class="sub">${esc(i.sku)}</span></td>
-              <td>${esc(i.name)}${i.color ? ' · ' + esc(i.color) : ''}
-                ${i.brand ? `<br/><span class="sub">${esc(i.brand)}</span>` : ''}</td>
-              <td>× ${i.qty}</td>${hide ? '' : `<td>${money(i.price, b)}</td>`}</tr>`).join('')}
+          <table class="list ord-lines" style="margin-top:8px"><tbody>
+            ${b.items.map(i => orderLineRow(i, b, hide)).join('')}
           </tbody></table>
+          ${stampedAddress(b.shippingAddress, 'To be delivered to')}
         </div></div>`).join('');
       box.querySelectorAll('[data-ca]').forEach(btn => btn.onclick = async () => {
-        if (!confirm('Cancel this backorder?')) return;
+        const ok = await confirmModal({
+          title: 'Cancel this backorder?',
+          body: 'The outstanding quantity will not be supplied. You can order it '
+            + 'again at any time once stock is available.',
+          confirmLabel: 'Cancel backorder', danger: true,
+        });
+        if (!ok) return;
         await API.post(`/user/backorders/${btn.dataset.ca}/cancel`);
         toast('Backorder cancelled'); load();
       });

@@ -17,7 +17,10 @@ const SHIPPED = ['index.html', 'css', 'js', 'assets'];
 const PAGE_FILES = ['js/pages_core.js', 'js/pages_sales.js', 'js/pages_customers.js',
   'js/pages_catalog.js', 'js/pages_finance.js', 'js/pages_ops.js', 'js/pages_permissions.js',
   'js/pages_public_content.js', 'js/pages_enquiries.js', 'js/pages_store_contacts.js'];
-const ALL = ['js/util.js', 'js/data.js', 'js/app.js', ...PAGE_FILES];
+/* `receivables.js` sits with util.js rather than with the pages: it is a pure
+   calculation with no DOM and no DB access, and the Collection page calls it
+   during render, so it must be defined before any page script runs. */
+const ALL = ['js/util.js', 'js/receivables.js', 'js/data.js', 'js/app.js', ...PAGE_FILES];
 
 // ---------------------------------------------------------------------------
 // the panel still loads as a whole

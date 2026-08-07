@@ -2,6 +2,21 @@
 'use strict';
 
 /* ============================================================ DASHBOARD */
+/**
+ * A dashboard tile. `to` is an admin route; omit it and the tile is not a
+ * link, because a control that goes nowhere is worse than no control.
+ *
+ * Anchors rather than click handlers: focusable, announced as links,
+ * ctrl-click and middle-click work, and the destination is visible on hover.
+ */
+function statCard({ label, icon, value, note, to }) {
+  const inner = `<div class="stat-label">${label} ${icon || ''}</div>`
+    + `<div class="stat-value">${value}</div>`
+    + (note ? `<div class="stat-note">${note}</div>` : '');
+  return to
+    ? `<a class="stat-card stat-link" href="#/${to}">${inner}<span class="stat-go">${I.caret}</span></a>`
+    : `<div class="stat-card">${inner}</div>`;
+}
 App.register('dashboard',function(el){
   const state=App._dash||(App._dash={range:'This month'});
   const RANGES=['This month','14 days','30 days','60 days','90 days','All time','Custom'];
@@ -85,20 +100,32 @@ App.register('dashboard',function(el){
            currencies, so they can only honestly be shown in the base currency
            — same reasoning as the REVENUE (USD) tile below. The calculations
            are unchanged; only the labels say which money this is. */''}
-      <div class="stat-card"><div class="stat-label">REVENUE (USD) &middot; LAST 24H ${I.money}</div><div class="stat-value">${p24.length?money(rev24):'—'}</div><div class="stat-note">${p24.length?'vs prior 24h':'no prior 24h data to compare'}</div></div>
-      <div class="stat-card"><div class="stat-label">ORDERS &middot; LAST 24H ${I.cart}</div><div class="stat-value">${p24.length}</div><div class="stat-note">vs prior 24h (0)</div></div>
-      <div class="stat-card"><div class="stat-label">AVG ORDER VALUE (USD) &middot; LAST 24H ${I.chart}</div><div class="stat-value">${aov24!=null?money(aov24):'—'}</div><div class="stat-note">no prior 24h data</div></div>
-      <div class="stat-card"><div class="stat-label">ACTIVE CARTS &middot; N… ${I.cart}</div><div class="stat-value">0</div><div class="stat-note">click to show abandoned-ca…</div></div>
-      <div class="stat-card"><div class="stat-label">AGENTS ACTIVE &middot; 7D ${I.user}</div><div class="stat-value">${activeAgents} / ${agents.length}</div><div class="stat-note">placed at least one order</div></div>
-      <div class="stat-card"><div class="stat-label">CUSTOMERS ORDERIN… ${I.users}</div><div class="stat-value">${orderedCust} / ${customers.length}</div><div class="stat-note">of total customer base</div></div>
+      ${statCard({ label: 'REVENUE (USD) &middot; LAST 24H', icon: I.money,
+        value: p24.length?money(rev24):'—',
+        note: p24.length?'vs prior 24h':'no prior 24h data to compare', to: 'reports' })}
+      ${statCard({ label: 'ORDERS &middot; LAST 24H', icon: I.cart,
+        value: p24.length, note: 'vs prior 24h (0)', to: 'orders' })}
+      ${statCard({ label: 'AVG ORDER VALUE (USD) &middot; LAST 24H', icon: I.chart,
+        value: aov24!=null?money(aov24):'—', note: 'no prior 24h data', to: 'orders' })}
+      ${/* No destination on purpose: abandoned-cart tracking does not exist
+           yet, and a tile leading somewhere unrelated is worse than one that
+           leads nowhere. It stays a plain tile until there is a screen. */''}
+      ${statCard({ label: 'ACTIVE CARTS', icon: I.cart, value: 0,
+        note: 'abandoned-cart tracking is not yet available' })}
+      ${statCard({ label: 'AGENTS ACTIVE &middot; 7D', icon: I.user,
+        value: `${activeAgents} / ${agents.length}`,
+        note: 'placed at least one order', to: 'users' })}
+      ${statCard({ label: 'CUSTOMERS ORDERING', icon: I.users,
+        value: `${orderedCust} / ${customers.length}`,
+        note: 'of total customer base', to: 'users' })}
     </div>
 
     <div class="section-label">PERFORMANCE &middot; ${fmtR(start)} &rarr; ${fmtR(end)}</div>
     <div class="grid g4">
-      <div class="stat-card"><div class="stat-label">TOTAL USERS ${I.users}</div><div class="stat-value">${d.users.length}</div></div>
-      <div class="stat-card"><div class="stat-label">TOTAL PRODUCTS ${I.box}</div><div class="stat-value">${d.products.length}</div></div>
-      <div class="stat-card"><div class="stat-label">TOTAL ORDERS ${I.cart}</div><div class="stat-value">${d.orders.length}</div></div>
-      <div class="stat-card"><div class="stat-label">REVENUE (USD) ${I.money}</div><div class="stat-value">${money0(revenue)}</div></div>
+      ${statCard({ label: 'TOTAL USERS', icon: I.users, value: d.users.length, to: 'users' })}
+      ${statCard({ label: 'TOTAL PRODUCTS', icon: I.box, value: d.products.length, to: 'products' })}
+      ${statCard({ label: 'TOTAL ORDERS', icon: I.cart, value: d.orders.length, to: 'orders' })}
+      ${statCard({ label: 'REVENUE (USD)', icon: I.money, value: money0(revenue), to: 'reports' })}
     </div>
 
     <div class="section-label">BY COUNTRY</div>

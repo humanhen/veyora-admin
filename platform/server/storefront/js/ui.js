@@ -179,6 +179,35 @@ function bindQtyBox(box, onChange) {
     onChange(next, input);
   };
 }
+/**
+ * A confirmation in the portal's own design.
+ *
+ * window.confirm() renders the BROWSER's dialog: it carries the page's URL,
+ * cannot be styled, reads "localhost says" in development, and on a phone it
+ * is a system sheet that looks nothing like the rest of the portal. It is also
+ * the only remaining place the customer sees a control we did not design.
+ *
+ * The destructive action is the secondary button, and Cancel takes focus, so
+ * the reflex Enter keypress does not confirm a deletion.
+ */
+function confirmModal({ title, body, confirmLabel = 'Confirm', danger = false }) {
+  return new Promise((resolve) => {
+    const back = modal(`<h2>${esc(title)}</h2>
+      <p class="sub" style="margin-top:8px;line-height:1.55">${esc(body)}</p>
+      <div class="modal-actions">
+        <button class="btn ghost" data-no type="button">Cancel</button>
+        <button class="btn${danger ? ' danger' : ''}" data-yes type="button">${esc(confirmLabel)}</button>
+      </div>`);
+    let done = false;
+    const finish = (v) => { if (done) return; done = true; back.remove(); resolve(v); };
+    back.querySelector('[data-yes]').onclick = () => finish(true);
+    back.querySelector('[data-no]').onclick = () => finish(false);
+    back.querySelector('.close').onclick = () => finish(false);
+    back.addEventListener('click', (e) => { if (e.target === back) finish(false); });
+    back.querySelector('[data-no]').focus();
+  });
+}
+
 function modal(innerHtml) {
   const back = h(`<div class="modal-back"><div class="modal">
     <button class="close" type="button" aria-label="Close">×</button>${innerHtml}</div></div>`);
