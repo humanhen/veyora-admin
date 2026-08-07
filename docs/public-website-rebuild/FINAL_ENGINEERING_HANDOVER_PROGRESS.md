@@ -83,7 +83,7 @@ before and after.
 | 6 — Account statements | **complete** | `feat: generate and deliver account statements` |
 | 7 — Duplicate-submission sweep | **complete** | `fix: enforce idempotent critical operations` |
 | 8 — Final handover package | **complete** | `docs: final engineering handover package` |
-| 9 — Regression, security sweep, final checkpoint | pending | |
+| 9 — Regression, security sweep, final checkpoint | **complete** | `fix: upgrade nodemailer…` + `checkpoint: complete final engineering handover implementation` |
 
 ---
 
@@ -997,3 +997,105 @@ design and it held.
 Release gate: **17/17 in 144 s**.
 
 - **Next:** Phase 9 — nodemailer, full regression, security sweep, final checkpoint.
+
+### Phase 9 — complete
+
+#### Nodemailer (isolated checkpoint `4853611`)
+
+`npm audit` reported one **high**-severity advisory against `nodemailer`, range `<= 9.0.0`. Installed
+was 6.10.1 under `^6.9.13`; the fix is 9.0.4 — a three-major-version jump.
+
+Isolated in its own commit on purpose: had it broken anything, reverting one checkpoint would restore
+a working implementation without touching seven phases of work.
+
+**It did not break anything.** The API surface Veyora uses is exactly two calls —
+`createTransport({host, port, secure, auth})` and
+`sendMail({from, to, subject, html, text, attachments})` — both of which are nodemailer's stable core
+and unchanged across 6→9. There are two construction sites and no use of `jsonTransport`, the `raw`
+message option, `envelope`, or a caller-supplied transport name, which is what the advisories
+concern.
+
+| Check | Result |
+|---|---|
+| `npm audit` | **0 vulnerabilities** |
+| Real nodemailer 9 transport constructs; SMTP adapter reports `configured` | pass |
+| Focused notification and email tests | 129 passing |
+| All three suites | unchanged |
+| Release gate | unchanged |
+
+No SMTP credential was used and no email was sent — the adapter was exercised against an
+`example.test` host that does not resolve, and the assertions are on its shape.
+
+#### Security sweep — 34 checks, 34 passed
+
+Every item the brief lists. Four were flagged on the first pass and **all four were false positives
+in the sweep script**, confirmed individually with evidence rather than asserted:
+
+| Flag | Reality |
+|---|---|
+| "raw Stripe payload logged" | The interpolated values are `err.code`, `event.type`, `outcome.code`, `err?.code`. The check matched the word *"event"* in the log's **prose** |
+| "a module outside the config touches a secret" | `webhookSecret` is a **parameter name** on `verifyEvent(…)`, passed straight to the verifier — which must receive it. Never logged, returned or stored |
+| "a log line carries PII" | Matched the words *"email"* and *"payload"* in log prose; no log line interpolates an address, a payload or a name |
+| "an unexpected real email address" | `'%@import.veyora.local'` is a SQL `NOT LIKE` **exclusion filter** on a reserved non-routable TLD |
+
+The checks were then rewritten to inspect only **interpolated values** rather than surrounding text —
+an assertion that fires on the sentence describing a rule teaches people to ignore the gate.
+
+#### A new release gate: `critical-invariants` — 18/18
+
+The three suite gates are total, so every test added in this run was already executed. This gate
+protects something different: that the suites encoding money- and authority-critical properties still
+**exist**, and that the properties are still in the source.
+
+> The failure it catches is a file being deleted or a guard quietly removed — at which point the
+> suite gates go green because there is nothing left to fail. **A deleted test is invisible to a test
+> runner.**
+
+It checks seven critical suites exist with a minimum test count, eight named invariants hold, no
+route file can mark an invoice paid, and every migration is additive.
+
+**Proved by tampering**, not assumed. Three regressions were injected one at a time and the gate
+caught each, with the source restored after every one:
+
+- a route gaining a `settlement_state = 'paid'` write → *"can mark an invoice paid — only the
+  webhook may"*
+- the enquiry dedupe removed → caught
+- the invoice ownership predicate weakened to `1=1` → caught
+
+Building it also caught two faults **in itself**: it first flagged the comment in
+`admin-payments.js` that states the rule, and the comparison `settlement_state !== 'paid'`. Both
+fixed by stripping comments and requiring a real assignment.
+
+#### Full regression
+
+| Check | Result |
+|---|---|
+| API suite | **1,659 passing** |
+| Admin panel suite | **298 passing** |
+| Astro web suite | **466 passing** |
+| Astro production build | complete |
+| Release verification | **18/18 in 148 s** |
+| `node --check` on changed JS | 67 files, 0 failures |
+| `git diff --check` | clean |
+| Destructive statements across all 16 migrations | **0** |
+| Notification worker | 48 passing |
+| Stripe webhook + idempotency | 117 passing |
+| PDF generation | 117 passing |
+
+#### One pre-existing finding
+
+**Migrations 0003, 0004 and 0005 are not mirrored in `ensureSchema()`** — `exchange_sku`,
+`purchase_orders` and `zoho_so_id` appear in no mirror statement.
+
+Those migrations only run on a completely fresh database volume, so an existing database that
+predates them would never acquire them. In practice the deployed database has them, so this is a
+latent risk rather than a live defect — but a fresh restore into an older volume would be missing
+`purchase_orders` entirely.
+
+**Not fixed here**, deliberately: it is pre-existing, outside this run's scope, and mirroring tables
+this workstream does not own is exactly the kind of change that should be made deliberately rather
+than inside a regression phase. Carried to the handover.
+
+All six migrations added by this run (**0011–0016**) are fully mirrored — verified by the same check.
+
+- **Run complete.**

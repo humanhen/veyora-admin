@@ -7,7 +7,7 @@
 
 ## 1. What this run did
 
-Seven implementation phases, each ending in a local checkpoint commit.
+Seven implementation phases plus a regression phase, each ending in a local checkpoint commit.
 
 | Phase | Outcome | Commit |
 |---|---|---|
@@ -18,6 +18,8 @@ Seven implementation phases, each ending in a local checkpoint commit.
 | 5 | Production invoice PDFs | `241d680` |
 | 6 | Account statements and delivery | `baaa1d6` |
 | 7 | Duplicate-submission and reliability sweep | `f42fed2` |
+| 8 | Handover documentation package | `3580223` |
+| 9 | Nodemailer upgrade (isolated) | `4853611` |
 
 | Suite | Start | End |
 |---|---|---|
@@ -26,7 +28,8 @@ Seven implementation phases, each ending in a local checkpoint commit.
 | Public website | 466 | **466** |
 | **Total** | **1,908** | **2,423 passing, 0 failing** |
 
-Release gate: **17/17** throughout.
+Release gate: **18/18** at the end — a `critical-invariants` gate was added in Phase 9, proved by
+injecting three real regressions and confirming each was caught.
 
 ---
 
@@ -97,18 +100,29 @@ Two separations worth understanding, because they look like over-engineering and
 
 ## 5. Dependency security
 
-### Current position
+### Position at the end of the run
 
-`npm audit` in `platform/server/api` reports **one high-severity advisory against `nodemailer`**
-(installed range `^6.9.13`; the advisory covers `<= 9.0.0`). The two dependencies added in this run —
-`stripe@22.4.0` and `pdf-lib@1.17.1` — contribute nothing to it; Stripe has zero runtime
-dependencies.
+**`npm audit` reports 0 vulnerabilities.**
 
-### What was done about it
+During the run it reported one high-severity advisory against `nodemailer` (installed 6.10.1 under
+`^6.9.13`; the advisory covers `<= 9.0.0`). The two dependencies added — `stripe@22.4.0` and
+`pdf-lib@1.17.1` — contributed nothing to it; Stripe has zero runtime dependencies.
 
-See the Phase 9 record in `FINAL_ENGINEERING_HANDOVER_PROGRESS.md` for the attempted upgrade, its
-outcome, and the exact decision taken. **Do not treat this section as complete without reading
-that.**
+### Resolved
+
+**Upgraded to `nodemailer@9.0.4` in an isolated checkpoint (`4853611`). `npm audit` now reports 0
+vulnerabilities.**
+
+It was isolated on purpose: had it broken anything, reverting one checkpoint would have restored a
+working implementation without touching seven phases of work. It did not break anything. The API
+surface Veyora uses is exactly two calls — `createTransport({host, port, secure, auth})` and
+`sendMail({from, to, subject, html, text, attachments})` — both nodemailer core, unchanged across
+6 to 9. There are two construction sites and no use of `jsonTransport`, the `raw` message option,
+`envelope`, or a caller-supplied transport name, which is what the advisories concern.
+
+Verified: 0 vulnerabilities; a real nodemailer 9 transport constructs and the SMTP adapter reports
+`configured`; 129 focused notification and email tests pass; all three suites and the release gate
+unchanged. No SMTP credential was used and no email was sent.
 
 ### What reduces the exposure regardless
 
@@ -121,7 +135,7 @@ The advisories concern header injection, transport-name injection, and file/URL 
 - the recipient is validated against an address pattern before the adapter is called;
 - attachments are `Buffer`s built by the application, never a path the library reads.
 
-That is a mitigation, not a fix, and it is recorded as such.
+That narrowness is why the upgrade carried so little risk, and it remains true after it.
 
 ---
 
@@ -155,6 +169,19 @@ the caller's **own** invoice, and `/user/invoices` carries `settlementState`.
 3. Tax rules beyond what the order record carries need an accounting decision.
 4. The `finance.invoice` bootstrap should be retired once capabilities are granted
    (`41_FINANCE_OPERATIONS.md` §6).
+
+### One pre-existing finding, recorded not fixed
+
+**Migrations 0003, 0004 and 0005 are not mirrored in `ensureSchema()`** — `exchange_sku`,
+`purchase_orders` and `zoho_so_id` appear in no mirror statement. Those migrations run only on a
+completely fresh database volume, so an existing database predating them would never acquire them;
+a fresh restore into an older volume would be missing `purchase_orders` entirely.
+
+In practice the deployed database has them, so this is a latent risk rather than a live defect. It
+is pre-existing and outside this run's scope, and mirroring tables this workstream does not own is
+exactly the kind of change to make deliberately rather than inside a regression phase.
+
+**All six migrations added by this run (0011–0016) are fully mirrored**, verified by the same check.
 
 ---
 

@@ -586,6 +586,111 @@ gate('release-branch', 'packaging is happening from an approved release branch',
 
 /* ---- 15. deploy payload ---- */
 
+/* ---- critical invariants (Final Handover, Phase 9) ----
+
+   The three suite gates above are TOTAL, so every test added in this run is
+   already executed. This gate protects something different: that the tests
+   which encode the money- and authority-critical properties still EXIST, and
+   that the properties they describe are still in the source.
+
+   The failure it catches is a file being deleted or a guard being quietly
+   removed — at which point the suite gates go green because there is nothing
+   left to fail. A deleted test is invisible to a test runner. */
+gate('critical-invariants', 'the money and authority guards are present and covered', () => {
+  const problems = [];
+
+  /* Every suite that encodes a critical property must exist and be
+     non-trivial. A file emptied to a stub would otherwise pass silently. */
+  const REQUIRED_SUITES = [
+    ['platform/server/api/test/stripe-payments.test.js', 60],
+    ['platform/server/api/test/finance-operations.test.js', 40],
+    ['platform/server/api/test/idempotency-sweep.test.js', 25],
+    ['platform/server/api/test/invoice-pdf.test.js', 40],
+    ['platform/server/api/test/account-statements.test.js', 40],
+    ['platform/server/api/test/notification-outbox.test.js', 35],
+    ['platform/server/api/test/customer-contacts.test.js', 55],
+  ];
+  for (const [file, minTests] of REQUIRED_SUITES) {
+    const text = readTracked(file);
+    if (!text) { problems.push(`${file} is missing`); continue; }
+    const count = (text.match(/^test\(/gm) || []).length;
+    if (count < minTests) problems.push(`${file} has ${count} tests, expected at least ${minTests}`);
+  }
+
+  /* And the properties themselves, asserted against the source. Each of these
+     is a sentence from the architecture documents; if one stops being true the
+     document is wrong and this gate says so. */
+  const INVARIANTS = [
+    ['platform/server/api/src/payments/webhook.js',
+      /on conflict \(provider_event_id\) do nothing/,
+      'the webhook must deduplicate on a unique provider event id'],
+    ['platform/server/api/src/payments/webhook.js',
+      /settlement_state = 'paid'/,
+      'only the webhook may settle an invoice — and it must still do so'],
+    ['platform/server/api/src/index.js',
+      /app\.use\('\/webhooks',\s*express\.raw/,
+      'the Stripe webhook must be mounted raw'],
+    ['platform/server/api/src/admin-data.js',
+      /FINANCE_COLLECTIONS/,
+      'the generic sync must still refuse financial collections'],
+    ['platform/server/api/src/admin-data.js',
+      /FINANCE_FIELDS/,
+      'the generic sync must still refuse a direct balance write'],
+    ['platform/server/api/src/notifications/delivery.js',
+      /NOT_CONFIGURED/,
+      'an unconfigured mail adapter must refuse rather than report success'],
+    ['platform/server/api/src/routes/public-forms.js',
+      /on conflict \(dedupe_fingerprint\)/,
+      'a public enquiry must still be deduplicated'],
+    ['platform/server/api/src/routes/invoice-documents.js',
+      /and customer_id = \$2/,
+      'customer invoice access must remain a SQL ownership predicate'],
+  ];
+  for (const [file, pattern, why] of INVARIANTS) {
+    const text = readTracked(file);
+    if (!text) { problems.push(`${file} is missing`); continue; }
+    if (!pattern.test(text)) problems.push(`${why} (${file})`);
+  }
+
+  /* No route file may mark an invoice paid. This is the single strongest
+     structural claim the payment architecture makes.
+
+     Comments are stripped first, and the match requires a real SQL assignment.
+     Without both, this flagged the COMMENT in admin-payments.js that states
+     the rule, and the comparison `invoice.settlement_state !== 'paid'` — an
+     assertion that fires on the sentence describing it, or on a read, teaches
+     people to ignore the gate. */
+  const stripComments = (s) => s
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/(^|[^:])\/\/[^\n]*/g, '$1 ');
+  const SETS_PAID = /(?<![!=<>])=\s*'paid'/;
+  for (const file of trackedFiles.filter((f) => f.startsWith('platform/server/api/src/routes/'))) {
+    const text = readTracked(file);
+    if (!text) continue;
+    const code = stripComments(text);
+    for (const line of code.split('\n')) {
+      if (/settlement_state/.test(line) && SETS_PAID.test(line)) {
+        problems.push(`${file} can mark an invoice paid — only the webhook may`);
+        break;
+      }
+    }
+  }
+
+  /* Every migration stays additive. The migration gate in admin-shell covers
+     CHANGED migrations; this covers all of them, every run. */
+  for (const file of trackedFiles.filter((f) => /^platform\/server\/db\/migrations\/.*\.sql$/.test(f))) {
+    const sql = (readTracked(file) || '').replace(/^\s*--[^\n]*$/gm, ' ');
+    for (const destructive of [/drop\s+table/i, /drop\s+column/i, /alter\s+column/i,
+      /truncate/i, /delete\s+from/i]) {
+      if (destructive.test(sql)) problems.push(`${file} contains ${destructive.source}`);
+    }
+  }
+
+  return problems.length
+    ? { ok: false, detail: problems.map((p) => `  ${p}`).join('\n') }
+    : { ok: true, detail: `${REQUIRED_SUITES.length} critical suites present, ${INVARIANTS.length} invariants held` };
+});
+
 gate('deploy-payload', 'every artefact deploy.sh ships exists and assembles', () => {
   /* Read from deploy.sh rather than duplicated here: a second copy of the file
      list is a copy that drifts, and the drift is invisible until a deploy is
