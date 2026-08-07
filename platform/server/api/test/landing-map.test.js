@@ -264,9 +264,30 @@ test('the declared dimensions match the files on disk', () => {
   }
 });
 
+/* Outbound destinations the homepage is allowed to LINK to. Linking is not
+   loading: an <a href> to Veyora's own WhatsApp or social profile fetches
+   nothing and executes nothing. What this guard exists to stop is a third-party
+   *asset* — a CDN script, a webfont, a tracking pixel — which is caught by the
+   asset assertions below regardless of host. A new host still has to be added
+   here deliberately, so the list cannot grow by accident. */
+const ALLOWED_LINK_HOSTS = Object.freeze([
+  'wa.me',                  // the existing WhatsApp contact link
+  'www.instagram.com',      // Veyora's own profiles, added with the editorial homepage
+  'www.facebook.com',
+  'www.linkedin.com',
+]);
+
 test('no third-party asset or dependency was introduced', () => {
-  assert.ok(!/https?:\/\//.test(HOME.replace(/https:\/\/wa\.me\/\d+/g, '')),
-    'the only outbound URL is the existing WhatsApp link');
+  const hosts = [...HOME.matchAll(/https?:\/\/([^/'"`\s)]+)/g)].map(m => m[1]);
+  for (const host of new Set(hosts)) {
+    assert.ok(ALLOWED_LINK_HOSTS.includes(host),
+      `${host} is an approved outbound destination`);
+  }
+  /* Every allowed host may be linked to and nothing more. If one of these URLs
+     ever becomes the src of something the browser fetches, this fails. */
+  assert.ok(!/(?:src|href)\s*=\s*["'`]https?:/.test(
+    HOME.replace(/<a\b[\s\S]*?>/g, ' ')), 'no external asset is fetched');
+  assert.ok(!/@import|url\(\s*["']?https?:/.test(HOME), 'no external stylesheet or font');
   assert.ok(!/<script|import |require\(/.test(HOME), 'no new dependency is pulled in');
 });
 
@@ -343,10 +364,14 @@ test('no image container is excessively tall on any screen', () => {
     'the desktop hero is capped below the fold height');
   assert.match(cssRule('.hm-focus-pair'), /height:clamp\(400px,54vh,580px\)/,
     'the paired frames share one bounded height');
-  assert.match(cssRule('.hm-port-featureimg'), /aspect-ratio:4\/5/);
-  assert.match(cssRule('.hm-port-feature'), /max-width:500px/,
+  /* The portfolio tiles are square boxes holding 4:5 files. The box carries the
+     aspect-ratio (so the height is bounded before the image loads) and the
+     image is `contain`ed inside it rather than cropped — see the crop test
+     below, which is where the "nothing is cut off" half of this is asserted. */
+  assert.match(cssRule('.hm-port-feature'), /aspect-ratio:1\/1/);
+  assert.match(cssRule('.hm-port-feature'), /max-width:420px/,
     'the feature product shot is width-capped so it cannot tower');
-  assert.match(cssRule('.hm-port-rowimg'), /aspect-ratio:4\/5/);
+  assert.match(cssRule('.hm-port-rowfigure'), /aspect-ratio:1\/1/);
   assert.match(cssRule('.hm-motion-framevideo'), /aspect-ratio:16\/9/);
   const phone = PHONE;
   assert.match(phone, /\.hm-focus-aimg\{aspect-ratio:4\/5\}/);
@@ -372,9 +397,15 @@ test('every photograph is cropped to its own subject, not centred generically', 
   }
   assert.ok(seen.size === Object.keys(positions).length,
     'each campaign image gets its own crop, not one shared value');
-  /* The product shots are the exception on purpose: their box matches the
-     file's own 4:5, so nothing is cropped and the whole product shows. */
-  assert.ok(cssRule('.hm-port-featureimg').includes('object-position:50%50%'));
+  /* The product shots are the exception on purpose: they are never cropped at
+     all. A 4:5 file sits inside a square tile under `object-fit:contain`, so
+     the whole frame shows and the stone tile background fills the remainder.
+     `contain` is the assertion that matters — with `cover` the crop values
+     above would start applying to product photography too. */
+  for (const sel of ['.hm-port-featureimg', '.hm-port-rowimg']) {
+    assert.match(cssRule(sel), /object-fit:contain/,
+      `${sel} shows the whole product rather than cropping it`);
+  }
 });
 
 test('no fixed pixel height can squash a section on a phone', () => {

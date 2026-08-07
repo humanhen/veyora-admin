@@ -155,11 +155,20 @@ test('30 — the live routing, the storefront and any real secret file stay unto
          catch-all cutover (risks R-01/R-02) on the next deploy by anyone. The
          release-candidate topology ships beside it as `Caddyfile.rc` and is
          selected by one deliberate line on the server.
-       - the storefront, which another developer is working on.
        - any real `.env`. `.env.example` is documentation and is exempt by
-         name — it carries `example.test` placeholders and no secret. */
+         name — it carries `example.test` placeholders and no secret.
+
+     `platform/server/storefront/` WAS on this list, and is deliberately no
+     longer. Its protection was never about danger — it was collision
+     avoidance, because a second developer was working there on their own
+     branches. That work has now been audited, cherry-picked and regression-
+     tested into this branch (see `44_BRANCH_INTEGRATION_REPORT.md`), so the
+     reason the entry existed no longer exists, and a guard kept past its
+     reason teaches people to route around guards. It was lifted only after
+     the consolidated storefront passed the full suite, not to make it pass.
+     The two entries below are unchanged: both protect things that are
+     genuinely dangerous to touch, and neither has been consolidated away. */
   const PROTECTED = [
-    /^platform\/server\/storefront\//,
     /^platform\/server\/Caddyfile$/,
     /(^|\/)\.env($|\.[^/]*$)/,
   ];
@@ -205,6 +214,7 @@ test('every change is inside a working area of this repository, never a protecte
 
     'platform/server/api/',                         // the API and its tests
     'platform/server/web/',                         // the Astro public site
+    'platform/server/storefront/',                  // the B2B portal, consolidated 2026-08-07
     'platform/server/db/',                          // schema migrations
     'platform/server/docker-compose.yml',           // deployment topology
     'platform/server/Caddyfile.rc',                 // the RC routing, not the live one

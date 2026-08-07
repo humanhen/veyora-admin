@@ -1,19 +1,12 @@
 /* ================= Veyora Admin — design system ================= */
-/* Brand faces (Chromatic Pro): Ghotic Bold headlines + Geometric Semibold UI */
-@font-face{
-  font-family:'Ghotic';
-  src:url('../assets/fonts/Ghotic-Bold.ttf') format('truetype');
-  font-weight:600 900;
-  font-style:normal;
-  font-display:swap;
-}
-@font-face{
-  font-family:'Geometric';
-  src:url('../assets/fonts/Geometric-SemiBold.ttf') format('truetype');
-  font-weight:100 700;
-  font-style:normal;
-  font-display:swap;
-}
+/* Type: a grotesque display voice over a geometric UI voice.
+   The brand faces this was authored against (Chromatic Pro "Ghotic Bold" and
+   "Geometric SemiBold") ship as .ttf binaries with no licence in this
+   repository, so they are NOT bundled — see 44_BRANCH_INTEGRATION_REPORT.md.
+   Both stacks name their preferred face first and use it only if the machine
+   already has it; every fallback is a system face requiring no redistribution.
+   The hierarchy is carried by size, weight and tracking, so it survives intact
+   wherever the stack lands. */
 :root{
   --bg:#f8f8f7;
   --panel:#ffffff;
@@ -39,8 +32,8 @@
   --radius:12px;
   --radius-lg:16px;
   --shadow:0 1px 2px rgba(28,24,16,.05),0 4px 18px rgba(28,24,16,.05);
-  --font:'Geometric',system-ui,-apple-system,'Segoe UI',sans-serif;
-  --font-display:'Ghotic',var(--font);
+  --font:'Poppins',system-ui,-apple-system,'Segoe UI',sans-serif;
+  --font-display:'Inter','Helvetica Neue',Helvetica,Arial,system-ui,sans-serif;
 }
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%}

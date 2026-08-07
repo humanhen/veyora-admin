@@ -77,7 +77,13 @@ test('the shipped helper renders a QUANTITY BOX for a zero-stock variation', () 
   const sf = loadStorefront({ allowBackorders: true });
   const html = sf.variationOrderControls(OUT_OF_STOCK);
   assert.match(html, /class="qtybox"/, 'the customer must be able to choose a quantity');
-  assert.match(html, /<input[^>]*type="number"/);
+  /* A numeric entry field. `type="text"` with `inputmode="numeric"` is
+     deliberate rather than `type="number"`: it raises the numeric keypad on a
+     phone without the spinner, and a stray scroll wheel cannot silently change
+     an order quantity. The cap is enforced in `bindQtyBox`'s clamp(), which
+     reads the max attribute itself, so it does not depend on the input type. */
+  assert.match(html, /<input[^>]*inputmode="numeric"/);
+  assert.match(html, /<input[^>]*pattern="\[0-9\]\*"/);
   assert.equal((html.match(/data-q="-1"/g) || []).length, 1, 'minus button');
   assert.equal((html.match(/data-q="1"/g) || []).length, 1, 'plus button');
 });
@@ -187,8 +193,19 @@ test('.qtybox cannot be shrunk by flex — it has overflow:hidden', () => {
 });
 
 test('the qty box children are also fixed-size', () => {
-  assert.match(CSS, /\.qtybox button\{flex:0 0 auto/);
-  assert.match(CSS, /\.qtybox input\{flex:0 0 auto/);
+  /* Matched against whitespace-flattened CSS: these rules are written across
+     several lines, and an assertion that breaks on a reformat is an assertion
+     nobody trusts. The number is now a `.qtyfield` holding an overlaid input
+     rather than a bare `.qtybox input`, so that is the child to pin. */
+  const flat = CSS.replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/\s*([{};:,>])\s*/g, '$1');   // keep the spaces inside `0 0 auto`
+  for (const sel of ['.qtybox button', '.qtyfield']) {
+    assert.ok(flat.includes(sel + '{'), `${sel} rule must exist`);
+    const rule = flat.slice(flat.indexOf(sel + '{'), flat.indexOf('}', flat.indexOf(sel + '{')));
+    assert.match(rule, /flex:0 0 auto/,
+      `${sel} must not shrink, or overflow:hidden clips the control`);
+  }
 });
 
 test('the variation row WRAPS instead of squeezing', () => {

@@ -420,9 +420,12 @@ function productGallery(p) {
    With backorders OFF — only stocked colourways take a quantity, capped at what
                          is available; the rest offer "Notify me" as before. */
 function variationNotifyButton(v) {
-  // Only when the colour cannot be ordered at all — if backorders are on,
-  // the qty box already covers demand and "Notify me" is noise.
-  if (v.qty > 0 || backordersAllowed()) return '';
+  /* Any colour that is not on the shelf, whether or not backorders are on.
+     Committing to a backorder and asking to be told when stock actually lands
+     are different decisions, and a buyer is allowed to want the second without
+     the first — so the qty box leads and this stays beside it as a secondary
+     action. It is only dropped once there is stock to sell. */
+  if (v.qty > 0) return '';
   return `<button class="btn ghost sm notify" data-sku="${esc(v.sku)}"
     title="Email me when this colour is back in stock">Notify me</button>`;
 }

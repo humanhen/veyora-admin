@@ -207,7 +207,7 @@ Routes['#/'] = Routes['#/home'] = {
       <section class="hm-port">
         <div class="hm-port-in">
           <figure class="hm-port-feature">
-            <img src="assets/home/product-shot-03.webp" width="800" height="800"
+            <img src="assets/home/product-shot-03.webp" width="800" height="1003"
                  loading="lazy" decoding="async"
                  alt="Charlett Saint Cloud sunglasses arranged on a leather case"/>
           </figure>
@@ -219,15 +219,15 @@ Routes['#/'] = Routes['#/home'] = {
             <a class="hm-textlink" href="#/products">See all products</a>
             <div class="hm-port-row">
               <figure>
-                <img src="assets/home/product-shot-01.webp" width="800" height="800"
+                <img src="assets/home/product-shot-01.webp" width="800" height="1004"
                      loading="lazy" decoding="async" alt="Gold aviator frames from the Veyora portfolio"/>
               </figure>
               <figure>
-                <img src="assets/home/product-shot-02.webp" width="800" height="800"
+                <img src="assets/home/product-shot-02.webp" width="800" height="1004"
                      loading="lazy" decoding="async" alt="Detail of a Veyora metal frame and temple"/>
               </figure>
               <figure>
-                <img src="assets/home/product-shot-04.webp" width="800" height="800"
+                <img src="assets/home/product-shot-04.webp" width="800" height="1003"
                      loading="lazy" decoding="async" alt="Veyora frames styled on a studio surface"/>
               </figure>
             </div>
