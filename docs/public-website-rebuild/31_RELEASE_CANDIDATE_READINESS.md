@@ -422,3 +422,28 @@ covers migrations that do not exist yet.
 
 Both need an actual disposable database and deployment environment. Neither has been performed, and
 neither can be performed from this repository. See `40A_CLIENT_ACTIVATION_CHECKLIST.md` §H.
+
+---
+
+## Addendum — 2026-08-07, commercial credit and portal privacy
+
+Two changes landed after this document was written. Both are covered in full by
+`46_COMMERCIAL_CREDIT_AND_PRIVACY.md`; recorded here so a reader of this page is not misled.
+
+**Credit is now a control, not a display.** `users.credit_limit` is capability-gated behind
+`finance.credit_limit` (an 18th capability, granted to nobody), audited with previous and new value
+inside the same transaction as the change, and consulted by the server when an order is placed.
+`NULL` means **not configured** — never unlimited, never zero — and no numerical limits were
+invented. An order that would take an account over its limit is **flagged for review, not rejected**;
+resolving that flag deliberately has no capability, no route and no screen, because who may approve
+and what approval means commercially are Veyora's decisions.
+
+**Authenticated-portal tracking is off.** A Meta Pixel that fired on every in-app navigation for
+signed-in trade customers was removed along with its hard-coded id. Nothing replaced it, and no
+dormant configuration hook holds the id.
+
+**Totals:** 2,641 passing, 0 failing. Release gate 18/18 (on the temporary integration branch, using
+its documented override). `npm audit`: 0 vulnerabilities.
+
+**Unchanged from the position above:** migration rehearsal and deployment rehearsal remain
+outstanding, and both still need an actual disposable database.

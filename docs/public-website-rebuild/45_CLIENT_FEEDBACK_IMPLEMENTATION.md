@@ -320,11 +320,11 @@ written.
 ## 7. Still outstanding
 
 1. **No account holds any capability.** By design. Unchanged.
-2. **Credit limits are all NULL** until Veyora sets them. There is deliberately no customer-facing
-   or generic-sync path to set one, so the first values need a supervised admin action — see
-   `40A_CLIENT_ACTIVATION_CHECKLIST.md`.
+2. **Credit limits are all NULL** until Veyora sets them. The commercial control around them was
+   completed in a later run — capability, audited admin endpoint, and server-authoritative
+   order-time evaluation. See `46_COMMERCIAL_CREDIT_AND_PRIVACY.md`.
 3. **Migration and deployment rehearsal** remain undone; both need a real disposable database.
-4. **The Meta Pixel on the storefront** is pre-existing and was not changed. It loads
+4. ~~**The Meta Pixel on the storefront**~~ **CLOSED 2026-08-07** — removed entirely; see `46_COMMERCIAL_CREDIT_AND_PRIVACY.md` §5. The original finding, for the record: it loads
    `connect.facebook.net` on every page of an **authenticated** portal and tracks every in-app
    navigation for signed-in trade customers, with a hard-coded pixel id and no consent gate. The
    comment says it is deliberate ("same pixel the old veyora.com uses"), so this is a marketing and
