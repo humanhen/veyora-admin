@@ -485,7 +485,11 @@ export async function ensureSchema() {
       'payments.view',
       'payments.collect',
       'payments.refund',
-      'payments.reconcile'
+      'payments.reconcile',
+      'finance.invoice',
+      'finance.record',
+      'finance.credit',
+      'finance.reconcile'
     ))`);
 
   /* `handling_status` is NOT `delivery_state`. delivery_state records whether
@@ -793,4 +797,104 @@ export async function ensureSchema() {
         for each row execute function touch_updated_at();
     end if;
   end $$`);
+
+  /* ---- auditable finance operations (mirrors db/migrations/0014) ----
+     Money used to move through the whole-database row-diff sync: a browser
+     could set a customer's balance to any number, with no record of what it
+     was before, no reason and no reference, because a row diff has no such
+     concept. `finance_events` is the structured, APPEND-ONLY record every
+     governed financial mutation now writes inside its own transaction. */
+  await q(`create table if not exists finance_events (
+    id                 text primary key default veyora_id('fev'),
+    event_type         text not null
+                       check (event_type in (
+                         'invoice.issued', 'payment.recorded', 'payment.voided',
+                         'credit_note.issued', 'refund.requested', 'refund.settled',
+                         'settlement.applied', 'reconciliation.resolved')),
+    customer_id        text references users(id) on delete set null,
+    invoice_id         text references invoices(id) on delete set null,
+    payment_id         text references payments(id) on delete set null,
+    credit_note_id     text references credit_notes(id) on delete set null,
+    amount_minor       bigint not null default 0,
+    currency           text not null default 'USD',
+    balance_before     numeric(12,2),
+    balance_after      numeric(12,2),
+    reference          text not null default '',
+    provider_reference text not null default '',
+    reason             text not null default '',
+    actor_id           text references users(id) on delete set null,
+    actor_name         text not null default '',
+    actor_role         text not null default '',
+    capability         text not null default '',
+    idempotency_key    text not null unique,
+    created_at         timestamptz not null default now()
+  )`);
+  await q(`create index if not exists finance_events_customer_idx
+    on finance_events (customer_id, created_at desc)`);
+  await q(`create index if not exists finance_events_invoice_idx on finance_events (invoice_id)`);
+  await q(`create index if not exists finance_events_type_idx
+    on finance_events (event_type, created_at desc)`);
+  await q(`create index if not exists finance_events_created_idx
+    on finance_events (created_at desc)`);
+  /* Append-only, enforced by the database rather than by convention: a
+     financial record that can be edited after the fact is not a record. */
+  await q(`create or replace function finance_events_immutable() returns trigger as $$
+    begin
+      raise exception 'finance_events is append-only (% blocked)', tg_op;
+    end $$ language plpgsql`);
+  await q(`do $$ begin
+    if not exists (select 1 from pg_trigger where tgname = 't_finance_events_no_update') then
+      create trigger t_finance_events_no_update before update on finance_events
+        for each row execute function finance_events_immutable();
+    end if;
+    if not exists (select 1 from pg_trigger where tgname = 't_finance_events_no_delete') then
+      create trigger t_finance_events_no_delete before delete on finance_events
+        for each row execute function finance_events_immutable();
+    end if;
+  end $$`);
+
+  /* A payment recorded in error is VOIDED with a reason; the row stays. A
+     delete would leave a balance movement nobody can explain. */
+  await q(`alter table payments
+    add column if not exists idempotency_key text,
+    add column if not exists recorded_by text references users(id) on delete set null,
+    add column if not exists notes text not null default '',
+    add column if not exists voided_at timestamptz,
+    add column if not exists voided_by text references users(id) on delete set null,
+    add column if not exists void_reason text not null default ''`);
+  await q(`create unique index if not exists payments_idempotency_idx
+    on payments (idempotency_key) where idempotency_key is not null`);
+  await q(`alter table payments drop constraint if exists payments_void_attributed`);
+  await q(`alter table payments add constraint payments_void_attributed
+    check (voided_at is null or void_reason <> '')`);
+
+  await q(`alter table credit_notes
+    add column if not exists currency text not null default 'USD',
+    add column if not exists amount_minor bigint,
+    add column if not exists invoice_id text references invoices(id) on delete set null,
+    add column if not exists reference text not null default '',
+    add column if not exists issued_by text references users(id) on delete set null,
+    add column if not exists idempotency_key text`);
+  await q(`create unique index if not exists credit_notes_idempotency_idx
+    on credit_notes (idempotency_key) where idempotency_key is not null`);
+  await q(`create index if not exists credit_notes_customer_idx
+    on credit_notes (customer_id, issued_on desc)`);
+  /* Existing rows are grandfathered by the `issued_by is null` clause: the
+     constraint governs what this phase's API creates and does not retroactively
+     invalidate history it cannot explain. */
+  await q(`alter table credit_notes drop constraint if exists credit_notes_reasoned`);
+  await q(`alter table credit_notes add constraint credit_notes_reasoned
+    check (issued_by is null or reason <> '')`);
+
+  /* An exception that is merely READ is not resolved. */
+  await q(`alter table payment_events
+    add column if not exists resolved_by text references users(id) on delete set null,
+    add column if not exists resolved_at timestamptz,
+    add column if not exists resolution_note text not null default ''`);
+  await q(`alter table payment_events drop constraint if exists payment_events_status_valid`);
+  await q(`alter table payment_events add constraint payment_events_status_valid
+    check (status in ('received', 'processed', 'ignored', 'failed', 'resolved'))`);
+  await q(`alter table payment_events drop constraint if exists payment_events_resolution_explained`);
+  await q(`alter table payment_events add constraint payment_events_resolution_explained
+    check (status <> 'resolved' or (resolved_at is not null and resolution_note <> ''))`);
 }

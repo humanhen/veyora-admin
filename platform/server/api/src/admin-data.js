@@ -245,24 +245,100 @@ export function backorderRowToJs(row) {
    silently landed. */
 export const SERVER_MANAGED_COLLECTIONS = ['orders', 'backorders'];
 
+/* MONEY DOES NOT MOVE THROUGH A ROW DIFF (Final Handover, Phase 4).
+ *
+ * `invoices`, `payments` and `creditNotes` were in the generic sync path. That
+ * meant a browser holding the whole dataset could create, edit or DELETE a
+ * payment as an ordinary row — and could do it as a side effect of a stale tab
+ * posting a snapshot taken before a real payment arrived, silently reversing
+ * it. None of it produced a record naming the actor, the prior value, the new
+ * value and the reason, because a row diff has no such concept.
+ *
+ * These three are now written ONLY by the governed finance routes
+ * (src/routes/admin-finance.js), each of which is capability-gated,
+ * transactional, idempotent and writes an append-only `finance_events` row.
+ *
+ * They remain READABLE in the snapshot: the finance screens still need the
+ * data. What is refused is a WRITE arriving through the generic path.
+ */
+export const FINANCE_COLLECTIONS = ['invoices', 'payments', 'creditNotes'];
+
 export const SERVER_MANAGED_SYNC_ERROR =
   'Orders and backorders are server-managed. Hard refresh the admin panel.';
 
+export const FINANCE_SYNC_ERROR =
+  'Invoices, payments and credit notes are recorded through the finance screens, '
+  + 'not through a general save. Hard refresh the admin panel.';
+
+/* Columns on an otherwise-syncable collection that money depends on.
+ *
+ * `users` is legitimately synced — names, addresses, terms, pricing mode. But
+ * `balance` is the running total of what a customer owes, and it is derived
+ * from invoices, payments and credit notes. A browser setting it directly is
+ * not an edit, it is an assertion that the ledger is wrong, and it leaves no
+ * trace of what it replaced.
+ */
+export const FINANCE_FIELDS = Object.freeze({ users: ['balance'] });
+
+export const FINANCE_FIELD_SYNC_ERROR =
+  'A customer balance is derived from invoices, payments and credit notes and '
+  + 'cannot be set directly. Record the payment or credit note instead.';
+
 /**
  * Inspect a complete /admin/sync payload before anything is written.
- * @returns {{ok: true} | {ok: false, status: number, error: string, collections: string[]}}
+ *
+ * The WHOLE request is refused, before a transaction is opened and before any
+ * query runs. A partial write would be worse than none: the caller would be
+ * told its payment changes failed while its product changes had silently
+ * landed.
+ *
+ * @returns {{ok: true} | {ok: false, status: number, error: string, collections?: string[], fields?: string[]}}
  */
 export function checkSyncPayload(changes) {
   const list = Array.isArray(changes) ? changes : [];
   const offending = [];
+  const finance = [];
+  const financeFields = [];
+
   for (const ch of list) {
     const name = ch && ch.collection;
     if (SERVER_MANAGED_COLLECTIONS.includes(name) && !offending.includes(name)) {
       offending.push(name);
     }
+    /* A finance collection is refused if the payload carries ANY write for it —
+       an upsert or a delete. A `deletes` list is the dangerous half: it is
+       "every id this tab has not seen", so an out-of-date browser would remove
+       every payment recorded since it loaded. */
+    if (FINANCE_COLLECTIONS.includes(name) && !finance.includes(name)) {
+      const writes = (Array.isArray(ch.upserts) && ch.upserts.length)
+        || (Array.isArray(ch.deletes) && ch.deletes.length);
+      if (writes) finance.push(name);
+    }
+    const guardedFields = FINANCE_FIELDS[name];
+    if (guardedFields) {
+      for (const row of (Array.isArray(ch.upserts) ? ch.upserts : [])) {
+        for (const field of guardedFields) {
+          /* `hasOwnProperty`, not truthiness: sending `balance: 0` is exactly
+             as much of a balance write as sending `balance: 5000`. */
+          if (row && Object.prototype.hasOwnProperty.call(row, field)
+            && !financeFields.includes(`${name}.${field}`)) {
+            financeFields.push(`${name}.${field}`);
+          }
+        }
+      }
+    }
   }
-  if (!offending.length) return { ok: true };
-  return { ok: false, status: 409, error: SERVER_MANAGED_SYNC_ERROR, collections: offending };
+
+  if (offending.length) {
+    return { ok: false, status: 409, error: SERVER_MANAGED_SYNC_ERROR, collections: offending };
+  }
+  if (finance.length) {
+    return { ok: false, status: 409, error: FINANCE_SYNC_ERROR, collections: finance };
+  }
+  if (financeFields.length) {
+    return { ok: false, status: 409, error: FINANCE_FIELD_SYNC_ERROR, fields: financeFields };
+  }
+  return { ok: true };
 }
 
 /* ------------------------------------------------------------------ *

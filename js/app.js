@@ -218,6 +218,26 @@ const App={
       this._stripe=pay.stripe;
     }catch(e){/* fail closed — see above */}
 
+    /* Finance capabilities (Final Handover Phase 4). A fifth probe, and the
+       last of the capability families. `finance.record` and `finance.credit`
+       are separate for a reason the UI has to honour: recording money that
+       arrived and forgiving a debt look identical on a balance and are
+       completely different decisions.
+
+       The contract carries the SERVER's offline-method list, so the payment
+       form renders values the database will actually accept — the old
+       hard-coded form offered "credit card" with a space, which the CHECK
+       constraint would have refused. Same fail-closed rule. */
+    this._financeContract = { offlineMethods:[], currencies:[] };
+    try{
+      const fin=await DB.financeCapabilities();
+      if(fin.invoice)held.add('finance.invoice');
+      if(fin.record)held.add('finance.record');
+      if(fin.credit)held.add('finance.credit');
+      if(fin.reconcile)held.add('finance.reconcile');
+      this._financeContract={offlineMethods:fin.offlineMethods,currencies:fin.currencies};
+    }catch(e){/* fail closed — see above */}
+
     /* Admin ACTIONS, distinct from capabilities (warehouse interface
        correction). Capabilities are per-account grants; actions describe what
        this session's ROLE may do on the admin router — above all whether it

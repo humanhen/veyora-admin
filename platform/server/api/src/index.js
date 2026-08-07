@@ -15,6 +15,7 @@ import adminEnquiryRoutes from './routes/admin-enquiries.js';
 import adminInventoryRoutes from './routes/admin-inventory.js';
 import adminCustomerContactRoutes from './routes/admin-customer-contacts.js';
 import adminPaymentRoutes from './routes/admin-payments.js';
+import adminFinanceRoutes from './routes/admin-finance.js';
 import { customerPaymentRoutes, stripeWebhookRoutes } from './routes/payments.js';
 import publicRoutes from './routes/public.js';
 import publicFormRoutes from './routes/public-forms.js';
@@ -132,6 +133,13 @@ app.use('/admin/customer-contacts', adminCustomerContactRoutes);
    capabilities, none granted by any migration and none implied by a role.
    No route on it can mark an invoice paid. */
 app.use('/admin/payments', adminPaymentRoutes);
+
+/* Governed finance operations (Final Handover Phase 4). Replaces what used
+   to move through the whole-database row-diff sync: every financial mutation
+   here is capability-gated, transactional, idempotent, and writes an
+   append-only finance_events row carrying the prior balance, the new balance,
+   the reason and the actor. */
+app.use('/admin/finance', adminFinanceRoutes);
 
 app.use('/admin', adminRoutes);
 

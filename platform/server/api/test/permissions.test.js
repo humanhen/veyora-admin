@@ -105,7 +105,24 @@ test('the registry contains exactly the approved capabilities', () => {
     'payments.collect',
     'payments.refund',
     'payments.reconcile',
+    'finance.invoice',
+    'finance.record',
+    'finance.credit',
+    'finance.reconcile',
   ]);
+});
+
+/* Recording money that arrived and forgiving a debt are separate keys. They
+   look identical on a balance and are completely different events; the person
+   who keys in bank transfers all day should not be able to write off an
+   invoice. */
+test('finance capabilities keep recording and crediting apart', () => {
+  const finance = PERMISSION_KEYS.filter((k) => k.startsWith('finance.'));
+  assert.deepEqual(finance,
+    ['finance.invoice', 'finance.record', 'finance.credit', 'finance.reconcile']);
+  for (const forbidden of ['finance.*', 'finance.manage', 'finance.all']) {
+    assert.ok(!PERMISSION_KEYS.includes(forbidden), forbidden + ' must not be a key');
+  }
 });
 
 /* Payments are FOUR keys, not one. Seeing that an invoice was paid, asking a

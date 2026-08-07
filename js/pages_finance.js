@@ -12,26 +12,41 @@ App.register('payments',function(el){
     if(state.tab==='Payments'){
       const p=paginate(d.payments,state.page);
       inner=`
-      <button class="btn btn-dark" id="pay-new" style="margin-bottom:14px">${I.plus} Record Payment</button>
+      ${App.can('finance.record')
+        ? `<button class="btn btn-dark" id="pay-new" style="margin-bottom:14px">${I.plus} Record Payment</button>`
+        : `<div class="small muted" style="margin-bottom:14px">Recording a payment needs the
+             <b>Record offline payments</b> capability, which is granted per account.</div>`}
       <div class="table-wrap"><table class="tbl">
-        <thead><tr><th>Date</th><th>Customer</th><th class="num">Amount</th><th>Currency</th><th>Method</th><th>Reference</th></tr></thead>
-        <tbody>${p.slice.length?p.slice.map(pm=>`<tr>
-          <td>${fmtDateShort(pm.date)}</td>
+        <thead><tr><th>Date</th><th>Customer</th><th class="num">Amount</th><th>Currency</th><th>Method</th><th>Reference</th><th></th></tr></thead>
+        <tbody>${p.slice.length?p.slice.map(pm=>{
+          const voided=!!pm.voidedAt;
+          return `<tr${voided?' style="opacity:.6"':''}>
+          <td>${fmtDateShort(pm.date||pm.paidOn)}</td>
           <td class="cell-main">${esc(DB.userName(pm.customerId))}</td>
-          <td class="num money-green">${money(pm.amount)}</td>
-          <td>USD</td>
-          <td><span class="badge outline">${esc(pm.method)}</span></td>
+          <td class="num ${voided?'':'money-green'}">${money(pm.amount)}</td>
+          <td>${esc(pm.currency||'USD')}</td>
+          <td><span class="badge outline">${esc(methodLabel(pm.method))}</span>
+              ${voided?'<span class="badge outline">Voided</span>':''}</td>
           <td class="muted">${esc(pm.reference||'—')}</td>
-        </tr>`).join(''):`<tr><td colspan="6" class="empty-cell">No payments found</td></tr>`}
+          ${/* A Stripe payment cannot be voided — the money really was taken —
+               so no control is offered for one. Refunding is the correct act
+               and lives on the invoice, behind its own capability. */''}
+          <td>${(!voided&&pm.method!=='stripe'&&App.can('finance.record'))
+            ?`<button class="btn btn-sm" data-void="${esc(pm.id)}">Void</button>`:''}</td>
+        </tr>`;}).join(''):`<tr><td colspan="7" class="empty-cell">No payments found</td></tr>`}
         </tbody></table></div>
       ${d.payments.length>10?pagerHTML(p):''}`;
     }else{
       inner=`
-      <button class="btn btn-dark" id="cn-new" style="margin-bottom:14px">${I.plus} New Credit Note</button>
+      ${App.can('finance.credit')
+        ? `<button class="btn btn-dark" id="cn-new" style="margin-bottom:14px">${I.plus} New Credit Note</button>`
+        : `<div class="small muted" style="margin-bottom:14px">Issuing a credit note needs the
+             <b>Issue credit notes</b> capability. It is deliberately separate from recording a
+             payment: reducing a debt and receiving money are different decisions.</div>`}
       <div class="table-wrap"><table class="tbl">
         <thead><tr><th>Date</th><th>Customer</th><th class="num">Amount</th><th>Reason</th></tr></thead>
         <tbody>${d.creditNotes.length?d.creditNotes.map(cn=>`<tr>
-          <td>${fmtDateShort(cn.date)}</td>
+          <td>${fmtDateShort(cn.date||cn.issuedOn)}</td>
           <td class="cell-main">${esc(DB.userName(cn.customerId))}</td>
           <td class="num money-green">${money(cn.amount)}</td>
           <td>${esc(cn.reason)}</td>
@@ -50,69 +65,185 @@ App.register('payments',function(el){
     bindPager(el,pg=>{state.page=pg;render();});
 
     const pn=el.querySelector('#pay-new');
-    if(pn)pn.onclick=()=>{
-      Modal.open({title:'Record Payment',
-        body:`
-        <div class="field"><label>Customer</label>
-          <select class="select" id="rp-cust">${customers.map(c=>`<option value="${c.id}">${esc(c.business)} ${c.balance?'— balance '+money(c.balance):''}</option>`).join('')}</select></div>
-        <div class="two-col">
-          <div class="field"><label>Amount ($)</label><input class="input" type="number" step="0.01" id="rp-amount"></div>
-          <div class="field"><label>Date</label><input type="date" class="input" id="rp-date" value="${todayISO()}"></div>
-          <div class="field"><label>Payment method</label><select class="select" id="rp-method">
-            <option>transfer</option><option>check</option><option>credit card</option><option>cash</option></select></div>
-          <div class="field"><label>Reference</label><input class="input" id="rp-ref" placeholder="Check # / confirmation"></div>
-        </div>
-        <div class="dashed-banner">A payment larger than the balance creates a <b>credit balance</b> (negative) that will be used on future orders.</div>`,
-        foot:`<button class="btn" data-x>Cancel</button><button class="btn btn-dark" data-ok>Save Payment</button>`,
-        setup(ov,close){
-          ov.querySelector('[data-x]').onclick=close;
-          ov.querySelector('[data-ok]').onclick=()=>{
-            const amount=parseFloat(ov.querySelector('#rp-amount').value);
-            if(!amount||amount<=0)return toast('Enter a valid amount',true);
-            const cid=ov.querySelector('#rp-cust').value;
-            const pm={id:uid('pm'),customerId:cid,amount,date:ov.querySelector('#rp-date').value,
-              method:ov.querySelector('#rp-method').value,reference:ov.querySelector('#rp-ref').value.trim()};
-            DB.d.payments.unshift(pm);
-            const u=DB.user(cid);u.balance=Math.round(((u.balance||0)-amount)*100)/100;
-            /* settle collection flag if debt cleared */
-            if(u.balance<=0){
-              const fl=DB.d.collectionFlags.find(f=>f.customerId===cid&&f.status==='flagged');
-              if(fl)fl.status='resolved';
-            }
-            DB.save();DB.audit('payment.record',DB.userName(cid),money(amount)+' via '+pm.method);
-            close();render();
-            toast('Payment recorded — balance is now '+money(u.balance)+(u.balance<0?' (credit)':''));
-          };
-        }});
-    };
+    if(pn)pn.onclick=recordPaymentForm;
     const cn=el.querySelector('#cn-new');
-    if(cn)cn.onclick=()=>{
-      Modal.open({title:'New Credit Note',
-        body:`
-        <div class="field"><label>Customer</label>
-          <select class="select" id="cn-cust">${customers.map(c=>`<option value="${c.id}">${esc(c.business)}</option>`).join('')}</select></div>
-        <div class="two-col">
-          <div class="field"><label>Amount ($)</label><input class="input" type="number" step="0.01" id="cn-amount"></div>
-          <div class="field"><label>Reason</label><select class="select" id="cn-reason">
-            <option>Return</option><option>Price adjustment</option><option>Goodwill gesture</option><option>Other</option></select></div>
-        </div>
-        <div class="small muted">A credit note is a formal acknowledgment of credit owed to the customer — the balance is reduced accordingly.</div>`,
-        foot:`<button class="btn" data-x>Cancel</button><button class="btn btn-dark" data-ok>Create Credit Note</button>`,
-        setup(ov,close){
-          ov.querySelector('[data-x]').onclick=close;
-          ov.querySelector('[data-ok]').onclick=()=>{
-            const amount=parseFloat(ov.querySelector('#cn-amount').value);
-            if(!amount||amount<=0)return toast('Enter a valid amount',true);
-            const cid=ov.querySelector('#cn-cust').value;
-            DB.d.creditNotes.unshift({id:uid('cn'),customerId:cid,amount,
-              reason:ov.querySelector('#cn-reason').value,date:todayISO()});
-            const u=DB.user(cid);u.balance=Math.round(((u.balance||0)-amount)*100)/100;
-            DB.save();DB.audit('credit-note.create',DB.userName(cid),money(amount));
-            close();render();toast('Credit note created');
-          };
-        }});
-    };
+    if(cn)cn.onclick=creditNoteForm;
+    el.querySelectorAll('[data-void]').forEach(b=>b.onclick=()=>voidForm(b.dataset.void));
   }
+
+  /* ---------- governed finance operations (Final Handover Phase 4) ----------
+
+     These used to write DB.d.payments / DB.d.creditNotes and set `user.balance`
+     in the browser, then rely on the generic row-diff sync to persist it. The
+     API now refuses that path for these collections, and rightly: a browser
+     setting a balance is not an edit, it is an assertion that the ledger is
+     wrong, and it left no record of what it replaced, who did it, or why.
+
+     Every one of these now posts to a narrow, capability-gated, idempotent,
+     audited endpoint and re-reads the result from the server. */
+
+  const methodsFor=()=> (App._financeContract&&App._financeContract.offlineMethods&&App._financeContract.offlineMethods.length)
+    ? App._financeContract.offlineMethods
+    /* The server's list is authoritative. This fallback exists only so the
+       form renders before the capability probe settles — and it deliberately
+       uses the SERVER's spelling (`credit_card`, not "credit card", which the
+       database CHECK constraint would refuse). */
+    : ['transfer','check','credit_card','cash'];
+
+  const METHOD_LABELS={transfer:'Bank transfer',check:'Cheque',credit_card:'Card (taken offline)',cash:'Cash'};
+  const methodLabel=m=>METHOD_LABELS[m]||m;
+
+  function financeError(e){
+    const s=e&&e.status, d=e&&e.data;
+    if(s===403)return 'Your account does not hold the capability that needs. Nothing was changed.';
+    if(s===409&&d&&d.code==='ALREADY_RECORDED')
+      return 'An identical entry has already been recorded. Change the reference if this is a genuinely separate one.';
+    if(s===400&&d&&Array.isArray(d.errors))return d.errors.map(x=>x.message).join(' ');
+    if(d&&d.error)return d.error;
+    return 'That could not be saved. Nothing was changed.';
+  }
+
+  function customerOptions(){
+    return DB.d.users.filter(u=>['customer','special customer'].includes(u.role))
+      .map(c=>`<option value="${esc(c.id)}">${esc(c.business||c.email||c.id)}${c.balance?' — balance '+money(c.balance):''}</option>`).join('');
+  }
+
+  /** Shared modal plumbing: one in-flight guard, one error banner, one place
+   *  that re-reads from the server rather than patching browser state. */
+  function financeModal({title, body, okLabel, submit, done}){
+    Modal.open({title, size:'wide', body,
+      foot:`<button class="btn" data-x>Cancel</button><button class="btn btn-dark" data-ok>${esc(okLabel)}</button>`,
+      setup(ov,close){
+        ov.querySelector('[data-x]').onclick=close;
+        const ok=ov.querySelector('[data-ok]');
+        let busy=false;
+        ok.onclick=async()=>{
+          /* Guarded by a flag, not only by `disabled`: a direct handler call
+             would bypass the attribute, and this one moves money. */
+          if(busy)return;
+          busy=true;ok.disabled=true;
+          const original=ok.textContent;ok.textContent='Saving…';
+          try{
+            const result=await submit(ov);
+            close();
+            /* Re-read from the server. The browser no longer holds the
+               authoritative balance, so patching local state would show a
+               figure nothing verified. */
+            await DB.refreshLive().catch(()=>{});
+            render();
+            done(result);
+          }catch(e){
+            busy=false;ok.disabled=false;ok.textContent=original;
+            let banner=ov.querySelector('#fin-error');
+            if(!banner){
+              banner=document.createElement('div');
+              banner.id='fin-error';banner.className='perm-notice err';
+              banner.style.marginTop='10px';
+              ov.querySelector('.modal-body').appendChild(banner);
+            }
+            banner.innerHTML=`<div class="small">${esc(financeError(e))}</div>`;
+          }
+        };
+      }});
+  }
+
+  function recordPaymentForm(){
+    financeModal({
+      title:'Record payment received',
+      okLabel:'Record payment',
+      body:`
+      <div class="info-banner">${I.eye}<div>This records money that ALREADY arrived by transfer, cheque,
+        cash or a card taken outside Stripe. A Stripe payment is recorded by the payment provider
+        itself and cannot be entered here.</div></div>
+      <div class="field"><label for="rp-cust">Customer</label>
+        <select class="select" id="rp-cust">${customerOptions()}</select></div>
+      <div class="two-col">
+        <div class="field"><label for="rp-amount">Amount</label>
+          <input class="input" id="rp-amount" inputmode="decimal" placeholder="0.00"></div>
+        <div class="field"><label for="rp-currency">Currency</label>
+          <select class="select" id="rp-currency"><option>USD</option><option>CAD</option><option>EUR</option></select></div>
+        <div class="field"><label for="rp-date">Date received</label>
+          <input type="date" class="input" id="rp-date" value="${todayISO()}"></div>
+        <div class="field"><label for="rp-method">Method</label>
+          <select class="select" id="rp-method">
+            ${methodsFor().map(m=>`<option value="${esc(m)}">${esc(methodLabel(m))}</option>`).join('')}
+          </select></div>
+      </div>
+      <div class="field"><label for="rp-ref">Reference (required)</label>
+        <input class="input" id="rp-ref" placeholder="Bank reference, cheque number or receipt">
+        <div class="small muted">Required so this payment can be matched against a bank statement.
+          A credit nobody can match is how a receivables ledger stops being trustworthy.</div></div>
+      <div class="field"><label for="rp-notes">Note (optional)</label>
+        <textarea class="input" id="rp-notes" rows="2" maxlength="2000"></textarea></div>
+      <div class="dashed-banner">A payment larger than the balance leaves a <b>credit balance</b>
+        (negative) that is used against future orders.</div>`,
+      submit:(ov)=>DB.recordOfflinePayment({
+        customerId: ov.querySelector('#rp-cust').value,
+        amount: ov.querySelector('#rp-amount').value.trim(),
+        currency: ov.querySelector('#rp-currency').value,
+        method: ov.querySelector('#rp-method').value,
+        paidOn: ov.querySelector('#rp-date').value,
+        reference: ov.querySelector('#rp-ref').value,
+        notes: ov.querySelector('#rp-notes').value,
+      }),
+      done:(p)=>{
+        DB.audit('payment.record',p.customerId||'',p.amount+' '+p.currency+' via '+p.method,'web');
+        toast('Payment recorded');
+      },
+    });
+  }
+
+  function creditNoteForm(){
+    financeModal({
+      title:'Issue credit note',
+      okLabel:'Issue credit note',
+      body:`
+      <div class="info-banner">${I.eye}<div>A credit note reduces what a customer owes
+        <b>without money arriving</b>. It is not a payment, and it needs a reason that will still
+        make sense to somebody reading it in six months.</div></div>
+      <div class="field"><label for="cn-cust">Customer</label>
+        <select class="select" id="cn-cust">${customerOptions()}</select></div>
+      <div class="two-col">
+        <div class="field"><label for="cn-amount">Amount</label>
+          <input class="input" id="cn-amount" inputmode="decimal" placeholder="0.00"></div>
+        <div class="field"><label for="cn-currency">Currency</label>
+          <select class="select" id="cn-currency"><option>USD</option><option>CAD</option><option>EUR</option></select></div>
+      </div>
+      <div class="field"><label for="cn-reason">Reason (required)</label>
+        <textarea class="input" id="cn-reason" rows="3" maxlength="500"
+          placeholder="e.g. two frames damaged in transit on SO1188, replacement not requested"></textarea></div>
+      <div class="field"><label for="cn-ref">Reference (optional)</label>
+        <input class="input" id="cn-ref" placeholder="Return number, claim reference"></div>`,
+      submit:(ov)=>DB.issueCreditNote({
+        customerId: ov.querySelector('#cn-cust').value,
+        amount: ov.querySelector('#cn-amount').value.trim(),
+        currency: ov.querySelector('#cn-currency').value,
+        reason: ov.querySelector('#cn-reason').value,
+        reference: ov.querySelector('#cn-ref').value,
+      }),
+      done:(n)=>{
+        DB.audit('credit-note.create',n.customerId||'',n.amount+' '+n.currency,'web');
+        toast('Credit note issued');
+      },
+    });
+  }
+
+  function voidForm(paymentId){
+    financeModal({
+      title:'Void payment',
+      okLabel:'Void payment',
+      body:`
+      <div class="info-banner">${I.eye}<div>Voiding puts the debt back on the customer's account.
+        The payment record is <b>kept</b>, stamped with who voided it and why — nothing is deleted,
+        because a balance movement nobody can explain is worse than a visible mistake.</div></div>
+      <div class="field"><label for="vd-reason">Reason (required)</label>
+        <textarea class="input" id="vd-reason" rows="3" maxlength="500"
+          placeholder="e.g. keyed twice — same BACS reference as the entry above"></textarea></div>`,
+      submit:(ov)=>DB.voidPayment(paymentId, ov.querySelector('#vd-reason').value),
+      done:()=>{ DB.audit('payment.void',paymentId,'payment voided','web'); toast('Payment voided'); },
+    });
+  }
+
   render();
 });
 

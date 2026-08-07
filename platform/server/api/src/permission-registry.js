@@ -128,6 +128,44 @@ const DEFINITIONS = [
       'Review payment events that could not be applied — an amount that did not match, an ' +
       'unknown invoice, a session stuck mid-flight — and record how each was resolved.',
   },
+  /* Finance operations (Final Handover Phase 4). These replace what used to
+     happen through the whole-database row-diff sync, where a browser could
+     create, edit or delete a payment as an ordinary row and set a customer's
+     balance to any number with no record of what it replaced.
+
+     `finance.credit` is separate from `finance.record` for one reason: "we
+     received £4,000" and "we have decided they owe £4,000 less" look identical
+     on a balance and are completely different events. The person who keys in
+     bank transfers all day should not be able to forgive a debt. */
+  {
+    key: 'finance.invoice',
+    label: 'Issue invoices',
+    description:
+      'Turn a completed order into an invoice, which increases what the customer owes. Idempotent: '
+      + 'an order that already has an invoice returns the existing one rather than numbering another.',
+  },
+  {
+    key: 'finance.record',
+    label: 'Record offline payments',
+    description:
+      'Record money received by transfer, cheque, cash or a card taken outside Stripe, and void a '
+      + 'payment recorded in error. A bank reference is always required. Cannot record a Stripe '
+      + 'payment — those come only from the payment provider.',
+  },
+  {
+    key: 'finance.credit',
+    label: 'Issue credit notes',
+    description:
+      'Reduce what a customer owes without money arriving. Always requires a stated reason. This is '
+      + 'deliberately not implied by being able to record a payment.',
+  },
+  {
+    key: 'finance.reconcile',
+    label: 'Resolve payment exceptions',
+    description:
+      'Close a payment event that could not be applied, with a note saying what was concluded. '
+      + 'Resolving an exception never settles an invoice by itself.',
+  },
 ];
 
 /* Frozen at every level: a caller cannot push a new definition, mutate a

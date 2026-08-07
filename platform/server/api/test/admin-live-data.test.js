@@ -803,9 +803,19 @@ test('the server still audits each of those actions exactly once', () => {
   assert.match(patchRoute, /afterCommit\(`audit 'order updated'/,
     'and only after the transaction commits');
   assert.match(patchRoute, /describeOrderPatch\(patch\)/, 'describing what changed');
+  /* Invoicing moved into the governed finance router (Final Handover Phase 4)
+     so that "turn an order into a debt" has ONE implementation reached by two
+     entry points rather than two copies. The properties are unchanged; they
+     are asserted where the implementation now lives. */
   const invRoute = src.slice(src.indexOf("r.post('/orders/:id/invoice'"));
-  assert.match(invRoute, /afterCommit\(`audit 'invoice generated'/);
-  assert.match(invRoute, /!outcome\.body\.alreadyInvoiced/,
+  assert.match(invRoute, /issueInvoice\(financeDb, req\.params\.id, req\.user/,
+    'the legacy route delegates rather than carrying a second implementation');
+  assert.ok(!/insert into invoices/i.test(invRoute), 'and inserts no invoice of its own');
+
+  const finance = codeOf('platform/server/api/src/routes/admin-finance.js');
+  assert.match(finance, /recordAudit\(actor, 'invoice generated'/,
+    'the audit followed the implementation');
+  assert.match(finance, /if \(!outcome\.alreadyInvoiced\)/,
     'a repeat press does not audit a second time');
 });
 
@@ -819,11 +829,20 @@ test('browser auditing survives where no server mutation audit exists', () => {
 });
 
 test('invoice generation is server-numbered and idempotent', () => {
-  const src = codeOf('platform/server/api/src/routes/admin.js');
+  /* Both properties still hold; asserted where the implementation now lives. */
+  const src = codeOf('platform/server/api/src/routes/admin-finance.js');
   assert.match(src, /'IN' \|\| nextval\('invoice_number_seq'\)/,
     'the number comes from the database sequence');
-  assert.match(src, /if \(order\.invoice_id\)[\s\S]{0,260}alreadyInvoiced: true/,
+  assert.match(src, /if \(order\.invoice_id\)[\s\S]{0,400}alreadyInvoiced: true/,
     'a second press returns the existing invoice');
+  /* And it is the ONLY place an invoice number is CONSUMED. admin.js may still
+     read the sequence for the snapshot's `nextInvoiceNumber`; what it must not
+     do is call nextval() and issue one. */
+  const legacy = codeOf('platform/server/api/src/routes/admin.js');
+  assert.ok(!/nextval\('invoice_number_seq'\)/.test(legacy),
+    'the legacy route must not issue an invoice number itself');
+  assert.ok(!/\['invoices', 'invoice_number_seq'/.test(legacy),
+    'and the sync catch-up entry is dead now that sync cannot write an invoice');
   assert.ok(!/nextInvoiceNumber\+\+/.test(codeOf('js/pages_sales.js')),
     'the browser no longer invents invoice numbers');
 });

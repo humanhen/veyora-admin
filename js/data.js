@@ -450,6 +450,50 @@ const DB = (function(){
     };
   }
 
+  /* ---------- finance operation shaping (Final Handover Phase 4) ----------
+
+     The append-only ledger and the payment/credit-note records, allowlisted.
+     `idempotencyKey` is deliberately absent from every shape: it is a server
+     concern and a browser holding one could replay an operation. */
+  function shapeFinancePayment(p){
+    const r = p || {};
+    return {
+      id: String(r.id||''),
+      customerId: r.customerId==null?null:String(r.customerId),
+      invoiceId: r.invoiceId==null?null:String(r.invoiceId),
+      amount: String(r.amount||'0'),
+      currency: String(r.currency||'USD'),
+      method: String(r.method||''),
+      reference: String(r.reference||''),
+      paidOn: r.paidOn==null?null:String(r.paidOn),
+      notes: String(r.notes||''),
+      voidedAt: r.voidedAt==null?null:String(r.voidedAt),
+      voidReason: String(r.voidReason||''),
+      providerReference: String(r.providerReference||''),
+    };
+  }
+
+  function shapeFinanceEvent(e){
+    const r = e || {};
+    return {
+      id: String(r.id||''),
+      eventType: String(r.eventType||''),
+      customerId: r.customerId==null?null:String(r.customerId),
+      invoiceId: r.invoiceId==null?null:String(r.invoiceId),
+      amountMinor: Number(r.amountMinor)||0,
+      currency: String(r.currency||''),
+      balanceBefore: r.balanceBefore==null?null:String(r.balanceBefore),
+      balanceAfter: r.balanceAfter==null?null:String(r.balanceAfter),
+      reference: String(r.reference||''),
+      reason: String(r.reason||''),
+      /* The actor's name AS RECORDED at the time, not a live lookup: the
+         ledger must still read correctly after an account is renamed. */
+      actorName: String(r.actorName||''),
+      capability: String(r.capability||''),
+      createdAt: r.createdAt==null?null:String(r.createdAt),
+    };
+  }
+
   /* ---------- invoice payment shaping (Final Handover Phase 3) ----------
 
      Explicit and allowlisted, like every other shaping function here. Two
@@ -989,6 +1033,89 @@ const DB = (function(){
         { status: String(status), concurrencyToken, note: note == null ? '' : String(note) });
       if (!res || !res.enquiry) throw malformed();
       return shapeEnquiryDetail(res.enquiry);
+    },
+
+    /* ---- governed finance operations (Final Handover Phase 4) ----
+
+       These replace direct writes to DB.d.payments, DB.d.creditNotes and
+       `user.balance` followed by DB.save(). That path went through the
+       whole-database row-diff sync, which the API now refuses for these
+       collections — a browser setting a balance is not an edit, it is an
+       assertion that the ledger is wrong, and it left no trace of what it
+       replaced.
+
+       Deliberately ABSENT: anything that sets a balance, anything that records
+       a Stripe payment, and any delete. A payment keyed in error is VOIDED
+       with a reason. */
+
+    async financeCapabilities(){
+      const res = await apiCall('GET', '/admin/finance/capabilities');
+      const c = (res && res.capabilities) || {};
+      const k = (res && res.contract) || {};
+      return {
+        invoice: c.invoice === true,
+        record: c.record === true,
+        credit: c.credit === true,
+        reconcile: c.reconcile === true,
+        /* The offline methods the SERVER accepts. Rendered from this rather
+           than from a hard-coded list in the page, which is how the old form
+           came to offer "credit card" with a space — a value the database
+           CHECK constraint would have refused. */
+        offlineMethods: Array.isArray(k.offlineMethods) ? k.offlineMethods.map(String) : [],
+        currencies: Array.isArray(k.currencies) ? k.currencies.map(String) : [],
+      };
+    },
+
+    /** Records money that arrived outside Stripe. The server derives the
+        idempotency key, so a double-click records the money once. */
+    async recordOfflinePayment(fields){
+      const res = await apiCall('POST', '/admin/finance/payments', fields);
+      if (!res || !res.payment) throw malformed();
+      return shapeFinancePayment(res.payment);
+    },
+
+    /** Reverses a payment recorded in error. Not a delete: the row stays. */
+    async voidPayment(paymentId, reason){
+      const res = await apiCall('POST',
+        '/admin/finance/payments/' + encodeURIComponent(paymentId) + '/void',
+        { confirm: true, reason: String(reason||'') });
+      if (!res || !res.payment) throw malformed();
+      return shapeFinancePayment(res.payment);
+    },
+
+    async issueCreditNote(fields){
+      const res = await apiCall('POST', '/admin/finance/credit-notes', fields);
+      if (!res || !res.creditNote) throw malformed();
+      const n = res.creditNote;
+      return {
+        id: String(n.id||''), customerId: n.customerId==null?null:String(n.customerId),
+        invoiceId: n.invoiceId==null?null:String(n.invoiceId),
+        amount: String(n.amount||'0'), currency: String(n.currency||'USD'),
+        reason: String(n.reason||''), reference: String(n.reference||''),
+        issuedOn: n.issuedOn==null?null:String(n.issuedOn),
+      };
+    },
+
+    /** Closes a payment-event exception with a note. Settles nothing. */
+    async resolvePaymentException(eventId, note){
+      const res = await apiCall('POST',
+        '/admin/finance/reconciliation/' + encodeURIComponent(eventId) + '/resolve',
+        { note: String(note||'') });
+      if (!res || !res.event) throw malformed();
+      return {
+        id: String(res.event.id||''), status: String(res.event.status||''),
+        resolutionNote: String(res.event.resolutionNote||''),
+      };
+    },
+
+    /** The append-only financial ledger. `customerId` optional. */
+    async financeLedger(customerId){
+      const path = customerId
+        ? '/admin/finance/ledger/' + encodeURIComponent(customerId)
+        : '/admin/finance/ledger';
+      const res = await apiCall('GET', path);
+      if (!res || !Array.isArray(res.events)) throw malformed();
+      return res.events.map(shapeFinanceEvent);
     },
 
     /* ---- governed invoice payments (Final Handover Phase 3) ----

@@ -29,6 +29,12 @@ import { ADMIN_ORDERS_SQL, ADMIN_ORDERS_COUNT_SQL, ADMIN_ORDER_ONE_SQL,
          recomputeOrderTotal, checkSyncPayload,
          isFinancialActor, patchTouchesMoney } from '../admin-data.js';
 import { describeAccess } from '../admin-access.js';
+/* The single governed implementation of "turn an order into a debt". This
+   route is one of its two entry points — see the delegation note below. */
+import { issueInvoice } from './admin-finance.js';
+import { pool as financePool, tx as financeTx } from '../db.js';
+
+const financeDb = { query: (sql, params) => financePool.query(sql, params), tx: financeTx };
 
 const r = Router();
 r.use(requireAuth('admin', 'warehouse'));
@@ -519,52 +525,39 @@ r.patch('/orders/:id', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-/* Records an invoice against an order. This creates the invoice ROW and moves
-   the customer balance; it does NOT produce an invoice document — no PDF
-   generator exists yet, and the admin says so rather than offering a download
-   that never happens. Idempotent: a second press returns the existing invoice
-   instead of numbering another one. */
+/* Records an invoice against an order.
+ *
+ * DELEGATES to the single governed implementation in routes/admin-finance.js
+ * (Final Handover Phase 4). It used to have its own copy of the insert, the
+ * balance update and the audit line; two implementations of "turn an order
+ * into a debt" is one too many, and the copy here had no structured financial
+ * record at all — no prior balance, no new balance, no capability, nothing an
+ * append-only ledger could be reconstructed from.
+ *
+ * This route keeps its ADMIN ROLE gate rather than moving to the
+ * `finance.invoice` capability. That is a deliberate, documented bootstrap
+ * position: no account holds the new capability until somebody grants it, and
+ * silently making invoicing impossible for every existing administrator would
+ * be a worse failure than the one being fixed. The capability-gated entry
+ * point exists in parallel at POST /admin/finance/orders/:orderId/invoice;
+ * once grants are in place this route is retired. See
+ * docs/public-website-rebuild/41_FINANCE_OPERATIONS.md.
+ *
+ * Both paths run the same transaction, the same idempotency guard and the same
+ * ledger write, so there is one guard reached two ways — never two behaviours.
+ */
 r.post('/orders/:id/invoice', async (req, res, next) => {
   try {
-    /* Invoicing issues a number and moves the customer's balance. Admin only,
-       checked before anything is read or written. */
     if (!isFinancialActor(req.user)) {
       return res.status(403).json({ error: 'Only an admin can generate an invoice.' });
     }
-    const outcome = await tx(async (c) => {
-      const { rows: locked } = await c.query(
-        `select * from orders where id=$1 or number=$1 for update`, [req.params.id]);
-      const order = locked[0];
-      if (!order) return { status: 404, body: { error: 'Order not found' } };
-      if (order.invoice_id) {
-        const { rows: ex } = await c.query(`select * from invoices where id=$1`, [order.invoice_id]);
-        if (ex.length) {
-          return { status: 200, body: { ok: true, alreadyInvoiced: true,
-            invoice: rowToJs(SIMPLE_COLLECTIONS.invoices, ex[0]) } };
-        }
-      }
-      const { rows: num } = await c.query(`select 'IN' || nextval('invoice_number_seq') as n`);
-      const { rows: inv } = await c.query(`
-        insert into invoices (number, order_id, order_number, customer_id, amount, provider, status)
-        values ($1,$2,$3,$4,$5,'Green Invoice','paid') returning *`,
-        [num[0].n, order.id, order.number, order.customer_id, order.total]);
-      await c.query(`update orders set invoice_id=$2, updated_at=now() where id=$1`,
-        [order.id, inv[0].id]);
-      if (order.customer_id) {
-        await c.query(`update users set balance = coalesce(balance,0) + $2 where id=$1`,
-          [order.customer_id, order.total]);
-      }
-      return { status: 200, body: { ok: true,
-        invoice: rowToJs(SIMPLE_COLLECTIONS.invoices, inv[0]) }, _number: order.number };
-    });
-    if (outcome.status === 200 && !outcome.body.alreadyInvoiced) {
-      await afterCommit(`audit 'invoice generated' ${outcome._number}`, () =>
-        audit({ id: req.user.id, name: req.user.business || req.user.email, role: req.user.role },
-          'invoice generated', outcome.body.invoice.number,
-          `for ${outcome._number} — ${outcome.body.invoice.amount} USD base`));
-    }
-    res.status(outcome.status).json(outcome.body);
-  } catch (e) { next(e); }
+    const result = await issueInvoice(financeDb, req.params.id, req.user,
+      { capability: 'admin-role-bootstrap' });
+    res.json({ ok: true, alreadyInvoiced: result.alreadyInvoiced, invoice: result.invoice });
+  } catch (e) {
+    if (e && e.status && e.body) return res.status(e.status).json(e.body);
+    next(e);
+  }
 });
 
 /* ============================ sync ============================ */
@@ -737,10 +730,15 @@ async function upsertReturn(c, x) {
 /* Keeps a server sequence ahead of any number a client assigned itself.
    'orders' and 'backorders' are gone: the browser no longer assigns either
    number, so there is nothing to catch up with, and order_number_seq /
-   backorder_number_seq are advanced only by the endpoints that issue them. */
+   backorder_number_seq are advanced only by the endpoints that issue them.
+
+   'invoices' is gone for the same reason as of Final Handover Phase 4: the
+   generic sync can no longer write an invoice at all, so there is no
+   client-assigned invoice number to catch up with. `invoice_number_seq` is
+   advanced only by the governed finance route that issues one. Leaving the
+   entry here would be dead code that reads like a supported path. */
 const SEQ_SYNC = [
   ['returns', 'return_number_seq', 'RT'],
-  ['invoices', 'invoice_number_seq', 'IN'],
   ['purchaseOrders', 'po_number_seq', 'PO'],
 ];
 

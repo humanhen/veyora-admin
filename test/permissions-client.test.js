@@ -208,6 +208,10 @@ test('the admin role alone is never sufficient — no role bypass', async () => 
        separate probe, because they are separate authorities: reading a store
        contact says nothing about whether this account may refund money. */
     'GET /admin/payments/capabilities',
+    /* And the four finance capabilities (Final Handover Phase 4). Separate
+       again: being able to take a payment link to a customer says nothing
+       about whether this account may forgive a debt. */
+    'GET /admin/finance/capabilities',
     /* And the admin ACTION set (warehouse interface correction). Distinct
        from the three above: capabilities are per-account grants, actions
        describe what this session's role may do on the admin router. Also

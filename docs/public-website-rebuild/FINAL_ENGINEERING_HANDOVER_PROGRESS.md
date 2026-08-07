@@ -78,7 +78,7 @@ before and after.
 | 1 — Notification outbox and enquiry delivery | **complete** | `feat: add reliable enquiry notification delivery` |
 | 2 — Customer/store contacts | **complete** | `feat: add governed store contact management` |
 | 3 — Stripe test-mode payment architecture | **complete** (one item prepared, not applied — see the log) | `feat: add Stripe invoice payment foundation` |
-| 4 — Auditable finance operations | pending | |
+| 4 — Auditable finance operations | **complete** | `fix: govern payment and settlement mutations` |
 | 5 — Invoice PDF | pending | |
 | 6 — Account statements | pending | |
 | 7 — Duplicate-submission sweep | pending | |
@@ -565,3 +565,91 @@ No test contacts Stripe; there is no key, no network call and no SDK instance in
 structurally.
 
 - **Next:** Phase 4 — auditable finance operations.
+
+### Phase 4 — complete
+
+**The defect.** Money moved through a whole-database row diff. `invoices`, `payments`,
+`creditNotes` and `users.balance` were all in the `POST /admin/sync` path, so a browser could set a
+customer's balance to any number, create or **delete** a payment as an ordinary row, and edit an
+invoice amount after issue — with no record of the prior value, no reason and no reference, because
+a row diff has no such concept.
+
+The `deletes` list was the dangerous half: it is *every id the tab has not seen*, so a stale
+browser posting a snapshot taken before a real payment arrived would silently remove it.
+
+**A latent bug fell out of the same inspection.** The payment form offered `method: 'credit card'`
+— with a space. `payments.method` has a CHECK constraint listing `credit_card`. PostgreSQL would
+have refused the write. The form now renders the SERVER's method list.
+
+#### What was built
+
+**The block.** `checkSyncPayload()` refuses the whole request before a transaction opens.
+`balance: 0` is refused exactly as `balance: 5000` is — the check is `hasOwnProperty`, not
+truthiness, because zeroing a balance is the most damaging version. The collections stay READABLE:
+blocking writes must not blind the finance screens. `collectionFlags` is deliberately not blocked —
+a receivables chase note is workflow, not money.
+
+**Four capabilities, kept apart.** `finance.invoice`, `finance.record`, `finance.credit`,
+`finance.reconcile`. The third is separate from the second for one reason: "we received £4,000"
+and "we have decided they owe £4,000 less" look identical on a balance and are completely different
+events. The person who keys in bank transfers all day should not be able to forgive a debt.
+
+**`finance_events` — an append-only ledger,** written inside the same transaction as the mutation,
+carrying prior balance, new balance, signed minor units, currency, reference, reason, actor name as
+recorded, and the capability that admitted the request. UPDATE and DELETE are blocked by a trigger,
+the same mechanism 0010 used for `audit_log`.
+
+The balance is reconstructible from the ledger **independently** of `users.balance`, so a
+disagreement between the two is now discoverable rather than invisible.
+
+**One function moves every balance.** `applyMovement()` locks the row, reads before, applies a
+relative movement, reads after, writes the event. There is exactly one `set balance = …` statement
+in the file. If the event collides on its idempotency key it **throws**, rolling the balance
+movement back — a retried request must not move the balance a second time against a ledger entry
+that already exists.
+
+#### Deliberate refusals
+
+- **A client can never record a Stripe payment.** `stripe` is absent from the offline method set,
+  so the validator refuses it. Settlement stays the exclusive result of a verified webhook.
+- **A Stripe payment cannot be voided** — the money really was taken. Refunding is the correct act,
+  behind its own capability.
+- **Resolving an exception settles nothing.** If the conclusion is that money arrived, the next
+  action is to record a payment — separately gated, separately logged. Otherwise the reconciliation
+  queue becomes a way to mark invoices paid by hand.
+- **No DELETE anywhere.** A payment keyed in error is voided with a reason and the row stays.
+
+#### The bootstrap position (carried to handover)
+
+`POST /admin/orders/:id/invoice` keeps its admin-role gate rather than moving to `finance.invoice`:
+no account holds the capability until somebody grants it, and silently making invoicing impossible
+for every administrator would be worse than the problem being fixed. The brief permits this as an
+explicitly documented bootstrap stage.
+
+It **delegates** to the same `issueInvoice()` implementation, so there is one guard reached two ways
+rather than two copies. Recorded in `41_FINANCE_OPERATIONS.md` §6 with the retirement step.
+
+A dead `invoice_number_seq` entry in the sync catch-up map was removed — surfaced by one of this
+phase's own tests. Sync can no longer write an invoice, so there is no client-assigned number to
+catch up with.
+
+#### Files
+
+`0014_finance_operations.sql`, `migrate.js`, `permission-registry.js`, `src/finance-operations.js`
+(new), `src/routes/admin-finance.js` (new), `src/admin-data.js`, `src/routes/admin.js`,
+`src/index.js`, `js/data.js`, `js/app.js`, `js/pages_finance.js`,
+`docs/…/41_FINANCE_OPERATIONS.md` (new), plus `test/finance-operations.test.js` (58) and
+`test/finance-page.test.js` (18).
+
+#### Verification
+
+| Suite | Before | After |
+|---|---|---|
+| API | 1,446 | **1,505** |
+| Root admin frontend | 280 | **298** |
+| Astro web | 466 | **466** |
+| **Total** | 2,192 | **2,269 passing, 0 failing** |
+
+Release gate: **17/17 in 143 s**. Free space 7.5 GB.
+
+- **Next:** Phase 5 — production invoice PDFs.
